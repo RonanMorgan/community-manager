@@ -1,70 +1,89 @@
 import requests
 import json
-from app.config import OUTLINE_URL, OUTLINE_TOKEN
+# Removed direct import of config
 
-def create_group(project_name: str) -> bool:
-    """
-    Creates a collection (space) in Outline.
-    Note: Outline uses "collections" for what might be termed "groups" or "spaces".
-    The API endpoint for creating a user group is different from creating a collection.
-    This function assumes we want to create a new collection for the project.
-    """
-    if not OUTLINE_URL or not OUTLINE_TOKEN:
-        print("Outline URL or Token not configured.")
-        return False
+class OutlineClient:
+    def __init__(self, base_url: str, token: str):
+        """
+        Initializes the OutlineClient.
+        :param base_url: The base URL of the Outline instance (e.g., https://app.getoutline.com)
+        :param token: The API token for Outline.
+        """
+        if not base_url or not token:
+            raise ValueError("Outline base_url and token must be provided.")
+        self.base_url = base_url.rstrip('/') # Ensure no trailing slash
+        self.token = token
+        self.headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.token}",
+        }
 
-    # Assuming OUTLINE_URL is the base URL like https://app.getoutline.com
-    # The endpoint for creating collections is typically /api/collections.create
-    api_url = f"{OUTLINE_URL}/api/collections.create"
+    def create_group(self, project_name: str) -> bool:
+        """
+        Creates a collection (space) in Outline.
+        :param project_name: The name of the project/collection to create.
+        :return: True if successful, False otherwise.
+        """
+        # Outline's API endpoint for creating collections is /api/collections.create
+        api_url = f"{self.base_url}/api/collections.create"
 
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": f"Bearer {OUTLINE_TOKEN}",
-    }
-    payload = {
-        "name": project_name,
-        # "description": f"Collection for project {project_name}", # Optional
-        # "permission": "read_write", # Optional: "read", "read_write", None (private)
-        # "private": False # Optional: if true, only invited members can access
-    }
+        payload = {
+            "name": project_name,
+            # "description": f"Collection for project {project_name}",
+            # "permission": "read_write",
+            # "private": False
+        }
 
-    try:
-        response = requests.post(api_url, headers=headers, json=payload)
-        if response.status_code == 200: # Outline API often returns 200 on successful creation
-            response_data = response.json()
-            if response_data.get("data") and response_data.get("data").get("id"):
-                print(f"Outline collection '{project_name}' created successfully. Collection ID: {response_data['data']['id']}")
-                return True
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            if response.status_code == 200: # Outline API often returns 200 on successful creation
+                response_data = response.json()
+                if response_data.get("data") and response_data.get("data").get("id"):
+                    print(f"Outline collection '{project_name}' created successfully. Collection ID: {response_data['data']['id']}")
+                    return True
+                else:
+                    print(f"Outline collection '{project_name}' creation reported success (200), but response data is not as expected: {response.text}")
+                    return False
             else:
-                # Success status but unexpected response structure
-                print(f"Outline collection '{project_name}' creation reported success, but response data is not as expected: {response.text}")
+                error_message = f"Error creating Outline collection '{project_name}': {response.status_code} - {response.text}"
+                try:
+                    error_details = response.json()
+                    error_message += f" (Details: {error_details.get('message')})"
+                except json.JSONDecodeError:
+                    pass # No JSON error details
+                print(error_message)
                 return False
-        else:
-            print(f"Error creating Outline collection '{project_name}': {response.status_code} - {response.text}")
-            # Attempt to parse error if JSON
-            try:
-                error_details = response.json()
-                print(f"Error details: {error_details.get('message')}")
-            except json.JSONDecodeError:
-                pass # No JSON error details
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed for Outline collection creation '{project_name}': {e}")
             return False
-    except requests.exceptions.RequestException as e:
-        print(f"Request failed for Outline collection creation '{project_name}': {e}")
-        return False
 
 if __name__ == '__main__':
-    # Example usage (requires .env to be set up and Outline accessible)
-    from app.config import load_dotenv
+    from dotenv import load_dotenv
+    import os
     load_dotenv()
 
-    if not OUTLINE_URL or not OUTLINE_TOKEN:
-        print("Please set OUTLINE_URL and OUTLINE_TOKEN in your .env file for testing.")
-    else:
-        print(f"Testing Outline client with URL: {OUTLINE_URL}")
-        success = create_group("Test Project Collection")
-        print(f"Outline collection creation test successful: {success}")
+    outline_url_env = os.getenv("OUTLINE_URL")
+    outline_token_env = os.getenv("OUTLINE_TOKEN")
 
-        # Test with a collection that might already exist (to see error handling)
-        # success_existing = create_group("Test Project Collection")
-        # print(f"Outline existing collection test (should ideally fail or be handled): {success_existing}")
+    if not outline_url_env or not outline_token_env:
+        print("Please set OUTLINE_URL and OUTLINE_TOKEN environment variables for this example.")
+    else:
+        print(f"Attempting to connect to Outline at {outline_url_env}")
+        try:
+            client = OutlineClient(base_url=outline_url_env, token=outline_token_env)
+
+            project_to_create = "Test Project Collection OOP"
+            print(f"\nAttempting to create Outline collection: '{project_to_create}'")
+            success = client.create_group(project_to_create)
+            print(f"Outline collection creation success: {success}")
+
+            if success:
+                print(f"\nAttempting to create Outline collection AGAIN: '{project_to_create}'")
+                success_again = client.create_group(project_to_create)
+                print(f"Second Outline collection creation success: {success_again} (expected False if already exists or handled by Outline)")
+
+        except ValueError as ve:
+            print(f"Configuration error: {ve}")
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")

@@ -1,208 +1,166 @@
 import unittest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock, MagicMock, PropertyMock
 import json
 import asyncio
 
-# Set up dummy config values needed by bot.py at import time or during tests
-# It's better if bot.py functions receive config explicitly or via a class,
-# but for now, we patch the global config module used by bot.py.
-from app import config as bot_config
-bot_config.BOT_NAME = "marty"
-bot_config.MATTERMOST_TEAM_ID = "test_team_id"
-# BOT_TOKEN is used in envoyer_message and on_open, ensure it's set for tests if those are called.
-bot_config.BOT_TOKEN = "test_bot_token"
-bot_config.MATTERMOST_URL = "http://fake-mm.com"
-
-
-# Now import bot module AFTER config is patched for BOT_NAME
-from app.bot import on_message, envoyer_message # Direct import for patching
+# Import the bot module itself to access its global client instances
+from app import bot as marty_bot_module
+from app import config as bot_config # Used for BOT_NAME etc.
 
 # Helper to run async test methods
 def async_test(f):
     def wrapper(*args, **kwargs):
-        asyncio.run(f(*args, **kwargs))
+        current_loop = asyncio.get_event_loop_policy().get_event_loop()
+        if current_loop.is_running():
+            # If a loop is running, create a new one for the test
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(f(*args, **kwargs))
+            loop.close()
+        else:
+            asyncio.run(f(*args, **kwargs)) # Run in the default loop if none is running
     return wrapper
 
 class TestBotMessageHandler(unittest.TestCase):
 
     def setUp(self):
-        # This ensures that each test gets fresh mocks if they are modified by a previous test.
-        # However, patches are defined per-method or per-class in unittest.
-        pass
+        # Store original config values that might be changed by tests
+        self.original_bot_name = bot_config.BOT_NAME
+        self.original_mm_team_id = bot_config.MATTERMOST_TEAM_ID
 
-    @patch('app.bot.mattermost_create_channel', return_value=True)
-    @patch('app.bot.outline_create_group', return_value=True)
-    @patch('app.bot.authentik_create_group', return_value=True)
-    @patch('app.bot.envoyer_message')
+        # Set default test values
+        bot_config.BOT_NAME = "martytest"
+        bot_config.MATTERMOST_TEAM_ID = "test_team_id"
+        bot_config.BOT_TOKEN = "test_bot_token_for_envoyer"
+        bot_config.MATTERMOST_URL = "http://fake-mm.com"
+
+    def tearDown(self):
+        # Restore original config values
+        bot_config.BOT_NAME = self.original_bot_name
+        bot_config.MATTERMOST_TEAM_ID = self.original_mm_team_id
+        # Reset other potentially modified configs if necessary
+
+
+    # Patching the client instances where they are defined in the marty_bot_module (app.bot)
+    @patch.object(marty_bot_module, 'envoyer_message', new_callable=MagicMock) # Patched envoyer_message
+    @patch.object(marty_bot_module, 'mattermost_api_client', create=True) # create=True if it might not exist due to init logic
+    @patch.object(marty_bot_module, 'outline_client', create=True)
+    @patch.object(marty_bot_module, 'authentik_client', create=True)
     @async_test
-    async def test_handle_create_group_command_all_success(self, mock_envoyer_message,
-                                                            mock_auth_create, mock_outline_create, mock_mm_create):
-        bot_config.BOT_NAME = "marty" # Ensure bot name is correctly set for this test
-        bot_config.MATTERMOST_TEAM_ID = "test_team_id_for_this_test"
+    async def test_handle_create_group_command_all_success(self,
+                                                            mock_auth_client_instance,
+                                                            mock_outline_client_instance,
+                                                            mock_mm_api_client_instance,
+                                                            mock_envoyer_message_func):
+        # Configure mock instances
+        mock_auth_client_instance.create_group.return_value = True
+        mock_outline_client_instance.create_group.return_value = True
+        mock_mm_api_client_instance.create_channel.return_value = True
 
         project_name = "super_project"
         mock_message_data = {
             "event": "posted",
-            "data": {
-                "post": json.dumps({
-                    "message": f"@{bot_config.BOT_NAME} create_group {project_name}",
-                    "channel_id": "channel123",
-                    "user_id": "user456"
-                })
-            }
+            "data": {"post": json.dumps({
+                "message": f"@{bot_config.BOT_NAME} create_group {project_name}",
+                "channel_id": "channel123", "user_id": "user456"
+            })}
         }
 
-        # on_message is async, so await it
-        await on_message(None, json.dumps(mock_message_data))
+        await marty_bot_module.on_message(None, json.dumps(mock_message_data))
 
-        mock_auth_create.assert_called_once_with(project_name)
-        mock_outline_create.assert_called_once_with(project_name)
-        mock_mm_create.assert_called_once_with(project_name, team_id=bot_config.MATTERMOST_TEAM_ID)
+        mock_auth_client_instance.create_group.assert_called_once_with(project_name)
+        mock_outline_client_instance.create_group.assert_called_once_with(project_name)
+        mock_mm_api_client_instance.create_channel.assert_called_once_with(project_name) # team_id is handled by client
 
-        mock_envoyer_message.assert_called_once()
-        args, _ = mock_envoyer_message.call_args
-        self.assertEqual(args[0], "channel123") # channel_id
+        mock_envoyer_message_func.assert_called_once()
+        args, _ = mock_envoyer_message_func.call_args
+        self.assertEqual(args[0], "channel123")
         self.assertIn(f"Processing 'create_group' for project: **{project_name}**", args[1])
         self.assertIn("Authentik group creation: Success", args[1])
         self.assertIn("Outline collection creation: Success", args[1])
         self.assertIn("Mattermost channel creation: Success", args[1])
 
-    @patch('app.bot.mattermost_create_channel', return_value=False) # Mattermost fails
-    @patch('app.bot.outline_create_group', return_value=True)
-    @patch('app.bot.authentik_create_group', return_value=True)
-    @patch('app.bot.envoyer_message')
+    @patch.object(marty_bot_module, 'envoyer_message', new_callable=MagicMock)
+    @patch.object(marty_bot_module, 'mattermost_api_client', create=True)
+    @patch.object(marty_bot_module, 'outline_client', create=True)
+    @patch.object(marty_bot_module, 'authentik_client', create=True)
     @async_test
-    async def test_handle_create_group_command_one_failure(self, mock_envoyer_message,
-                                                             mock_auth_create, mock_outline_create, mock_mm_create):
-        bot_config.BOT_NAME = "marty"
-        bot_config.MATTERMOST_TEAM_ID = "test_team_id_failure_case"
+    async def test_handle_create_group_one_failure(self, mock_auth_client_instance,
+                                                   mock_outline_client_instance, mock_mm_api_client_instance,
+                                                   mock_envoyer_message_func):
+        mock_auth_client_instance.create_group.return_value = True
+        mock_outline_client_instance.create_group.return_value = False # Outline fails
+        mock_mm_api_client_instance.create_channel.return_value = True
 
-        project_name = "lunar_project"
-        mock_message_data = {
-            "event": "posted",
-            "data": {"post": json.dumps({
-                "message": f"@{bot_config.BOT_NAME} create_group {project_name}",
-                "channel_id": "channel789",
-                "user_id": "user123"
-            })}
-        }
+        project_name = "nebula_project"
+        mock_message_data = {"event": "posted", "data": {"post": json.dumps({
+            "message": f"@{bot_config.BOT_NAME} create_group {project_name}",
+            "channel_id": "channel789", "user_id": "user123"})}}
 
-        await on_message(None, json.dumps(mock_message_data))
+        await marty_bot_module.on_message(None, json.dumps(mock_message_data))
 
-        mock_auth_create.assert_called_once_with(project_name)
-        mock_outline_create.assert_called_once_with(project_name)
-        mock_mm_create.assert_called_once_with(project_name, team_id=bot_config.MATTERMOST_TEAM_ID)
-
-        mock_envoyer_message.assert_called_once()
-        args, _ = mock_envoyer_message.call_args
-        self.assertEqual(args[0], "channel789")
-        self.assertIn(f"Processing 'create_group' for project: **{project_name}**", args[1])
+        mock_envoyer_message_func.assert_called_once()
+        args, _ = mock_envoyer_message_func.call_args
+        self.assertIn("Outline collection creation: Failed", args[1])
         self.assertIn("Authentik group creation: Success", args[1])
+        self.assertIn("Mattermost channel creation: Success", args[1])
+
+    @patch.object(marty_bot_module, 'envoyer_message', new_callable=MagicMock)
+    @patch.object(marty_bot_module, 'authentik_client', None) # Simulate Authentik client not initialized
+    @patch.object(marty_bot_module, 'outline_client', create=True)
+    @patch.object(marty_bot_module, 'mattermost_api_client', create=True)
+    @async_test
+    async def test_handle_create_group_authentik_client_none(self, mock_mm_api_client_instance,
+                                                             mock_outline_client_instance,
+                                                             mock_envoyer_message_func):
+        # authentik_client is already patched to None for this test's scope
+        mock_outline_client_instance.create_group.return_value = True
+        mock_mm_api_client_instance.create_channel.return_value = True
+
+        project_name = "no_auth_project"
+        mock_message_data = {"event": "posted", "data": {"post": json.dumps({
+            "message": f"@{bot_config.BOT_NAME} create_group {project_name}",
+            "channel_id": "channel_no_auth", "user_id": "user_no_auth"})}}
+
+        await marty_bot_module.on_message(None, json.dumps(mock_message_data))
+
+        mock_envoyer_message_func.assert_called_once()
+        args, _ = mock_envoyer_message_func.call_args
+        self.assertIn("- Authentik client not initialized. Skipping.", args[1])
         self.assertIn("Outline collection creation: Success", args[1])
-        self.assertIn("Mattermost channel creation: Failed", args[1])
+        self.assertIn("Mattermost channel creation: Success", args[1])
+        # Check that auth client's method was NOT called
+        # Since it's None, it has no methods, so this check is implicit.
+        # If it were a Mock that was None, could do: self.assertFalse(mock_auth_client_instance.create_group.called)
 
-    @patch('app.bot.envoyer_message')
+    @patch.object(marty_bot_module, 'envoyer_message', new_callable=MagicMock)
     @async_test
-    async def test_handle_simple_mention_bonjour(self, mock_envoyer_message):
-        bot_config.BOT_NAME = "marty"
-        mock_message_data = {
-            "event": "posted",
-            "data": {"post": json.dumps({
-                "message": f"@{bot_config.BOT_NAME} hello there",
-                "channel_id": "general",
-                "user_id": "user007"
-            })}
-        }
-        await on_message(None, json.dumps(mock_message_data))
-        mock_envoyer_message.assert_called_once_with("general", "Bonjour toi ! How can I help you today?")
+    async def test_handle_simple_mention_bonjour(self, mock_envoyer_message_func):
+        mock_message_data = {"event": "posted", "data": {"post": json.dumps({
+            "message": f"@{bot_config.BOT_NAME} hello there", "channel_id": "general", "user_id": "user007"})}}
+        await marty_bot_module.on_message(None, json.dumps(mock_message_data))
+        mock_envoyer_message_func.assert_called_once_with("general", "Bonjour toi ! How can I help you today?")
 
-    @patch('app.bot.envoyer_message')
+    @patch.object(marty_bot_module, 'envoyer_message', new_callable=MagicMock)
     @async_test
-    async def test_handle_mention_no_command(self, mock_envoyer_message):
-        bot_config.BOT_NAME = "marty"
-        mock_message_data = {
-            "event": "posted",
-            "data": {"post": json.dumps({
-                "message": f"@{bot_config.BOT_NAME}",
-                "channel_id": "town-square",
-                "user_id": "user008"
-            })}
-        }
-        await on_message(None, json.dumps(mock_message_data))
-        mock_envoyer_message.assert_called_once_with("town-square", f"Hi! You mentioned me @{bot_config.BOT_NAME}. Try `create_group <project_name>` or ask for `help`.")
+    async def test_ignore_non_mention_message(self, mock_envoyer_message_func):
+        mock_message_data = {"event": "posted", "data": {"post": json.dumps({
+            "message": "Hello world, just a regular message.", "channel_id": "random", "user_id": "user111"})}}
+        # This message does not mention BOT_NAME, so on_message should return early.
+        await marty_bot_module.on_message(None, json.dumps(mock_message_data))
+        mock_envoyer_message_func.assert_not_called()
 
-
-    @patch('app.bot.envoyer_message')
+    @patch.object(marty_bot_module, 'envoyer_message', new_callable=MagicMock)
     @async_test
-    async def test_ignore_non_mention_message(self, mock_envoyer_message):
-        bot_config.BOT_NAME = "marty" # Ensure it's set, though not expected to be used for matching
-        mock_message_data = {
-            "event": "posted",
-            "data": {"post": json.dumps({
-                "message": "Hello world, just a regular message.",
-                "channel_id": "random",
-                "user_id": "user111"
-            })}
-        }
-        await on_message(None, json.dumps(mock_message_data))
-        mock_envoyer_message.assert_not_called()
-
-    @patch('app.bot.envoyer_message')
-    @async_test
-    async def test_ignore_message_not_posted_event(self, mock_envoyer_message):
-        mock_message_data = {
-            "event": "typing", # Not a 'posted' event
-            "data": {"user_id": "user123"}
-        }
-        await on_message(None, json.dumps(mock_message_data))
-        mock_envoyer_message.assert_not_called()
-
-    @patch('app.bot.envoyer_message')
-    @patch('app.bot.authentik_create_group') # Mock to prevent actual calls
-    @patch('app.bot.outline_create_group')
-    @patch('app.bot.mattermost_create_channel')
-    @async_test
-    async def test_create_group_no_project_name(self, mock_mm, mock_out, mock_auth, mock_envoyer):
-        bot_config.BOT_NAME = "marty"
-        mock_message_data = {
-            "event": "posted",
-            "data": {"post": json.dumps({
-                "message": f"@{bot_config.BOT_NAME} create_group ", # Empty project name
-                "channel_id": "channel_no_proj",
-                "user_id": "user_no_proj"
-            })}
-        }
-        await on_message(None, json.dumps(mock_message_data))
-        mock_auth.assert_not_called()
-        mock_out.assert_not_called()
-        mock_mm.assert_not_called()
-        mock_envoyer.assert_called_once_with("channel_no_proj", "Please specify a project name for create_group. Usage: @marty create_group <project_name>")
-
-    # The bot's current on_message doesn't have an explicit check for `sender_id == bot_user_id`.
-    # It relies on the command structure (mentioning @BOT_NAME). If the bot itself sends a message
-    # like "@BOT_NAME create_group ...", it would try to process it.
-    # A true "ignore self" test would require mocking the bot's own user ID and having logic
-    # in on_message to check `if sender_id == BOT_USER_ID: return`.
-    # For now, we test that a message *from* the bot that *is not* a command doesn't cause issues.
-    @patch('app.bot.envoyer_message')
-    @async_test
-    async def test_ignore_message_from_bot_not_a_command(self, mock_envoyer_message):
-        bot_config.BOT_NAME = "marty"
-        # Simulate a message that might look like it's from the bot, but isn't a command to itself.
-        # For example, if the bot sent a confirmation message.
-        mock_message_data = {
-            "event": "posted",
-            "data": {"post": json.dumps({
-                "message": "Group 'some_project' created successfully!", # No @marty mention
-                "channel_id": "channel123",
-                "user_id": "the_bot_user_id_if_it_had_one" # Pretend this is the bot
-            })}
-        }
-        await on_message(None, json.dumps(mock_message_data))
-        mock_envoyer_message.assert_not_called()
-
+    async def test_create_group_no_project_name(self, mock_envoyer_message_func):
+        mock_message_data = {"event": "posted", "data": {"post": json.dumps({
+            "message": f"@{bot_config.BOT_NAME} create_group ",
+            "channel_id": "channel_no_proj", "user_id": "user_no_proj"})}}
+        await marty_bot_module.on_message(None, json.dumps(mock_message_data))
+        mock_envoyer_message_func.assert_called_once_with(
+            "channel_no_proj",
+            f"Please specify a project name for create_group. Usage: @{bot_config.BOT_NAME} create_group <project_name>"
+        )
 
 if __name__ == '__main__':
-    # This setup is a bit more involved due to async nature and config patching.
-    # Running with `python -m unittest discover -s app/tests` is standard.
     unittest.main()

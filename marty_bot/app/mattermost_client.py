@@ -1,13 +1,7 @@
 import requests
 import json
 import re
-from app.config import MATTERMOST_URL, MATTERMOST_TOKEN, BOT_TOKEN
-
-# Attempt to import MATTERMOST_TEAM_ID, but allow it to be None if not set
-try:
-    from app.config import MATTERMOST_TEAM_ID
-except ImportError:
-    MATTERMOST_TEAM_ID = None
+# Removed direct import of config
 
 def slugify(text: str) -> str:
     """
@@ -16,112 +10,122 @@ def slugify(text: str) -> str:
     - Replace spaces and underscores with hyphens
     - Remove characters that are not alphanumeric or hyphens
     - Ensure it doesn't start or end with a hyphen
+    - Truncate to 64 characters (Mattermost limit for channel name)
+    - Return a default name if the slug becomes empty
     """
-    text = text.lower()
+    text = str(text).lower()
     text = re.sub(r"[\s_]+", "-", text)
     text = re.sub(r"[^a-z0-9-]", "", text)
     text = text.strip("-")
-    if not text: # Handle case where project_name is e.g. "!!!"
+    if len(text) > 64:
+        text = text[:64].strip('-') # Re-strip if truncation creates leading/trailing hyphen
+    if not text:
         return "default-channel-name"
     return text
 
-def create_channel(project_name: str, team_id: str = None) -> bool:
-    """
-    Creates a new public channel in Mattermost.
-    `project_name` will be used as the display name and slugified for the channel name.
-    `team_id` is required. It can be passed directly or fetched from config.
-    """
-    actual_team_id = team_id or MATTERMOST_TEAM_ID
+class MattermostClient:
+    def __init__(self, base_url: str, token: str, team_id: str):
+        """
+        Initializes the MattermostClient.
+        :param base_url: The base URL of the Mattermost instance (e.g., http://localhost:8065).
+        :param token: The API token (Personal Access Token of a bot/admin) for Mattermost operations.
+        :param team_id: The default Mattermost Team ID to use for operations like channel creation.
+        """
+        if not base_url or not token or not team_id:
+            raise ValueError("Mattermost base_url, token, and team_id must be provided.")
+        self.base_url = base_url.rstrip('/') # Ensure no trailing slash
+        self.token = token
+        self.team_id = team_id # Default team_id
+        self.headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.token}",
+        }
 
-    if not MATTERMOST_URL or not MATTERMOST_TOKEN: # Using MATTERMOST_TOKEN for channel creation
-        print("Mattermost URL or Admin/Bot Token (MATTERMOST_TOKEN) not configured for channel creation.")
-        return False
-
-    if not actual_team_id:
-        print("Mattermost Team ID not provided or configured (MATTERMOST_TEAM_ID). Cannot create channel.")
-        # Instructions for user if team_id is missing
-        print("Please ensure MATTERMOST_TEAM_ID is set in your .env file and app/config.py, or pass team_id to create_channel.")
-        return False
-
-    api_url = f"{MATTERMOST_URL}/api/v4/channels"
-
-    # Use MATTERMOST_TOKEN for channel creation (assumed to have higher privileges)
-    # BOT_TOKEN is typically for the WebSocket bot user itself.
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": f"Bearer {MATTERMOST_TOKEN}",
-    }
-
-    channel_name_slug = slugify(project_name)
-    if len(channel_name_slug) > 64: # Mattermost channel name length limit
-        channel_name_slug = channel_name_slug[:64].strip('-')
-
-    payload = {
-        "team_id": actual_team_id,
-        "name": channel_name_slug, # URL-friendly name
-        "display_name": project_name, # Display name in UI
-        "type": "O",  # "O" for public, "P" for private
-        "purpose": f"Channel for project {project_name}", # Optional
-        "header": f"Project {project_name}", # Optional
-    }
-
-    try:
-        response = requests.post(api_url, headers=headers, json=payload)
-        if response.status_code == 201:
-            created_channel = response.json()
-            print(f"Mattermost channel '{created_channel.get('display_name')}' (name: {created_channel.get('name')}) created successfully. Channel ID: {created_channel.get('id')}")
-            return True
-        else:
-            print(f"Error creating Mattermost channel '{project_name}': {response.status_code} - {response.text}")
-            try:
-                error_details = response.json()
-                if error_details.get("id") == "store.sql_channel.save_channel.exists.app_error":
-                    print(f"Hint: A channel with the name '{channel_name_slug}' or display name '{project_name}' might already exist on this team.")
-                elif error_details.get("id") == "api.channel.create_channel.invalid_name.app_error":
-                     print(f"Hint: The generated channel name '{channel_name_slug}' is invalid. Check for length or character restrictions not covered by slugify.")
-            except json.JSONDecodeError:
-                pass
+    def create_channel(self, project_name: str, team_id: str = None) -> bool:
+        """
+        Creates a new public channel in Mattermost.
+        :param project_name: The display name for the new channel. Will be slugified for the URL-safe name.
+        :param team_id: Optional. If provided, overrides the default team_id set during client initialization.
+        :return: True if successful, False otherwise.
+        """
+        current_team_id = team_id or self.team_id
+        if not current_team_id: # Should have been caught by constructor if self.team_id was the only source
+            print("Error: Mattermost Team ID is not available for channel creation.")
             return False
-    except requests.exceptions.RequestException as e:
-        print(f"Request failed for Mattermost channel creation '{project_name}': {e}")
-        return False
+
+        api_url = f"{self.base_url}/api/v4/channels"
+
+        channel_name_slug = slugify(project_name)
+
+        payload = {
+            "team_id": current_team_id,
+            "name": channel_name_slug,
+            "display_name": project_name,
+            "type": "O",  # "O" for public, "P" for private
+            "purpose": f"Channel for project {project_name}",
+            "header": f"Project {project_name}",
+        }
+
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            if response.status_code == 201:
+                created_channel = response.json()
+                print(f"Mattermost channel '{created_channel.get('display_name')}' (name: {created_channel.get('name')}) created successfully on team {current_team_id}. Channel ID: {created_channel.get('id')}")
+                return True
+            else:
+                error_message = f"Error creating Mattermost channel '{project_name}' (slug: {channel_name_slug}) on team {current_team_id}: {response.status_code} - {response.text}"
+                try:
+                    error_details = response.json()
+                    if error_details.get("id") == "store.sql_channel.save_channel.exists.app_error":
+                        error_message += f" (Hint: A channel with this name or display name might already exist on the team.)"
+                    elif error_details.get("id") == "api.channel.create_channel.invalid_name.app_error":
+                        error_message += f" (Hint: The generated channel name '{channel_name_slug}' is invalid.)"
+                except json.JSONDecodeError:
+                    pass
+                print(error_message)
+                return False
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed for Mattermost channel creation '{project_name}': {e}")
+            return False
 
 if __name__ == '__main__':
-    from app.config import load_dotenv
+    from dotenv import load_dotenv
+    import os
     load_dotenv()
 
-    if not MATTERMOST_URL or not MATTERMOST_TOKEN or not MATTERMOST_TEAM_ID:
-        print("Please set MATTERMOST_URL, MATTERMOST_TOKEN, and MATTERMOST_TEAM_ID in your .env for testing.")
+    mm_url_env = os.getenv("MATTERMOST_URL")
+    mm_token_env = os.getenv("MATTERMOST_TOKEN") # This should be the admin/bot API token
+    mm_team_id_env = os.getenv("MATTERMOST_TEAM_ID")
+
+    if not mm_url_env or not mm_token_env or not mm_team_id_env:
+        print("Please set MATTERMOST_URL, MATTERMOST_TOKEN, and MATTERMOST_TEAM_ID environment variables for this example.")
     else:
-        print(f"Testing Mattermost client with URL: {MATTERMOST_URL}, Team ID: {MATTERMOST_TEAM_ID}")
+        print(f"Attempting to connect to Mattermost at {mm_url_env} for team {mm_team_id_env}")
+        try:
+            client = MattermostClient(base_url=mm_url_env, token=mm_token_env, team_id=mm_team_id_env)
 
-        # Test 1: Create a new channel
-        project_name_test = "Project Alpha Team"
-        print(f"\nAttempting to create channel for: '{project_name_test}'")
-        success_new = create_channel(project_name_test)
-        print(f"Mattermost channel creation test successful: {success_new}")
+            project_to_create = "Test MM Channel OOP"
+            print(f"\nAttempting to create Mattermost channel: '{project_to_create}' using default team ID.")
+            success = client.create_channel(project_to_create)
+            print(f"Mattermost channel creation success: {success}")
 
-        # Test 2: Attempt to create the same channel again (should fail or be handled)
-        if success_new: # Only try re-creating if first one seemed to work
-            print(f"\nAttempting to create channel AGAIN for: '{project_name_test}' (should fail)")
-            success_existing = create_channel(project_name_test)
-            print(f"Mattermost existing channel creation test successful: {success_existing}")
+            if success:
+                print(f"\nAttempting to create Mattermost channel AGAIN: '{project_to_create}' (should fail).")
+                success_again = client.create_channel(project_to_create)
+                print(f"Second channel creation success: {success_again}")
 
-        # Test 3: Channel with a very long name
-        long_project_name = "This is a very very long project name that will exceed sixty four characters limit for sure and needs to be truncated"
-        print(f"\nAttempting to create channel for long name: '{long_project_name}'")
-        success_long = create_channel(long_project_name)
-        print(f"Mattermost long channel name creation test successful: {success_long}")
+            # Test with a different team ID override
+            override_team_id = os.getenv("MATTERMOST_OTHER_TEAM_ID", "another_fake_team_id")
+            if override_team_id != "another_fake_team_id" or mm_team_id_env != "another_fake_team_id": # only run if it's a distinct team
+                project_for_other_team = "Test MM Channel Other Team OOP"
+                print(f"\nAttempting to create channel on specific team '{override_team_id}': '{project_for_other_team}'")
+                success_override = client.create_channel(project_for_other_team, team_id=override_team_id)
+                print(f"Mattermost channel creation on specific team success: {success_override}")
+            else:
+                print("\nSkipping test for override_team_id as MATTERMOST_OTHER_TEAM_ID is not set or same as default.")
 
-        # Test 4: Channel with special characters
-        special_char_name = "Project X!@#$%^&*()_+"
-        print(f"\nAttempting to create channel for special chars: '{special_char_name}'")
-        success_special = create_channel(special_char_name)
-        print(f"Mattermost special chars channel name creation test successful: {success_special}")
-
-        # Test 5: Channel with only special characters (slug should become 'default-channel-name')
-        only_special_name = "!@#$%^&*()_+"
-        print(f"\nAttempting to create channel for only special chars: '{only_special_name}'")
-        success_only_special = create_channel(only_special_name)
-        print(f"Mattermost only special chars channel name creation test successful: {success_only_special}")
+        except ValueError as ve:
+            print(f"Configuration error: {ve}")
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")

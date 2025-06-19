@@ -1,94 +1,92 @@
 import unittest
 from unittest.mock import patch, Mock
-from app.authentik_client import create_group
-# Ensure config is loaded or mocked if client relies on it at module level
-from app import config
+from app.authentik_client import AuthentikClient # Import the class
+import requests # For requests.exceptions.RequestException
+
+# No need to mock app.config globally here anymore,
+# as URL/token are passed to constructor.
 
 class TestAuthentikClient(unittest.TestCase):
 
     def setUp(self):
-        # Mock config values if they are accessed directly by the client functions
-        # and not passed as arguments.
-        self.original_auth_url = config.AUTHENTIK_URL
-        self.original_auth_token = config.AUTHENTIK_TOKEN
-        config.AUTHENTIK_URL = "http://fake-authentik-url.com"
-        config.AUTHENTIK_TOKEN = "fake_auth_token"
+        self.mock_url = "http://fake-authentik-url.com"
+        self.mock_token = "fake_auth_token"
+        # It's good practice to create a new client for each test if tests might modify its state,
+        # or if the client itself is not stateful after init, one instance in setUp is fine.
+        # For these clients, they are largely stateless after init.
+        try:
+            self.client = AuthentikClient(base_url=self.mock_url, token=self.mock_token)
+        except ValueError:
+            # This shouldn't happen with valid mock_url and mock_token
+            self.fail("Client instantiation failed in setUp")
 
-    def tearDown(self):
-        # Restore original config values
-        config.AUTHENTIK_URL = self.original_auth_url
-        config.AUTHENTIK_TOKEN = self.original_auth_token
 
-    @patch('app.authentik_client.requests.post')
-    def test_create_group_success(self, mock_post):
-        # Configure the mock to return a successful response
+    def test_constructor_success(self):
+        self.assertEqual(self.client.base_url, self.mock_url)
+        self.assertEqual(self.client.token, self.mock_token)
+        self.assertIn(f"Bearer {self.mock_token}", self.client.headers["Authorization"])
+
+    def test_constructor_value_error(self):
+        with self.assertRaises(ValueError) as cm:
+            AuthentikClient(base_url=None, token="fake")
+        self.assertEqual(str(cm.exception), "Authentik base_url and token must be provided.")
+
+        with self.assertRaises(ValueError) as cm:
+            AuthentikClient(base_url="fake", token=None)
+        self.assertEqual(str(cm.exception), "Authentik base_url and token must be provided.")
+
+        with self.assertRaises(ValueError) as cm:
+            AuthentikClient(base_url="", token="fake") # Empty string also an issue
+        self.assertEqual(str(cm.exception), "Authentik base_url and token must be provided.")
+
+        with self.assertRaises(ValueError) as cm:
+            AuthentikClient(base_url="fake", token="")
+        self.assertEqual(str(cm.exception), "Authentik base_url and token must be provided.")
+
+
+    @patch('requests.post') # Patch requests.post directly as it's used by the client instance
+    def test_create_group_success(self, mock_post_request):
         mock_response = Mock()
         mock_response.status_code = 201
         mock_response.json.return_value = {"pk": "group_id_123", "name": "test_project"}
-        mock_post.return_value = mock_response
+        mock_post_request.return_value = mock_response
 
         project_name = "test_project"
-        result = create_group(project_name)
+        result = self.client.create_group(project_name)
 
-        # Assert that requests.post was called correctly
-        expected_url = f"{config.AUTHENTIK_URL}/api/v3/core/groups/"
-        expected_headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {config.AUTHENTIK_TOKEN}",
-        }
+        expected_api_url = f"{self.mock_url}/api/v3/core/groups/"
         expected_payload = {
             "name": project_name,
             "is_superuser": False,
         }
-        mock_post.assert_called_once_with(expected_url, headers=expected_headers, json=expected_payload)
-
+        # Headers are now part of self.client.headers
+        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
         self.assertTrue(result)
 
-    @patch('app.authentik_client.requests.post')
-    def test_create_group_failure_api_error(self, mock_post):
-        # Configure the mock to return an error response
+    @patch('requests.post')
+    def test_create_group_failure_api_error(self, mock_post_request):
         mock_response = Mock()
         mock_response.status_code = 500
         mock_response.text = "Internal Server Error"
-        mock_post.return_value = mock_response
+        mock_post_request.return_value = mock_response
 
         project_name = "test_project_fail"
-        result = create_group(project_name)
-
+        result = self.client.create_group(project_name)
         self.assertFalse(result)
-        # Optionally, check logs or how the error is handled if more specific behavior is defined
-        # For example, if it logs the error status code
 
-    @patch('app.authentik_client.requests.post')
-    def test_create_group_failure_request_exception(self, mock_post):
-        # Configure the mock to raise a requests.exceptions.RequestException
-        mock_post.side_effect = requests.exceptions.RequestException("Connection error")
+    @patch('requests.post')
+    def test_create_group_failure_request_exception(self, mock_post_request):
+        mock_post_request.side_effect = requests.exceptions.RequestException("Connection error")
 
         project_name = "test_project_exception"
-        result = create_group(project_name)
-
+        result = self.client.create_group(project_name)
         self.assertFalse(result)
 
-    def test_create_group_missing_config(self):
-        # Temporarily unset config for this test
-        original_url = config.AUTHENTIK_URL
-        original_token = config.AUTHENTIK_TOKEN
-        config.AUTHENTIK_URL = None
-        config.AUTHENTIK_TOKEN = None
+    # Test for base_url with trailing slash removal by constructor
+    def test_constructor_url_trailing_slash(self):
+        client_with_slash = AuthentikClient(base_url="http://fake-authentik-url.com/", token=self.mock_token)
+        self.assertEqual(client_with_slash.base_url, "http://fake-authentik-url.com")
 
-        result = create_group("test_project_no_config")
-        self.assertFalse(result)
-
-        # Restore config
-        config.AUTHENTIK_URL = original_url
-        config.AUTHENTIK_TOKEN = original_token
 
 if __name__ == '__main__':
-    # This allows running the tests directly
-    # `python -m app.tests.test_authentik_client` from marty_bot directory
-    # Or more commonly `python -m unittest discover -s app/tests`
-
-    # Need to make requests available in the scope for the test to run
-    import requests
     unittest.main()

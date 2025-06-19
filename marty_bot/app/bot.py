@@ -3,38 +3,75 @@ import json
 import threading
 import requests
 import os
-import asyncio # Required for run_websocket_app
+import asyncio
+import logging
 
-from app.config import MATTERMOST_URL, MATTERMOST_TOKEN, BOT_TOKEN, BOT_NAME, MATTERMOST_TEAM_ID
+# Configure basic logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Import actual client functions
-from app.authentik_client import create_group as authentik_create_group
-from app.outline_client import create_group as outline_create_group
-from app.mattermost_client import create_channel as mattermost_create_channel
+# Load configuration first
+from app import config
 
-# This function is provided in the issue, assuming it's for sending messages back to Mattermost
+# Import client classes
+from app.authentik_client import AuthentikClient
+from app.outline_client import OutlineClient
+from app.mattermost_client import MattermostClient
+
+# Global client instances - initialized after config is loaded
+authentik_client = None
+outline_client = None
+mattermost_api_client = None # Renamed to avoid confusion with a potential websocket client variable
+
+try:
+    if config.AUTHENTIK_URL and config.AUTHENTIK_TOKEN:
+        authentik_client = AuthentikClient(config.AUTHENTIK_URL, config.AUTHENTIK_TOKEN)
+        logging.info("AuthentikClient initialized successfully.")
+    else:
+        logging.warning("Authentik URL or Token not configured. Authentik features will be disabled.")
+
+    if config.OUTLINE_URL and config.OUTLINE_TOKEN:
+        outline_client = OutlineClient(config.OUTLINE_URL, config.OUTLINE_TOKEN)
+        logging.info("OutlineClient initialized successfully.")
+    else:
+        logging.warning("Outline URL or Token not configured. Outline features will be disabled.")
+
+    if config.MATTERMOST_URL and config.MATTERMOST_TOKEN and config.MATTERMOST_TEAM_ID:
+        # This client uses MATTERMOST_TOKEN (admin/API token) for operations
+        mattermost_api_client = MattermostClient(config.MATTERMOST_URL, config.MATTERMOST_TOKEN, config.MATTERMOST_TEAM_ID)
+        logging.info("MattermostClient (for API operations) initialized successfully.")
+    else:
+        logging.warning("Mattermost URL, Admin Token, or Team ID not fully configured. Mattermost API operations may fail or be disabled.")
+
+except ValueError as e:
+    logging.error(f"Error initializing API clients: {e}. Bot may not function correctly.")
+    # Depending on desired behavior, could raise an exception here to stop the bot entirely
+    # For now, it will continue, but client instances might be None
+
+# envoyer_message uses BOT_TOKEN (for posting messages as the bot)
 def envoyer_message(channel_id, message):
+    if not config.BOT_TOKEN or not config.MATTERMOST_URL:
+        logging.error("BOT_TOKEN or MATTERMOST_URL not configured. Cannot send message.")
+        return
+
     headers = {
-        "Authorization": f"Bearer {BOT_TOKEN}", # Use BOT_TOKEN for posting messages as the bot
+        "Authorization": f"Bearer {config.BOT_TOKEN}",
         "Content-Type": "application/json",
     }
     payload = {
         "channel_id": channel_id,
         "message": message,
     }
-    # Construct the correct API endpoint for posting messages
-    # MATTERMOST_URL should be the base URL, e.g., http://localhost:8065
-    post_url = f"{MATTERMOST_URL}/api/v4/posts"
+    post_url = f"{config.MATTERMOST_URL.rstrip('/')}/api/v4/posts"
 
-    print(f"Sending message to {post_url} in channel {channel_id}: {message}")
+    logging.info(f"Sending message to {post_url} in channel {channel_id}: {message[:100]}...") # Log snippet
     try:
         response = requests.post(post_url, headers=headers, json=payload)
         if response.status_code == 201:
-            print(f"Message sent successfully to channel {channel_id}")
+            logging.info(f"Message sent successfully to channel {channel_id}")
         else:
-            print(f"Error sending message: {response.status_code} - {response.text}")
+            logging.error(f"Error sending message: {response.status_code} - {response.text}")
     except requests.exceptions.RequestException as e:
-        print(f"Error sending message (network request failed): {e}")
+        logging.error(f"Error sending message (network request failed): {e}")
 
 
 async def on_message(ws, message_str):
@@ -45,171 +82,176 @@ async def on_message(ws, message_str):
         if event == "posted":
             post_info = message_data.get("data", {}).get("post")
             if not post_info:
-                print("No post data in message")
+                logging.warning("No post data in 'posted' event.")
                 return
 
-            post_data = json.loads(post_info) # post is a JSON string
+            post_data = json.loads(post_info)
             message_text = post_data.get("message", "")
             channel_id = post_data.get("channel_id")
-            sender_id = post_data.get("user_id")
+            # sender_id = post_data.get("user_id") # Potentially useful for ignoring self
 
-            # Get bot's user ID to prevent self-reply more reliably
-            # This might require an initial API call or be stored in config if known
-            # For now, we assume BOT_NAME is unique enough or sender_is_bot check works.
-            # A common check is if 'props' exists and 'from_webhook' is 'true' or if user_id is the bot's user_id.
-            # Or, if the post is from a bot, the `post_data.get("props", {}).get("from_bot") == "true"`
-            # However, simpler check for now:
-            # A more robust way to get bot's own user ID would be to fetch it on startup.
-            # For now, we'll rely on BOT_NAME or assume the bot doesn't trigger itself.
-            # A common pattern for bots is that their own messages might not trigger the 'posted' event
-            # in the same way, or they lack a 'user_id' that's a typical user.
-            # Let's assume mattermost server is configured so bot does not see its own messages,
-            # or we need a better way to identify bot's own messages.
-            # The previous `user_id == BOT_TOKEN` was incorrect as BOT_TOKEN is an access token.
-            # We need the actual user ID of the bot. If not available, we might reply to self.
-            # For now, let's just log and proceed.
-            # print(f"Message from user_id: {sender_id}")
+            # Basic check to prevent bot reacting to its own messages if they don't contain @BOT_NAME
+            # A more robust check would involve getting the bot's actual user_id.
+            if f"@{config.BOT_NAME}" not in message_text:
+                 # If bot name is not mentioned, simply ignore. This also helps avoid self-replies to simple status messages.
+                return
 
+            command_parts = message_text.split(f"@{config.BOT_NAME}", 1)
+            actual_command = ""
+            if len(command_parts) > 1:
+                actual_command = command_parts[1].strip()
 
-            if f"@{BOT_NAME}" in message_text:
-                command_parts = message_text.split(f"@{BOT_NAME}", 1) # Split only on the first mention
-                actual_command = ""
-                if len(command_parts) > 1:
-                    actual_command = command_parts[1].strip()
+            if actual_command.startswith("create_group"):
+                project_name_parts = actual_command.split("create_group", 1)
+                if len(project_name_parts) > 1:
+                    project_name = project_name_parts[1].strip()
+                else:
+                    project_name = "" # Will trigger error below
 
-                if actual_command.startswith("create_group"):
-                    try:
-                        project_name = actual_command.split("create_group", 1)[1].strip()
-                        if project_name:
-                            response_parts = [f"Processing 'create_group' for project: **{project_name}**"]
+                if project_name:
+                    response_parts = [f"Processing 'create_group' for project: **{project_name}**"]
 
-                            # Authentik
-                            auth_success = authentik_create_group(project_name)
-                            response_parts.append(f"- Authentik group creation: {'Success' if auth_success else 'Failed'}")
+                    # Authentik
+                    if authentik_client:
+                        auth_success = authentik_client.create_group(project_name)
+                        response_parts.append(f"- Authentik group creation: {'Success' if auth_success else 'Failed'}")
+                    else:
+                        response_parts.append("- Authentik client not initialized. Skipping.")
 
-                            # Outline
-                            outline_success = outline_create_group(project_name)
-                            response_parts.append(f"- Outline collection creation: {'Success' if outline_success else 'Failed'}")
+                    # Outline
+                    if outline_client:
+                        outline_success = outline_client.create_group(project_name)
+                        response_parts.append(f"- Outline collection creation: {'Success' if outline_success else 'Failed'}")
+                    else:
+                        response_parts.append("- Outline client not initialized. Skipping.")
 
-                            # Mattermost
-                            # For mattermost_create_channel, team_id is needed. Using from config.
-                            if not MATTERMOST_TEAM_ID:
-                                mm_success_msg = "Failed (MATTERMOST_TEAM_ID not configured)"
-                                print("MATTERMOST_TEAM_ID is not configured in .env or config.py")
-                            else:
-                                mm_success = mattermost_create_channel(project_name, team_id=MATTERMOST_TEAM_ID)
-                                mm_success_msg = 'Success' if mm_success else 'Failed'
-                            response_parts.append(f"- Mattermost channel creation: {mm_success_msg}")
+                    # Mattermost
+                    if mattermost_api_client:
+                        # The default team_id is handled by the client instance now
+                        mm_success = mattermost_api_client.create_channel(project_name)
+                        response_parts.append(f"- Mattermost channel creation: {'Success' if mm_success else 'Failed'}")
+                    else:
+                        response_parts.append("- Mattermost API client not initialized. Skipping.")
 
-                            final_response = "\n".join(response_parts)
-                        else:
-                            final_response = "Please specify a project name for create_group. Usage: @BOT_NAME create_group <project_name>"
-                    except IndexError:
-                        final_response = "Command 'create_group' needs a project name. Usage: @BOT_NAME create_group <project_name>"
-                    except Exception as e:
-                        print(f"Error processing create_group command: {e}")
-                        final_response = f"An unexpected error occurred while processing your request for '{project_name}'."
+                    final_response = "\n".join(response_parts)
+                else:
+                    final_response = f"Please specify a project name for create_group. Usage: @{config.BOT_NAME} create_group <project_name>"
 
-                    envoyer_message(channel_id, final_response)
+                envoyer_message(channel_id, final_response)
 
-                elif actual_command: # Any other command directed at the bot
-                    envoyer_message(channel_id, "Bonjour toi ! How can I help you today?")
-                else: # Bot was mentioned but no command followed
-                    envoyer_message(channel_id, f"Hi! You mentioned me @{BOT_NAME}. Try `create_group <project_name>` or ask for `help`.")
+            elif actual_command: # Any other command directed at the bot
+                envoyer_message(channel_id, "Bonjour toi ! How can I help you today?")
+            else: # Bot was mentioned but no command followed
+                envoyer_message(channel_id, f"Hi! You mentioned me @{config.BOT_NAME}. Try `create_group <project_name>` or ask for `help`.")
 
     except json.JSONDecodeError:
-        print(f"Error decoding JSON message: {message_str}")
+        logging.error(f"Error decoding JSON message: {message_str}")
     except Exception as e:
-        print(f"Error in on_message: {e}. Original message: {message_str}")
+        logging.error(f"Error in on_message: {e}. Original message: {message_str}", exc_info=True)
 
 
 async def on_error(ws, error):
-    print(f"WebSocket Error: {error}")
+    logging.error(f"WebSocket Error: {error}")
 
 async def on_close(ws, close_status_code, close_msg):
-    print(f"WebSocket closed with code: {close_status_code}, message: {close_msg}")
+    logging.info(f"WebSocket closed with code: {close_status_code}, message: {close_msg}")
 
 async def on_open(ws):
-    print("WebSocket connection opened.")
+    logging.info("WebSocket connection opened.")
+    if not config.BOT_TOKEN:
+        logging.error("BOT_TOKEN not configured. Cannot send authentication challenge.")
+        await ws.close() # Close connection if auth token is missing
+        return
+
     auth_data = {
-        "seq": 1, # Sequence number, should be incremented for each message sent by the client
+        "seq": 1,
         "action": "authentication_challenge",
-        "data": {"token": BOT_TOKEN} # Using BOT_TOKEN for WebSocket auth
+        "data": {"token": config.BOT_TOKEN}
     }
     try:
         await ws.send(json.dumps(auth_data))
-        print(f"Sent authentication challenge for bot token starting with: {str(BOT_TOKEN)[:4]}...")
+        logging.info(f"Sent authentication challenge for bot token starting with: {str(config.BOT_TOKEN)[:4]}...")
     except Exception as e:
-        print(f"Error sending authentication challenge: {e}")
+        logging.error(f"Error sending authentication challenge: {e}")
 
 
 async def run_websocket_app():
-    if not MATTERMOST_URL or not BOT_TOKEN:
-        print("MATTERMOST_URL or BOT_TOKEN not configured. Cannot start WebSocket.")
+    if not config.MATTERMOST_URL or not config.BOT_TOKEN:
+        logging.error("MATTERMOST_URL or BOT_TOKEN not configured. Cannot start WebSocket.")
         return
 
-    protocol_stripped_url = MATTERMOST_URL.replace("https://", "").replace("http://", "")
-    # Ensure ws or wss prefix based on original URL or a config setting
-    # For simplicity, defaulting to ws. Production might need wss.
+    # Check if critical clients failed to initialize
+    if not authentik_client and not outline_client and not mattermost_api_client:
+        # This check can be more nuanced based on which clients are critical
+        logging.error("No API clients were initialized successfully. Bot might be non-functional. Aborting run.")
+        # return # Or raise an exception to be caught by main.py
+
     ws_scheme = "ws"
-    if MATTERMOST_URL.startswith("https://"):
+    if config.MATTERMOST_URL.startswith("https://"):
         ws_scheme = "wss"
 
+    protocol_stripped_url = config.MATTERMOST_URL.replace("https://", "").replace("http://", "")
     ws_url = f"{ws_scheme}://{protocol_stripped_url}/api/v4/websocket"
 
-    print(f"Attempting to connect to WebSocket: {ws_url}")
+    logging.info(f"Attempting to connect to WebSocket: {ws_url}")
 
-    retry_delay = 5 # seconds
-    while True: # Keep trying to connect
+    retry_delay = 5
+    while True:
         try:
             async with websockets.connect(ws_url, ping_interval=60, ping_timeout=30) as websocket:
                 await on_open(websocket)
                 async for message in websocket:
                     await on_message(websocket, message)
         except websockets.exceptions.ConnectionClosed as e:
-            print(f"WebSocket connection closed: {e}. Retrying in {retry_delay}s...")
+            logging.warning(f"WebSocket connection closed: {e}. Retrying in {retry_delay}s...")
         except ConnectionRefusedError:
-            print(f"Connection refused for WebSocket at {ws_url}. Is Mattermost running? Retrying in {retry_delay}s...")
-        except Exception as e: # Catch other exceptions like gaierror
-            print(f"WebSocket connection error: {e}. Retrying in {retry_delay}s...")
+            logging.error(f"Connection refused for WebSocket at {ws_url}. Is Mattermost running? Retrying in {retry_delay}s...")
+        except Exception as e:
+            logging.error(f"WebSocket connection error: {e}. Retrying in {retry_delay}s...", exc_info=True)
 
         await asyncio.sleep(retry_delay)
 
 
 def run():
-    print("Starting WebSocket listener...")
-    # asyncio.run(run_websocket_app()) # This will block if called directly in a sync function.
-    # The FastAPI startup event will run this in a thread, which is fine.
-    # If running bot.py directly, ensure it handles the event loop.
+    logging.info("Initializing Marty Bot...")
+
+    # Initial check if any client failed to initialize due to config errors passed from global scope
+    if authentik_client is None and outline_client is None and mattermost_api_client is None:
+        # This condition means all clients failed to initialize due to missing configs handled by the global try-except.
+        # The ValueError from client constructors would have been caught at module load time.
+        # This is more about the config not being present leading to None clients.
+        all_configs_missing = True
+        if config.AUTHENTIK_URL and config.AUTHENTIK_TOKEN: all_configs_missing = False
+        if config.OUTLINE_URL and config.OUTLINE_TOKEN: all_configs_missing = False
+        if config.MATTERMOST_URL and config.MATTERMOST_TOKEN and config.MATTERMOST_TEAM_ID: all_configs_missing = False
+
+        if all_configs_missing:
+             logging.error("CRITICAL: All API client configurations are missing. Bot cannot operate effectively and will not start.")
+             return # Prevent bot from running if all primary clients are unconfigured.
+
+    logging.info("Starting WebSocket listener...")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(run_websocket_app())
     except KeyboardInterrupt:
-        print("WebSocket listener stopped by user.")
+        logging.info("WebSocket listener stopped by user.")
+    except Exception as e:
+        logging.critical(f"WebSocket listener failed critically: {e}", exc_info=True)
     finally:
         loop.close()
 
 
 if __name__ == "__main__":
-    # This part is for direct execution of bot.py for testing
-    print("Starting Marty Bot directly (for testing WebSocket connection)...")
-    # Need to load .env for direct execution if config relies on it
-    from dotenv import load_dotenv
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    dotenv_path = os.path.join(project_root, '.env')
-    if os.path.exists(dotenv_path):
-        load_dotenv(dotenv_path)
-        print(f".env loaded from {dotenv_path}")
-    else:
-        print(f".env file not found at {dotenv_path}, ensure it's created with necessary tokens.")
+    logging.info("Starting Marty Bot directly (for testing WebSocket connection)...")
+    # .env should be loaded by app.config at the very beginning.
+    # If running this directly, ensure .env is in the marty_bot parent directory or project root.
 
-    # Re-check config variables after attempting to load .env
-    from app.config import MATTERMOST_URL as MM_URL_CHECK, BOT_TOKEN as BT_CHECK, MATTERMOST_TEAM_ID as MTI_CHECK
-    if not MM_URL_CHECK or not BT_CHECK:
-         print("Cannot start: MATTERMOST_URL or BOT_TOKEN is missing after .env load attempt.")
-    elif not MTI_CHECK:
-        print("Warning: MATTERMOST_TEAM_ID is not set. `create_group` command will fail for Mattermost channel creation.")
+    # Check essential config for direct run
+    if not config.MATTERMOST_URL or not config.BOT_TOKEN or not config.BOT_NAME:
+         logging.critical("Cannot start directly: MATTERMOST_URL, BOT_TOKEN, or BOT_NAME is missing. Check .env file and config.py.")
+    elif not config.MATTERMOST_TEAM_ID:
+        logging.warning("MATTERMOST_TEAM_ID is not set. `create_group` for Mattermost channels will fail.")
     else:
-        print(f"Config check: MATTERMOST_URL={MM_URL_CHECK}, BOT_TOKEN starts with {str(BT_CHECK)[:4]}, TEAM_ID={MTI_CHECK}")
+        logging.info(f"Direct run config check: URL={config.MATTERMOST_URL}, BotName={config.BOT_NAME}, Token starts with {str(config.BOT_TOKEN)[:4]}, TeamID={config.MATTERMOST_TEAM_ID}")
         run()

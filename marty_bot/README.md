@@ -6,32 +6,31 @@ Marty Bot is a helpful assistant for managing Mattermost, Authentik, and Outline
 
 ### 1. Environment Variables
 
-Create a `.env` file in the root of the project (`marty_bot/.env`) and add the following environment variables, replacing the placeholder values with your actual credentials and URLs:
+Configuration for Marty Bot is managed via environment variables.
 
-```env
-# Mattermost
-MATTERMOST_URL=your_mattermost_url_e.g._http://localhost:8065
-MATTERMOST_TOKEN=your_mattermost_admin_or_user_token_if_needed_for_other_ops
-BOT_TOKEN=your_mattermost_bot_access_token
-BOT_NAME=name_of_your_bot_in_mattermost_e.g._marty
+1.  Copy the example environment file:
+    ```bash
+    cp .env.example .env
+    ```
+2.  Edit the `.env` file and provide your specific values for:
+    *   `MATTERMOST_URL`: Your Mattermost instance URL (e.g., `https://your.mattermost.com` or `http://localhost:8065`). This is the base URL for API calls and WebSocket connection.
+    *   `MATTERMOST_TOKEN`: An admin-level API token for Mattermost. This token is used by the `MattermostClient` for administrative actions like creating channels. It needs permissions to manage channels on the specified team.
+    *   `MATTERMOST_TEAM_ID`: The ID of the Mattermost team where new channels created by the bot will be placed.
+    *   `BOT_TOKEN`: The personal access token for the Mattermost bot account itself. This token is used for connecting to the Mattermost WebSocket API (for receiving messages) and for posting messages back to channels as the bot.
+    *   `BOT_NAME`: The username of your bot in Mattermost, without the leading `@` (e.g., `marty`). The bot listens for messages mentioning this name.
+    *   `AUTHENTIK_URL`: Your Authentik instance URL (e.g., `https://authentik.yourdomain.com`).
+    *   `AUTHENTIK_TOKEN`: Your Authentik API token with permissions to create groups.
+    *   `OUTLINE_URL`: Your Outline instance URL (e.g., `https://app.getoutline.com` or your self-hosted instance URL).
+    *   `OUTLINE_TOKEN`: Your Outline API token with permissions to create collections.
+    *   `LOG_LEVEL`: (Optional) Set the logging level for the bot (e.g., `INFO`, `DEBUG`, `WARNING`, `ERROR`). Defaults to `INFO` if not set.
 
-# Authentik
-AUTHENTIK_URL=your_authentik_url
-AUTHENTIK_TOKEN=your_authentik_api_token
+**Important**: The `.env` file contains sensitive credentials and is included in `.gitignore` to prevent accidental commits. Keep your `.env` file secure and do not commit it to your repository.
 
-# Outline
-OUTLINE_URL=your_outline_url
-OUTLINE_TOKEN=your_outline_api_token
-```
-
-**Important:**
-- `MATTERMOST_URL` should be the base URL of your Mattermost instance (e.g., `http://localhost:8065`).
-- `BOT_TOKEN` is the personal access token for your bot account in Mattermost.
-- `BOT_NAME` is the username of your bot in Mattermost (without the leading '@').
+The `.env.example` file in the repository shows all required variables with placeholder values.
 
 ### 2. Install Dependencies
 
-Ensure you have Python 3.8+ installed. Then, install the required packages:
+First, ensure you have Python 3.8+ installed. Then, navigate to the project's root directory (where `requirements.txt` is located) and install the required packages:
 
 ```bash
 pip install -r requirements.txt

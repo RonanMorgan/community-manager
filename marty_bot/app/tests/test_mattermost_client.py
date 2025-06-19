@@ -1,119 +1,99 @@
 import unittest
 from unittest.mock import patch, Mock
-from app.mattermost_client import create_channel, slugify
-from app import config
-import requests # Import for requests.exceptions.RequestException
+from app.mattermost_client import MattermostClient, slugify # Import class and slugify
+import requests # For requests.exceptions.RequestException
 
 class TestMattermostClient(unittest.TestCase):
 
     def setUp(self):
-        self.original_mm_url = config.MATTERMOST_URL
-        self.original_mm_token = config.MATTERMOST_TOKEN
-        self.original_mm_team_id = config.MATTERMOST_TEAM_ID
+        self.mock_url = "http://fake-mattermost-url.com"
+        self.mock_token = "fake_mm_admin_token"
+        self.mock_team_id = "fake_team_id"
+        try:
+            self.client = MattermostClient(base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id)
+        except ValueError:
+            self.fail("Client instantiation failed in setUp")
 
-        config.MATTERMOST_URL = "http://fake-mattermost-url.com"
-        config.MATTERMOST_TOKEN = "fake_mm_admin_token"
-        config.MATTERMOST_TEAM_ID = "fake_team_id"
+    def test_constructor_success(self):
+        self.assertEqual(self.client.base_url, self.mock_url)
+        self.assertEqual(self.client.token, self.mock_token)
+        self.assertEqual(self.client.team_id, self.mock_team_id)
+        self.assertIn(f"Bearer {self.mock_token}", self.client.headers["Authorization"])
 
-    def tearDown(self):
-        config.MATTERMOST_URL = self.original_mm_url
-        config.MATTERMOST_TOKEN = self.original_mm_token
-        config.MATTERMOST_TEAM_ID = self.original_mm_team_id
+    def test_constructor_value_error(self):
+        with self.assertRaises(ValueError) as cm:
+            MattermostClient(base_url=None, token="fake", team_id="fake_team")
+        self.assertEqual(str(cm.exception), "Mattermost base_url, token, and team_id must be provided.")
 
-    @patch('app.mattermost_client.requests.post')
-    def test_create_channel_success(self, mock_post):
+        with self.assertRaises(ValueError) as cm:
+            MattermostClient(base_url="fake", token=None, team_id="fake_team")
+        self.assertEqual(str(cm.exception), "Mattermost base_url, token, and team_id must be provided.")
+
+        with self.assertRaises(ValueError) as cm:
+            MattermostClient(base_url="fake", token="fake", team_id=None)
+        self.assertEqual(str(cm.exception), "Mattermost base_url, token, and team_id must be provided.")
+
+    def test_constructor_url_trailing_slash(self):
+        client_with_slash = MattermostClient(base_url="http://fake-mm.com/", token=self.mock_token, team_id=self.mock_team_id)
+        self.assertEqual(client_with_slash.base_url, "http://fake-mm.com")
+
+    @patch('requests.post') # Patch requests.post used by the client instance
+    def test_create_channel_success_default_team_id(self, mock_post_request):
         mock_response = Mock()
         mock_response.status_code = 201
         mock_response.json.return_value = {
-            "id": "channel_id_123",
-            "display_name": "Test Project",
-            "name": "test-project"
+            "id": "channel_id_123", "display_name": "Test Project", "name": "test-project"
         }
-        mock_post.return_value = mock_response
+        mock_post_request.return_value = mock_response
 
         project_name = "Test Project"
-        team_id = "test_team_id_override" # Test passing team_id directly
+        result = self.client.create_channel(project_name) # Uses default team_id from client
 
-        result = create_channel(project_name, team_id=team_id)
-
-        expected_url = f"{config.MATTERMOST_URL}/api/v4/channels"
-        expected_headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {config.MATTERMOST_TOKEN}",
-        }
+        expected_api_url = f"{self.mock_url}/api/v4/channels"
         channel_name_slug = slugify(project_name)
         expected_payload = {
-            "team_id": team_id,
-            "name": channel_name_slug,
-            "display_name": project_name,
-            "type": "O",
-            "purpose": f"Channel for project {project_name}",
-            "header": f"Project {project_name}",
+            "team_id": self.mock_team_id, # Default team_id
+            "name": channel_name_slug, "display_name": project_name, "type": "O",
+            "purpose": f"Channel for project {project_name}", "header": f"Project {project_name}",
         }
-        mock_post.assert_called_once_with(expected_url, headers=expected_headers, json=expected_payload)
+        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
         self.assertTrue(result)
 
-    @patch('app.mattermost_client.requests.post')
-    def test_create_channel_success_uses_config_team_id(self, mock_post):
+    @patch('requests.post')
+    def test_create_channel_success_override_team_id(self, mock_post_request):
         mock_response = Mock()
         mock_response.status_code = 201
-        mock_response.json.return_value = {"id": "channel_id_123"}
-        mock_post.return_value = mock_response
+        mock_response.json.return_value = {"id": "channel_id_456"}
+        mock_post_request.return_value = mock_response
 
-        project_name = "Test Project Config Team"
-        # Not passing team_id, so it should use config.MATTERMOST_TEAM_ID
-        result = create_channel(project_name)
+        project_name = "Another Project"
+        override_team_id = "override_fake_team_id"
+        result = self.client.create_channel(project_name, team_id=override_team_id)
 
-        args, kwargs = mock_post.call_args
-        self.assertEqual(kwargs['json']['team_id'], config.MATTERMOST_TEAM_ID)
         self.assertTrue(result)
+        args, kwargs = mock_post_request.call_args
+        self.assertEqual(kwargs['json']['team_id'], override_team_id)
 
 
-    @patch('app.mattermost_client.requests.post')
-    def test_create_channel_failure_api_error(self, mock_post):
+    @patch('requests.post')
+    def test_create_channel_failure_api_error(self, mock_post_request):
         mock_response = Mock()
-        mock_response.status_code = 400 # Bad Request
+        mock_response.status_code = 400
         mock_response.text = "Error creating channel"
         mock_response.json.return_value = {"id": "store.sql_channel.save_channel.exists.app_error", "message": "Channel exists"}
-        mock_post.return_value = mock_response
+        mock_post_request.return_value = mock_response
 
-        project_name = "Test Project Fail"
-        result = create_channel(project_name, team_id="any_team_id")
+        result = self.client.create_channel("Test Project Fail")
         self.assertFalse(result)
 
-    @patch('app.mattermost_client.requests.post')
-    def test_create_channel_failure_request_exception(self, mock_post):
-        mock_post.side_effect = requests.exceptions.RequestException("Connection timeout")
+    @patch('requests.post')
+    def test_create_channel_failure_request_exception(self, mock_post_request):
+        mock_post_request.side_effect = requests.exceptions.RequestException("Connection timeout")
 
-        project_name = "Test Project Exception"
-        result = create_channel(project_name, team_id="any_team_id")
+        result = self.client.create_channel("Test Project Exception")
         self.assertFalse(result)
 
-    def test_create_channel_missing_config_token_url(self):
-        original_url = config.MATTERMOST_URL
-        original_token = config.MATTERMOST_TOKEN
-        config.MATTERMOST_URL = None
-        result_no_url = create_channel("Test No URL", team_id="any_team_id")
-        self.assertFalse(result_no_url)
-        config.MATTERMOST_URL = original_url # restore for next check
-
-        config.MATTERMOST_TOKEN = None
-        result_no_token = create_channel("Test No Token", team_id="any_team_id")
-        self.assertFalse(result_no_token)
-
-        config.MATTERMOST_TOKEN = original_token # restore fully
-
-    def test_create_channel_missing_team_id(self):
-        original_team_id = config.MATTERMOST_TEAM_ID
-        config.MATTERMOST_TEAM_ID = None # Unset from config
-
-        # And not passing it as argument
-        result = create_channel("Test No TeamID")
-        self.assertFalse(result)
-
-        config.MATTERMOST_TEAM_ID = original_team_id # restore
-
+    # test_slugify remains unchanged as it's a module-level function
     def test_slugify(self):
         self.assertEqual(slugify("Test Project 123"), "test-project-123")
         self.assertEqual(slugify("  Leading Spaces"), "leading-spaces")
@@ -121,13 +101,15 @@ class TestMattermostClient(unittest.TestCase):
         self.assertEqual(slugify("Special!@#Chars"), "special-chars")
         self.assertEqual(slugify("Multiple---Hyphens"), "multiple-hyphens")
         self.assertEqual(slugify("Underscores_and_Spaces"), "underscores-and-spaces")
-        self.assertEqual(slugify(""), "default-channel-name") # Empty string case
-        self.assertEqual(slugify("!@#$"), "default-channel-name") # Only special chars
+        self.assertEqual(slugify(""), "default-channel-name")
+        self.assertEqual(slugify("!@#$"), "default-channel-name")
         long_name = "a" * 70
         expected_long_slug = "a" * 64
         self.assertEqual(slugify(long_name), expected_long_slug)
         self.assertEqual(slugify(" Ends-with-hyphen-"), "ends-with-hyphen")
         self.assertEqual(slugify("-Starts-with-hyphen"), "starts-with-hyphen")
+        self.assertEqual(slugify("Test Project with really really long name that will be cut off at sixty four characters"), "test-project-with-really-really-long-name-that-will-be-cut-o")
+
 
 if __name__ == '__main__':
     unittest.main()
