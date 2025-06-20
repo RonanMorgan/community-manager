@@ -80,3 +80,40 @@ python -m unittest discover -s app/tests
 ```
 
 Ensure that your environment is set up correctly, as some tests might interact with configuration loading (though API calls themselves are mocked). For example, having a `.env` file with placeholder values for all expected variables can prevent import errors in `app.config` if it's loaded when test files are discovered or imported. The tests for client modules specifically mock out the `config` values they use at runtime to ensure isolation.
+
+## Developer Setup: Code Quality & Pre-commit Hooks
+
+This project uses pre-commit hooks to enforce code style and quality (linting and formatting) automatically before each commit. This helps maintain a consistent codebase.
+
+### Initial Setup
+
+1.  **Install development dependencies:**
+    If you haven't already, install the dependencies listed in `requirements-dev.txt` (which includes `pre-commit`, `black`, and `flake8`). This file is located in the project root (`marty_bot/`).
+    ```bash
+    pip install -r requirements-dev.txt
+    ```
+    It's recommended to do this in your project's virtual environment.
+
+2.  **Install Git hooks:**
+    From the root directory of the project (`marty_bot/`), run:
+    ```bash
+    pre-commit install
+    ```
+    This command sets up the pre-commit script to run automatically when you `git commit`.
+
+### How it Works
+
+Once installed, `pre-commit` will run the configured hooks (like Black for formatting and Flake8 for linting) on any changed files before your commit is finalized.
+
+*   If any hooks modify your files (e.g., Black reformats your code), the commit will be aborted. You'll need to `git add` the modified files and try committing again.
+*   If any hooks report errors (e.g., Flake8 finds linting issues), the commit will be aborted. You'll need to fix the reported issues, `git add` your changes, and try committing again.
+
+### Running Hooks Manually
+
+You can also run the pre-commit hooks manually on all files at any time:
+```bash
+pre-commit run --all-files
+```
+This is useful for checking the entire codebase or after making larger changes.
+
+Our Flake8 configuration is managed in the `.flake8` file (located in `marty_bot/`), and Black's configuration is in `.pre-commit-config.yaml`.

@@ -1,0 +1,18 @@
+[flake8]
+max-line-length = 119
+# E203: whitespace before ':' (often conflicts with Black)
+# W503: line break before binary operator (Black sometimes prefers this)
+# E402: module level import not at top of file (for app/bot.py structure)
+extend-ignore = E203, W503, E402
+per-file-ignores =
+    marty_bot/app/bot.py:E501
+    # If other files needed specific ignores, they'd go here:
+    # app/another_module.py:W123,E456
+    # tests/some_test.py:F401
+
+# Default excludes + any custom ones if needed
+# exclude = .git,__pycache__,old,build,dist,venv,.venv,env
+
+# Enable plugins if any are installed (e.g., flake8-bugbear)
+# enable-extensions = B,B950
+# (No specific plugins are being added in this task, but this is where they'd be configured)

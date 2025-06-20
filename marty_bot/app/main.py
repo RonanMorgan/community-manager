@@ -5,6 +5,7 @@ import threading
 
 app = FastAPI()
 
+
 @app.on_event("startup")
 async def startup_event():
     print("Starting Mattermost bot in a background thread...")
@@ -12,9 +13,11 @@ async def startup_event():
     thread.daemon = True  # This ensures the thread exits when the main process exits
     thread.start()
 
+
 @app.get("/")
 async def root():
     return {"message": "Marty Bot is running!"}
+
 
 if __name__ == "__main__":
     # This is for running FastAPI directly, e.g., for development

@@ -1,10 +1,11 @@
 import unittest
 from unittest.mock import patch, Mock
-from app.authentik_client import AuthentikClient # Import the class
-import requests # For requests.exceptions.RequestException
+from app.authentik_client import AuthentikClient  # Import the class
+import requests  # For requests.exceptions.RequestException
 
 # No need to mock app.config globally here anymore,
 # as URL/token are passed to constructor.
+
 
 class TestAuthentikClient(unittest.TestCase):
 
@@ -19,7 +20,6 @@ class TestAuthentikClient(unittest.TestCase):
         except ValueError:
             # This shouldn't happen with valid mock_url and mock_token
             self.fail("Client instantiation failed in setUp")
-
 
     def test_constructor_success(self):
         self.assertEqual(self.client.base_url, self.mock_url)
@@ -36,15 +36,14 @@ class TestAuthentikClient(unittest.TestCase):
         self.assertEqual(str(cm.exception), "Authentik base_url and token must be provided.")
 
         with self.assertRaises(ValueError) as cm:
-            AuthentikClient(base_url="", token="fake") # Empty string also an issue
+            AuthentikClient(base_url="", token="fake")  # Empty string also an issue
         self.assertEqual(str(cm.exception), "Authentik base_url and token must be provided.")
 
         with self.assertRaises(ValueError) as cm:
             AuthentikClient(base_url="fake", token="")
         self.assertEqual(str(cm.exception), "Authentik base_url and token must be provided.")
 
-
-    @patch('requests.post') # Patch requests.post directly as it's used by the client instance
+    @patch("requests.post")  # Patch requests.post directly as it's used by the client instance
     def test_create_group_success(self, mock_post_request):
         mock_response = Mock()
         mock_response.status_code = 201
@@ -63,7 +62,7 @@ class TestAuthentikClient(unittest.TestCase):
         mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
         self.assertTrue(result)
 
-    @patch('requests.post')
+    @patch("requests.post")
     def test_create_group_failure_api_error(self, mock_post_request):
         mock_response = Mock()
         mock_response.status_code = 500
@@ -74,7 +73,7 @@ class TestAuthentikClient(unittest.TestCase):
         result = self.client.create_group(project_name)
         self.assertFalse(result)
 
-    @patch('requests.post')
+    @patch("requests.post")
     def test_create_group_failure_request_exception(self, mock_post_request):
         mock_post_request.side_effect = requests.exceptions.RequestException("Connection error")
 
@@ -88,5 +87,5 @@ class TestAuthentikClient(unittest.TestCase):
         self.assertEqual(client_with_slash.base_url, "http://fake-authentik-url.com")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

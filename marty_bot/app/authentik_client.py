@@ -1,6 +1,8 @@
 import requests
-import json
+
+# import json # No longer used directly in this file
 # Removed direct import of config, will be passed during instantiation
+
 
 class AuthentikClient:
     def __init__(self, base_url: str, token: str):
@@ -11,7 +13,7 @@ class AuthentikClient:
         """
         if not base_url or not token:
             raise ValueError("Authentik base_url and token must be provided.")
-        self.base_url = base_url.rstrip('/') # Ensure no trailing slash
+        self.base_url = base_url.rstrip("/")  # Ensure no trailing slash
         self.token = token
         self.headers = {
             "Content-Type": "application/json",
@@ -47,12 +49,14 @@ class AuthentikClient:
             print(f"Request failed for Authentik group creation '{project_name}': {e}")
             return False
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # Example usage:
     # This requires environment variables AUTHENTIK_URL and AUTHENTIK_TOKEN to be set
     # for the example to run.
     from dotenv import load_dotenv
     import os
+
     load_dotenv()
 
     auth_url = os.getenv("AUTHENTIK_URL")
@@ -72,7 +76,7 @@ if __name__ == '__main__':
             print(f"Group creation success: {success}")
 
             # Test 2: Attempt to create it again (should fail or be handled by Authentik)
-            if success: # Only if first one was successful
+            if success:  # Only if first one was successful
                 print(f"\nAttempting to create group AGAIN: '{project_to_create}'")
                 success_again = client.create_group(project_to_create)
                 print(f"Second group creation success: {success_again} (expected False if already exists)")
