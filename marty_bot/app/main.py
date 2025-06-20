@@ -1,17 +1,34 @@
 from fastapi import FastAPI
 import uvicorn
-from app.bot import run as run_bot
 import threading
+import logging  # Added logging
+from app.bot import MartyBot  # Changed import
+from app import config  # Added direct config import
 
 app = FastAPI()
+
+# Configure logging for main.py as well, if not already configured by bot.py at this point
+# This depends on import order and how/when bot.py's logging is set up.
+# For safety, can configure it here too, or ensure bot.py's config is run first.
+# Assuming bot.py's logging config is sufficient for now if it's imported early.
+# logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+marty_bot_instance = None  # Optional: can be global if needed for shutdown or other interactions
 
 
 @app.on_event("startup")
 async def startup_event():
-    print("Starting Mattermost bot in a background thread...")
-    thread = threading.Thread(target=run_bot)
-    thread.daemon = True  # This ensures the thread exits when the main process exits
-    thread.start()
+    global marty_bot_instance
+    logging.info("Application startup: Initializing and starting MartyBot...")
+
+    # Pass the actual config module to MartyBot constructor
+    marty_bot_instance = MartyBot(config)
+
+    logging.info("Starting MartyBot in a new thread...")
+    # MartyBot.start() method handles its own asyncio loop management
+    bot_thread = threading.Thread(target=marty_bot_instance.start, daemon=True)
+    bot_thread.start()
+    logging.info("MartyBot thread started.")
 
 
 @app.get("/")
