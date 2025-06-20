@@ -60,10 +60,35 @@ from app.mattermost_client import MattermostClient
 # Depending on desired behavior, could raise an exception here to stop the bot entirely
 # For now, it will continue, but client instances might be None
 
+# Configure basic logging based on DEBUG status
+# This was moved down to be after 'from app import config'
+# if config.DEBUG:
+#     logging.basicConfig(
+#         level=logging.DEBUG, format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+#     )
+#     logging.debug("DEBUG mode is enabled. Verbose logging active.")
+# else:
+#     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
 
 class MartyBot:
     def __init__(self, config_obj):  # Renamed config to config_obj to avoid conflict with imported config module
         self.config = config_obj
+
+        # Ensure logging is configured based on the instance's config
+        if self.config.DEBUG:
+            logging.getLogger().setLevel(logging.DEBUG)
+            # Update formatter for all handlers if basicConfig was already called
+            for handler in logging.getLogger().handlers:
+                handler.setFormatter(
+                    logging.Formatter("%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s")
+                )
+            logging.debug("DEBUG mode is enabled for MartyBot instance. Verbose logging active.")
+        else:
+            logging.getLogger().setLevel(logging.INFO)
+            for handler in logging.getLogger().handlers:
+                handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+
         self.bot_name_mention = f"@{self.config.BOT_NAME.lower()}" if self.config.BOT_NAME else ""
 
         # Initialize API Clients
@@ -141,16 +166,8 @@ class MartyBot:
         except requests.exceptions.RequestException as e:
             logging.error(f"Error sending message to Mattermost: {e}")
 
-    # THIS IS THE OLDER VERSION TO BE DELETED
-    # def _parse_command_from_mention(self, message_text):
-    #     if self.bot_name_mention and self.bot_name_mention in message_text.lower():
-    #         parts = message_text.lower().split(self.bot_name_mention, 1)
-    #         if len(parts) > 1:
-    #             command_str = parts[1].strip()
-    #             return command_str
-    #     return None
-
-    def _parse_command_from_mention(self, message_text):  # This is the new regex version
+    # Regex version of _parse_command_from_mention (old one should be fully deleted)
+    def _parse_command_from_mention(self, message_text):
         # Ensure self.bot_name_mention is not empty and is actually present in the message
         if not self.bot_name_mention or self.bot_name_mention not in message_text.lower():
             return None
@@ -250,11 +267,17 @@ class MartyBot:
     async def on_message(self, ws, message_str):  # ws might not be needed if not directly used
         logging.debug(f"WebSocket << Raw incoming message: {message_str}")
         try:
-            message_data = json.loads(message_str)
-            event_type = message_data.get("event")
+            data = json.loads(message_str)  # Renamed for clarity from prompt
+            logging.debug(
+                f"WebSocket << Event received: Type='{data.get('event')}', Seq='{data.get('seq')}', DataKeys='{list(data.get('data', {}).keys()) if data.get('data') else None}'"
+            )
+
+            event_type = data.get("event")
 
             if event_type == "posted":
-                await self._handle_message_event(message_data)
+                # Specific log for "posted" event data
+                logging.debug(f"WebSocket << 'posted' event 'data' field raw content: {data.get('data')}")
+                await self._handle_message_event(data)  # Pass the parsed 'data'
             # TODO: Handle other event types like 'hello' for connection confirmation if needed
 
         except json.JSONDecodeError:
