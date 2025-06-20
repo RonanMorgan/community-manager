@@ -21,7 +21,8 @@ Configuration for Marty Bot is managed via environment variables.
     *   `AUTHENTIK_TOKEN`: Your Authentik API token with permissions to create groups.
     *   `OUTLINE_URL`: Your Outline instance URL (e.g., `https://app.getoutline.com` or your self-hosted instance URL).
     *   `OUTLINE_TOKEN`: Your Outline API token with permissions to create collections.
-    *   `LOG_LEVEL`: (Optional) Set the logging level for the bot (e.g., `INFO`, `DEBUG`, `WARNING`, `ERROR`). Defaults to `INFO` if not set.
+    *   `LOG_LEVEL`: (Optional) Set the logging level for the bot (e.g., `INFO`, `DEBUG`, `WARNING`, `ERROR`). Defaults to `INFO` if not set. Note: `DEBUG` level here is for Python's `logging` module.
+    *   `DEBUG`: (Optional) Set to `true` to enable specific debug features in the bot, such as more verbose logging output distinct from `LOG_LEVEL` (e.g., raw WebSocket messages, detailed API payloads). Defaults to `false`. Example: `DEBUG=true`
 
 **Important**: The `.env` file contains sensitive credentials and is included in `.gitignore` to prevent accidental commits. Keep your `.env` file secure and do not commit it to your repository.
 

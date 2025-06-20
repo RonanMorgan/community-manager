@@ -8,11 +8,17 @@ import requests
 import asyncio
 import logging
 
-# Configure basic logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
 # Load configuration first
 from app import config
+
+# Configure basic logging based on DEBUG status
+if config.DEBUG:
+    logging.basicConfig(
+        level=logging.DEBUG, format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+    )
+    logging.debug("DEBUG mode is enabled. Verbose logging active.")
+else:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Import client classes
 from app.authentik_client import AuthentikClient
@@ -70,6 +76,11 @@ def envoyer_message(channel_id, message):
     }
     post_url = f"{config.MATTERMOST_URL.rstrip('/')}/api/v4/posts"
 
+    # Debug log for outgoing message payload
+    logging.debug(
+        f"Mattermost API >> Sending message to channel {channel_id}. Payload: {json.dumps(payload)}"
+    )  # Not logging thread_id as it's not a current param
+
     log_message = f"Sending message to {post_url} in channel {channel_id}: {message[:100]}..."
     logging.info(log_message)
     try:
@@ -83,6 +94,7 @@ def envoyer_message(channel_id, message):
 
 
 async def on_message(ws, message_str):
+    logging.debug(f"WebSocket << Raw incoming message: {message_str}")
     try:
         message_data = json.loads(message_str)
         event = message_data.get("event")

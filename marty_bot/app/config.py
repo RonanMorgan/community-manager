@@ -14,3 +14,6 @@ AUTHENTIK_TOKEN = os.getenv("AUTHENTIK_TOKEN")
 
 OUTLINE_URL = os.getenv("OUTLINE_URL")
 OUTLINE_TOKEN = os.getenv("OUTLINE_TOKEN")
+
+# General Configuration
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
