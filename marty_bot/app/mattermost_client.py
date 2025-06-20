@@ -111,12 +111,12 @@ if __name__ == "__main__":
     load_dotenv()
 
     mm_url_env = os.getenv("MATTERMOST_URL")
-    mm_token_env = os.getenv("MATTERMOST_TOKEN")  # This should be the admin/bot API token
+    mm_token_env = os.getenv("BOT_TOKEN")  # This should be the admin/bot API token
     mm_team_id_env = os.getenv("MATTERMOST_TEAM_ID")
 
     if not mm_url_env or not mm_token_env or not mm_team_id_env:
         print(
-            "Please set MATTERMOST_URL, MATTERMOST_TOKEN, and MATTERMOST_TEAM_ID environment variables for this example."  # noqa: E501
+            "Please set MATTERMOST_URL, BOT_TOKEN, and MATTERMOST_TEAM_ID environment variables for this example."  # noqa: E501
         )
     else:
         print(f"Attempting to connect to Mattermost at {mm_url_env} for team {mm_team_id_env}")

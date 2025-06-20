@@ -37,10 +37,10 @@ try:
     else:
         logging.warning("Outline URL or Token not configured. Outline features will be disabled.")
 
-    if config.MATTERMOST_URL and config.MATTERMOST_TOKEN and config.MATTERMOST_TEAM_ID:
-        # This client uses MATTERMOST_TOKEN (admin/API token) for operations
+    if config.MATTERMOST_URL and config.BOT_TOKEN and config.MATTERMOST_TEAM_ID:
+        # This client uses BOT_TOKEN (admin/API token) for operations
         mattermost_api_client = MattermostClient(
-            config.MATTERMOST_URL, config.MATTERMOST_TOKEN, config.MATTERMOST_TEAM_ID
+            config.MATTERMOST_URL, config.BOT_TOKEN, config.MATTERMOST_TEAM_ID
         )
         logging.info("MattermostClient (for API operations) initialized successfully.")
     else:
@@ -243,7 +243,7 @@ def run():
             all_configs_missing = False
         if config.OUTLINE_URL and config.OUTLINE_TOKEN:
             all_configs_missing = False
-        if config.MATTERMOST_URL and config.MATTERMOST_TOKEN and config.MATTERMOST_TEAM_ID:
+        if config.MATTERMOST_URL and config.BOT_TOKEN and config.MATTERMOST_TEAM_ID:
             all_configs_missing = False
 
         if all_configs_missing:

@@ -14,7 +14,6 @@ Configuration for Marty Bot is managed via environment variables.
     ```
 2.  Edit the `.env` file and provide your specific values for:
     *   `MATTERMOST_URL`: Your Mattermost instance URL (e.g., `https://your.mattermost.com` or `http://localhost:8065`). This is the base URL for API calls and WebSocket connection.
-    *   `MATTERMOST_TOKEN`: An admin-level API token for Mattermost. This token is used by the `MattermostClient` for administrative actions like creating channels. It needs permissions to manage channels on the specified team.
     *   `MATTERMOST_TEAM_ID`: The ID of the Mattermost team where new channels created by the bot will be placed.
     *   `BOT_TOKEN`: The personal access token for the Mattermost bot account itself. This token is used for connecting to the Mattermost WebSocket API (for receiving messages) and for posting messages back to channels as the bot.
     *   `BOT_NAME`: The username of your bot in Mattermost, without the leading `@` (e.g., `marty`). The bot listens for messages mentioning this name.
