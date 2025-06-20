@@ -161,6 +161,40 @@ class TestBotMessageHandler(unittest.TestCase):
         # If it were a Mock that was None, could do: self.assertFalse(mock_auth_client_instance.create_group.called)
 
     @patch.object(marty_bot_module, "envoyer_message", new_callable=MagicMock)
+    @patch.object(marty_bot_module, "authentik_client", create=True)  # Assume other clients are fine
+    @patch.object(marty_bot_module, "outline_client", create=True)
+    @patch.object(marty_bot_module, "mattermost_api_client", None)  # Simulate Mattermost client not initialized
+    @async_test
+    async def test_handle_create_group_mattermost_client_none(
+        self, mock_outline_client_instance, mock_auth_client_instance, mock_envoyer_message_func
+    ):
+        # mattermost_api_client is patched to None for this test's scope
+        mock_auth_client_instance.create_group.return_value = True
+        mock_outline_client_instance.create_group.return_value = True
+
+        project_name = "no_mattermost_project"
+        mock_message_data = {
+            "event": "posted",
+            "data": {
+                "post": json.dumps(
+                    {
+                        "message": f"@{bot_config.BOT_NAME} create_group {project_name}",
+                        "channel_id": "channel_no_mm",
+                        "user_id": "user_no_mm",
+                    }
+                )
+            },
+        }
+
+        await marty_bot_module.on_message(None, json.dumps(mock_message_data))
+
+        mock_envoyer_message_func.assert_called_once()
+        args, _ = mock_envoyer_message_func.call_args
+        self.assertIn("- Mattermost API client not initialized. Skipping.", args[1])
+        self.assertIn("Authentik group creation: Success", args[1])
+        self.assertIn("Outline collection creation: Success", args[1])
+
+    @patch.object(marty_bot_module, "envoyer_message", new_callable=MagicMock)
     @async_test
     async def test_handle_simple_mention_bonjour(self, mock_envoyer_message_func):
         mock_message_data = {

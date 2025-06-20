@@ -40,7 +40,7 @@ class MattermostClient:
         """
         Initializes the MattermostClient.
         :param base_url: The base URL of the Mattermost instance (e.g., http://localhost:8065).
-        :param token: The API token (Personal Access Token of a bot/admin) for Mattermost operations.
+        :param token: The Bot's Access Token for Mattermost API operations.
         :param team_id: The default Mattermost Team ID to use for operations like channel creation.
         """
         if not base_url or not token or not team_id:
@@ -111,17 +111,17 @@ if __name__ == "__main__":
     load_dotenv()
 
     mm_url_env = os.getenv("MATTERMOST_URL")
-    mm_token_env = os.getenv("BOT_TOKEN")  # This should be the admin/bot API token
+    mm_bot_token_env = os.getenv("BOT_TOKEN")  # Using BOT_TOKEN for the client
     mm_team_id_env = os.getenv("MATTERMOST_TEAM_ID")
 
-    if not mm_url_env or not mm_token_env or not mm_team_id_env:
+    if not mm_url_env or not mm_bot_token_env or not mm_team_id_env:
         print(
             "Please set MATTERMOST_URL, BOT_TOKEN, and MATTERMOST_TEAM_ID environment variables for this example."  # noqa: E501
         )
     else:
-        print(f"Attempting to connect to Mattermost at {mm_url_env} for team {mm_team_id_env}")
+        print(f"Attempting to connect to Mattermost at {mm_url_env} for team {mm_team_id_env} using Bot Token")
         try:
-            client = MattermostClient(base_url=mm_url_env, token=mm_token_env, team_id=mm_team_id_env)
+            client = MattermostClient(base_url=mm_url_env, token=mm_bot_token_env, team_id=mm_team_id_env)
 
             project_to_create = "Test MM Channel OOP"
             print(f"\nAttempting to create Mattermost channel: '{project_to_create}' using default team ID.")

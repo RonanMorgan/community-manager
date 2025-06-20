@@ -37,15 +37,15 @@ try:
     else:
         logging.warning("Outline URL or Token not configured. Outline features will be disabled.")
 
-    if config.MATTERMOST_URL and config.BOT_TOKEN and config.MATTERMOST_TEAM_ID:
-        # This client uses BOT_TOKEN (admin/API token) for operations
+    if config.MATTERMOST_URL and config.BOT_TOKEN and config.MATTERMOST_TEAM_ID:  # Check for BOT_TOKEN now
+        # This client now uses BOT_TOKEN for its API operations
         mattermost_api_client = MattermostClient(
-            config.MATTERMOST_URL, config.BOT_TOKEN, config.MATTERMOST_TEAM_ID
+            config.MATTERMOST_URL, config.BOT_TOKEN, config.MATTERMOST_TEAM_ID  # Pass BOT_TOKEN
         )
-        logging.info("MattermostClient (for API operations) initialized successfully.")
+        logging.info("MattermostClient (for API operations using BOT_TOKEN) initialized successfully.")
     else:
         logging.warning(
-            "Mattermost URL, Admin Token, or Team ID not fully configured. Mattermost API operations may fail or be disabled."  # noqa: E501
+            "Mattermost URL, Bot Token, or Team ID not fully configured for MattermostClient. Mattermost API operations may fail or be disabled."  # noqa: E501
         )
 
 except ValueError as e:
@@ -243,7 +243,7 @@ def run():
             all_configs_missing = False
         if config.OUTLINE_URL and config.OUTLINE_TOKEN:
             all_configs_missing = False
-        if config.MATTERMOST_URL and config.BOT_TOKEN and config.MATTERMOST_TEAM_ID:
+        if config.MATTERMOST_URL and config.MATTERMOST_TOKEN and config.MATTERMOST_TEAM_ID:
             all_configs_missing = False
 
         if all_configs_missing:
