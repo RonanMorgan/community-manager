@@ -8,7 +8,9 @@ import requests
 # import os # No longer used
 import asyncio
 import logging
-import signal # For graceful shutdown
+import signal  # For graceful shutdown
+import threading  # For logging current thread name in start()
+
 from app import config
 
 # Configure basic logging based on DEBUG status
@@ -132,16 +134,16 @@ class MartyBot:
             )
 
         # Placeholder for WebSocket connection, will be initialized in 'run_bot' method
-        self.websocket = None # Represents the active WebSocket connection object
-        self.ws_app = None # Compatibility with prompt, can be alias for self.websocket or removed if not used like websocket-client's WebSocketApp
+        self.websocket = None  # Represents the active WebSocket connection object
+        # self.ws_app = None # Removed as we are using self.websocket with the 'websockets' library
 
         # For graceful shutdown
         self.shutdown_event = asyncio.Event()
 
         # Reconnection parameters
-        self.MAX_RECONNECT_ATTEMPTS = 5  # Example value
+        self.MAX_RECONNECT_ATTEMPTS = 5
         self.INITIAL_RECONNECT_DELAY = 5  # seconds
-        self.MAX_RECONNECT_DELAY = 60 # seconds
+        self.MAX_RECONNECT_DELAY = 60  # seconds
 
         # Commands are defined here, mapping command string to handler method
         self.commands = {
@@ -164,7 +166,6 @@ class MartyBot:
             # that might not be in the same thread as the asyncio loop.
             # However, loop.add_signal_handler runs the callback in the loop's thread.
             asyncio.create_task(self.websocket.close())
-
 
     def envoyer_message(self, channel_id, message_text, thread_id=None):  # Added thread_id as optional
         if not self.config.BOT_TOKEN or not self.config.MATTERMOST_URL:
@@ -204,12 +205,14 @@ class MartyBot:
         Returns: (command_verb, arg_string) or (None, None)
         """
         stripped_text = message_text_after_mention.strip()
-        if not stripped_text: # Handles empty string or string with only spaces
+        if not stripped_text:  # Handles empty string or string with only spaces
             return None, None
 
         parts = stripped_text.split(maxsplit=1)
         command_verb = parts[0].lower()
-        arg_string = parts[1] if len(parts) > 1 else None # arg_string will not have leading/trailing spaces from itself
+        arg_string = (
+            parts[1] if len(parts) > 1 else None
+        )  # arg_string will not have leading/trailing spaces from itself
         return command_verb, arg_string
 
     async def _send_help_message(self, channel_id, arg_string=None):
@@ -222,12 +225,14 @@ class MartyBot:
                 docstring = handler_method.__doc__
                 description = ""
                 if docstring:
-                    first_line = docstring.strip().split('\n')[0]
-                    description = f" - _{first_line}_" # Italic for description
+                    first_line = docstring.strip().split("\n")[0]
+                    description = f" - _{first_line}_"  # Italic for description
                 help_lines.append(f"* **`{cmd}`**{description}")
 
         help_lines.append("\n---")
-        help_lines.append(f"**Example:** `{self.bot_name_mention} create_group MyNewProject` - Creates resources for 'MyNewProject'.")
+        help_lines.append(
+            f"**Example:** `{self.bot_name_mention} create_group MyNewProject` - Creates resources for 'MyNewProject'."
+        )
         help_lines.append(f"Mention me with a command, like `{self.bot_name_mention} help`.")
 
         help_text = "\n".join(help_lines)
@@ -257,7 +262,9 @@ class MartyBot:
             auth_success = self.authentik_client.create_group(project_name)
             if auth_success:
                 succeeded_ops += 1
-        results_summary.append(f"{':white_check_mark:' if auth_success else ':x:'} Authentik group creation {'succeeded' if auth_success else 'failed'}. (Client configured: {auth_configured})")
+        results_summary.append(
+            f"{':white_check_mark:' if auth_success else ':x:'} Authentik group creation {'succeeded' if auth_success else 'failed'}. (Client configured: {auth_configured})"
+        )
 
         # Outline
         outline_configured = bool(self.outline_client)
@@ -267,7 +274,9 @@ class MartyBot:
             outline_success = self.outline_client.create_group(project_name)
             if outline_success:
                 succeeded_ops += 1
-        results_summary.append(f"{':white_check_mark:' if outline_success else ':x:'} Outline collection creation {'succeeded' if outline_success else 'failed'}. (Client configured: {outline_configured})")
+        results_summary.append(
+            f"{':white_check_mark:' if outline_success else ':x:'} Outline collection creation {'succeeded' if outline_success else 'failed'}. (Client configured: {outline_configured})"
+        )
 
         # Mattermost
         mm_configured = bool(self.mattermost_api_client)
@@ -277,7 +286,9 @@ class MartyBot:
             mm_success = self.mattermost_api_client.create_channel(project_name)
             if mm_success:
                 succeeded_ops += 1
-        results_summary.append(f"{':white_check_mark:' if mm_success else ':x:'} Mattermost channel creation {'succeeded' if mm_success else 'failed'}. (Client configured: {mm_configured})")
+        results_summary.append(
+            f"{':white_check_mark:' if mm_success else ':x:'} Mattermost channel creation {'succeeded' if mm_success else 'failed'}. (Client configured: {mm_configured})"
+        )
 
         if attempted_ops == 0:
             final_header = f":information_source: No services configured for 'create_group' for project **`{project_name}`**. Please check bot configuration."
@@ -285,7 +296,7 @@ class MartyBot:
             final_header = f":rocket: Successfully created all requested resources for project **`{project_name}`**!"
         elif succeeded_ops > 0:
             final_header = f":warning: Partially completed group creation for project **`{project_name}`**:"
-        else: # succeeded_ops == 0 and attempted_ops > 0
+        else:  # succeeded_ops == 0 and attempted_ops > 0
             final_header = f":boom: Failed to create any requested resources for project **`{project_name}`**."
 
         final_response_message = f"{final_header}\n---\n" + "\n".join(results_summary)
@@ -313,7 +324,7 @@ class MartyBot:
         mention_match = re.search(rf"(?i)(?:^|\s){escaped_mention}(?:\s+(.*)|$)", message_text)
 
         if not mention_match:
-            return # Bot not mentioned correctly or at all
+            return  # Bot not mentioned correctly or at all
 
         # Text after the mention (could be empty string or None)
         text_after_mention = mention_match.group(1)
@@ -329,26 +340,26 @@ class MartyBot:
                 message = f":question: Unknown command: **`{command_verb}`**. Try `{self.bot_name_mention} help` for a list of available commands."
                 await asyncio.to_thread(self.envoyer_message, channel_id, message)
         elif text_after_mention is None or text_after_mention.strip() == "":
-             message = f"Hi there! You mentioned me. Try `{self.bot_name_mention} help` for a list of commands."
-             await asyncio.to_thread(self.envoyer_message, channel_id, message)
+            message = f"Hi there! You mentioned me. Try `{self.bot_name_mention} help` for a list of commands."
+            await asyncio.to_thread(self.envoyer_message, channel_id, message)
         # else: # This case should ideally not be reached if parsing is exhaustive
-            # logging.debug(f"Text after mention '{text_after_mention}' resulted in no command_verb but was not empty.")
-            # message = f"I'm not sure what you mean by '{text_after_mention}'. Try `{self.bot_name_mention} help`."
-            # await asyncio.to_thread(self.envoyer_message, channel_id, message)
-            # The generic "Hi! You mentioned me" is likely the best fallback if a command isn't parsed.
-            # This complex conditional might need further simplification based on _parse_command_from_mention's exact return for "mention only"
-            # Based on current _parse_command_from_mention, (None, None) is for no command text.
-            # The original "Bonjour toi" for other commands is now an "Unknown command" or part of help.
-            # Let's ensure the "Hi! You mentioned me." is the main fallback if no valid command is found after mention.
-            # The current logic:
-            # 1. If valid command_verb and handler -> call handler
-            # 2. If valid command_verb but no handler -> unknown command
-            # 3. If no command_verb (e.g. only mention, or unparseable as command) -> Hi! You mentioned me.
-            # This seems reasonable.
-            # The "Bonjour toi" for any other text after mention is removed in favor of specific commands or "Unknown command".
-            # If we want a generic response to *any* text after mention that isn't a command:
-            # elif text_after_mention is not None: # Bot was mentioned, and there was *some* text, but not a known command
-            #    await asyncio.to_thread(self.envoyer_message, channel_id, "Bonjour toi ! How can I help you today?")
+        # logging.debug(f"Text after mention '{text_after_mention}' resulted in no command_verb but was not empty.")
+        # message = f"I'm not sure what you mean by '{text_after_mention}'. Try `{self.bot_name_mention} help`."
+        # await asyncio.to_thread(self.envoyer_message, channel_id, message)
+        # The generic "Hi! You mentioned me" is likely the best fallback if a command isn't parsed.
+        # This complex conditional might need further simplification based on _parse_command_from_mention's exact return for "mention only"
+        # Based on current _parse_command_from_mention, (None, None) is for no command text.
+        # The original "Bonjour toi" for other commands is now an "Unknown command" or part of help.
+        # Let's ensure the "Hi! You mentioned me." is the main fallback if no valid command is found after mention.
+        # The current logic:
+        # 1. If valid command_verb and handler -> call handler
+        # 2. If valid command_verb but no handler -> unknown command
+        # 3. If no command_verb (e.g. only mention, or unparseable as command) -> Hi! You mentioned me.
+        # This seems reasonable.
+        # The "Bonjour toi" for any other text after mention is removed in favor of specific commands or "Unknown command".
+        # If we want a generic response to *any* text after mention that isn't a command:
+        # elif text_after_mention is not None: # Bot was mentioned, and there was *some* text, but not a known command
+        #    await asyncio.to_thread(self.envoyer_message, channel_id, "Bonjour toi ! How can I help you today?")
 
     async def on_message(self, ws, message_str):  # ws might not be needed if not directly used
         logging.debug(f"WebSocket << Raw incoming message: {message_str}")
@@ -365,6 +376,11 @@ class MartyBot:
                 logging.debug(f"WebSocket << 'posted' event 'data' field raw content: {data.get('data')}")
                 await self._handle_message_event(data)  # Pass the parsed 'data'
             # TODO: Handle other event types like 'hello' for connection confirmation if needed
+            elif event_type == "hello":  # Mattermost sends a 'hello' event upon successful connection
+                logging.info(f"WebSocket << Received 'hello' event: {data}")
+                # Here you could verify server version or connection status if needed
+            elif event_type:  # Log other event types if DEBUG is on
+                logging.debug(f"WebSocket << Received unhandled event type '{event_type}': {data}")
 
         except json.JSONDecodeError:
             logging.error(f"Error decoding JSON message: {message_str}")
@@ -410,54 +426,106 @@ class MartyBot:
             )
             return
 
-        ws_scheme = "ws"
-        if self.config.MATTERMOST_URL.startswith("https://"):
-            ws_scheme = "wss"
+        websocket_url = f"{self.config.MATTERMOST_URL.replace('http', 'ws', 1).rstrip('/')}/api/v4/websocket"
+        logging.info(f"WebSocket URL prepared: {websocket_url}")
 
-        protocol_stripped_url = self.config.MATTERMOST_URL.replace("https://", "").replace("http://", "")
-        ws_url = f"{ws_scheme}://{protocol_stripped_url}/api/v4/websocket"
+        reconnect_attempts = 0
+        current_delay = self.INITIAL_RECONNECT_DELAY
 
-        logging.info(f"Attempting to connect to WebSocket: {ws_url} for bot instance")
-
-        retry_delay = 5
-        while True:
+        while not self.shutdown_event.is_set():
             try:
-                async with websockets.connect(ws_url, ping_interval=60, ping_timeout=30) as self.websocket:
+                logging.info(
+                    f"Attempting to connect to WebSocket: {websocket_url} (Attempt: {reconnect_attempts + 1})"
+                )
+                # Pass extra_headers for authorization, more standard for 'websockets' library
+                async with websockets.connect(
+                    websocket_url,
+                    extra_headers={"Authorization": f"Bearer {self.config.BOT_TOKEN}"},
+                    ping_interval=25,  # Send pings every 25s
+                    ping_timeout=20,  # Timeout if pong not received in 20s
+                ) as self.websocket:
+                    logging.info(f"Successfully connected to WebSocket: {websocket_url}")
                     await self.on_open(self.websocket)
-                    async for message in self.websocket:
-                        await self.on_message(self.websocket, message)
-            except websockets.exceptions.ConnectionClosed as e:
-                logging.warning(f"WebSocket connection closed: {e}. Retrying in {retry_delay}s...")
-            except ConnectionRefusedError:
-                logging.error(
-                    f"Connection refused for WebSocket at {ws_url}. "
-                    f"Is Mattermost running? Retrying in {retry_delay}s..."
-                )
-            except Exception as e:
-                logging.error(
-                    f"WebSocket connection error: {e}. Retrying in {retry_delay}s...", exc_info=True  # noqa: E501
-                )
-            await asyncio.sleep(current_delay) # Use current_delay for backoff
-            # else: # Shutdown event was set
+                    reconnect_attempts = 0  # Reset on successful connection
+                    current_delay = self.INITIAL_RECONNECT_DELAY
+
+                    while not self.shutdown_event.is_set():
+                        try:
+                            message_str = await asyncio.wait_for(self.websocket.recv(), timeout=1.0)
+                            if message_str:  # recv() can return empty if connection is closing cleanly
+                                await self.on_message(self.websocket, message_str)
+                        except asyncio.TimeoutError:
+                            # No message received, check shutdown_event and continue
+                            if self.shutdown_event.is_set():
+                                logging.debug("Shutdown event set during recv timeout, breaking inner loop.")
+                                break
+                            continue  # Normal timeout, continue listening
+                        except websockets.exceptions.ConnectionClosedOK:
+                            logging.info("WebSocket connection closed normally by server (ClosedOK).")
+                            await self.on_close(self.websocket, 1000, "ConnectionClosedOK")
+                            break  # Break inner loop to reconnect
+                        except websockets.exceptions.ConnectionClosedError as e:
+                            logging.warning(
+                                f"WebSocket connection closed with error: {e}. Code: {e.code}, Reason: {e.reason}"
+                            )
+                            await self.on_close(self.websocket, e.code, e.reason)
+                            break  # Break inner loop to reconnect
+                        except Exception as e:  # Other errors during recv
+                            logging.error(f"Error during WebSocket recv: {e}", exc_info=True)
+                            await self.on_error(self.websocket, e)  # Call on_error
+                            # Depending on severity, might break to reconnect or continue
+                            break  # Break inner loop to reconnect for most recv errors
+
+                if self.shutdown_event.is_set():
+                    logging.info("Shutdown event set, breaking outer connection loop.")
+                    break  # Exit the while not self.shutdown_event.is_set() loop
+
+            except (
+                websockets.exceptions.InvalidURI,
+                websockets.exceptions.InvalidHandshake,
+                ConnectionRefusedError,
+                OSError,
+            ) as e:
+                logging.error(f"Failed to connect to WebSocket: {e}")
+            except Exception as e:  # Catch other unexpected errors during connect
+                logging.error(f"Unexpected error during WebSocket connection attempt: {e}", exc_info=True)
+
+            # If loop broken due to error/closure and not shutdown_event
+            if not self.shutdown_event.is_set():
+                reconnect_attempts += 1
+                if reconnect_attempts >= self.MAX_RECONNECT_ATTEMPTS:
+                    logging.error(f"Exceeded max reconnect attempts ({self.MAX_RECONNECT_ATTEMPTS}). Stopping bot.")
+                    self.shutdown_event.set()  # Signal shutdown to prevent further attempts
+                    break  # Exit outer loop
+
+                logging.info(f"Reconnecting in {current_delay} seconds...")
+                try:
+                    # Wait for current_delay seconds OR until shutdown_event is set
+                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=current_delay)
+                    if self.shutdown_event.is_set():
+                        logging.info("Shutdown initiated during reconnect delay.")
+                        break  # Exit outer loop if shutdown event is set during delay
+                except asyncio.TimeoutError:
+                    pass  # Normal delay completion, continue to next reconnect attempt
+
+                current_delay = min(current_delay * 2, self.MAX_RECONNECT_DELAY)  # Exponential backoff
+            # else: # Shutdown event was set - this path is taken if shutdown_event.is_set() after the try/except block
             #      logging.info("WebSocket connection loop terminating due to shutdown request.")
-            # Handled by the outer while not self.shutdown_event.is_set()
 
         logging.info("MartyBot WebSocket listener stopped.")
-        if self.websocket and self.websocket.open:
-            logging.info("Closing WebSocket connection finally...")
+        if self.websocket and self.websocket.open:  # Ensure it's the instance variable
+            logging.info("Closing WebSocket connection finally (if still open)...")
             try:
                 await self.websocket.close()
-                # Call on_close manually because the loop is exiting due to shutdown_event,
-                # not necessarily a clean close from the server that would trigger the callback via the library.
-                # However, if self.websocket.close() triggers the callback, this might be redundant.
-                # For clarity, we can assume on_close is called by the library upon successful close.
-                # await self.on_close(self.websocket, 1000, "Shutdown initiated")
             except Exception as e:
                 logging.error(f"Error during final WebSocket close: {e}")
-
+        # Call on_close if it hasn't been called due to abrupt exit,
+        # but ensure it's not called twice if already handled by ConnectionClosed exceptions.
+        # This might be complex to get right perfectly without more state.
+        # For now, rely on ConnectionClosed* exceptions to call self.on_close.
 
     def start(self):
-        logging.info("Initializing Marty Bot instance...")
+        logging.info(f"Initializing Marty Bot instance in thread {threading.current_thread().name}...")
 
         # Check if critical clients were initialized in __init__
         # This is an additional check or can replace the one in _run_websocket_loop
@@ -466,46 +534,86 @@ class MartyBot:
             # Depending on desired behavior, could prevent startup:
             # return
 
-        logging.info("Starting WebSocket listener for MartyBot instance...")
-        loop = asyncio.get_event_loop() # Get current event loop or create one if none
-        if loop.is_closed(): # Handle case where a previous loop was closed (e.g. in tests or re-runs)
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # Ensure this method is called in a new thread by main.py, as it manages its own loop.
+        logging.info(f"Initializing Marty Bot instance for dedicated thread: {threading.current_thread().name}")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        logging.info(f"New asyncio event loop created and set for thread {threading.current_thread().name}")
 
-        # Add signal handlers for graceful shutdown
-        # These will call _request_shutdown, which sets self.shutdown_event
         try:
+            # Register signal handlers
             for sig in (signal.SIGINT, signal.SIGTERM):
-                loop.add_signal_handler(sig, self._request_shutdown)
-        except NotImplementedError:
-            # For Windows, signal handlers for SIGINT/SIGTERM might not work the same way.
-            logging.warning("Signal handlers for graceful shutdown may not be fully supported on this OS (e.g., Windows).")
+                try:
+                    loop.add_signal_handler(sig, self._request_shutdown)
+                    logging.info(f"Signal handler for {sig.name} set.")
+                except NotImplementedError:
+                    logging.warning(
+                        f"Signal handler for {sig.name} could not be set on this OS/loop policy (NotImplementedError)."
+                    )
+                except (
+                    Exception
+                ) as e:  # Other potential errors like ValueError if loop is not running (should not happen here)
+                    logging.error(f"Error setting signal handler for {sig.name}: {e}")
 
-        try:
+            logging.info(
+                f"Starting WebSocket listener for MartyBot instance in thread {threading.current_thread().name}..."
+            )
             loop.run_until_complete(self._run_websocket_loop())
-        except KeyboardInterrupt: # Should be caught by signal handler now, but good fallback
-            logging.info("KeyboardInterrupt received. Requesting shutdown...")
-            self._request_shutdown()
-            # Allow the loop to complete ongoing tasks if _run_websocket_loop respects shutdown_event
-            loop.run_until_complete(self._run_websocket_loop()) # Will exit quickly if shutdown_event is set
-        except Exception as e:
-            logging.critical(f"WebSocket listener for MartyBot instance failed critically: {e}", exc_info=True)
-        finally:
-            logging.info("Cleaning up asyncio tasks and closing loop...")
-            # Gather all remaining tasks and cancel them (except the current one)
-            # This is more relevant if _run_websocket_loop created detached tasks.
-            # tasks = [t for t in asyncio.all_tasks(loop=loop) if t is not asyncio.current_task(loop=loop)]
-            # if tasks:
-            #     logging.info(f"Cancelling {len(tasks)} outstanding tasks.")
-            #     for task in tasks:
-            #         task.cancel()
-            #     loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
 
-            if not loop.is_closed():
-                 # Run pending tasks to completion (e.g. cleanup from cancelled tasks)
-                loop.run_until_complete(loop.shutdown_asyncgens())
-                loop.close()
-            logging.info("Asyncio loop closed.")
+        except KeyboardInterrupt:
+            logging.info(
+                "KeyboardInterrupt caught in start() (should have been handled by signal), requesting shutdown."
+            )
+            if not self.shutdown_event.is_set():  # Ensure it's set if signal handler didn't run (e.g. Windows)
+                self._request_shutdown()
+                # Re-run the loop briefly to allow shutdown_event to propagate if _run_websocket_loop was interrupted directly
+                # This might not be strictly necessary if _run_websocket_loop checks shutdown_event frequently enough
+                # but can help ensure a quicker exit if shutdown_event was just set.
+                # loop.run_until_complete(asyncio.sleep(0.1))
+                # loop.run_until_complete(self._run_websocket_loop()) # Will exit quickly if shutdown_event is set
+        finally:
+            logging.info(f"Cleaning up asyncio event loop in thread {threading.current_thread().name}.")
+
+            try:
+                # Attempt to gather and cancel all tasks.
+                all_tasks = asyncio.all_tasks(loop=loop)
+                current_task = None
+                if loop.is_running():
+                    current_task = asyncio.current_task(loop=loop)
+
+                tasks_to_cancel = [t for t in all_tasks if t is not current_task]
+
+                if tasks_to_cancel:
+                    logging.debug(f"Cancelling {len(tasks_to_cancel)} outstanding tasks.")
+                    for task in tasks_to_cancel:
+                        task.cancel()
+
+                    loop.run_until_complete(asyncio.gather(*tasks_to_cancel, return_exceptions=True))
+                    logging.debug("Outstanding tasks gathered after cancellation.")
+
+                if hasattr(loop, "shutdown_asyncgens"):
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                    logging.debug("Async generators shut down.")
+
+            except RuntimeError as e:
+                logging.warning(f"RuntimeError during task cleanup (likely loop already stopped): {e}")
+            except Exception as e:
+                logging.error(f"Error during task cleanup: {e}", exc_info=True)
+            finally:
+                if hasattr(loop, "shutdown_default_executor"):
+                    try:
+                        loop.run_until_complete(loop.shutdown_default_executor())
+                        logging.debug("Default executor shut down.")
+                    except Exception as e:
+                        logging.error(f"Error shutting down default executor: {e}", exc_info=True)
+
+                if not loop.is_closed():
+                    loop.close()
+                    logging.info(f"Asyncio event loop closed for thread {threading.current_thread().name}.")
+                else:
+                    logging.info(
+                        f"Asyncio event loop was already closed for thread {threading.current_thread().name}."
+                    )
 
 
 # (Old global functions below are to be removed or commented out)
