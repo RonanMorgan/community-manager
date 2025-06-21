@@ -246,42 +246,47 @@ class MartyBot:
         await asyncio.to_thread(self.envoyer_message, channel_id, processing_message)
 
         results_summary = []
-        all_ok = True
-        any_ok = False
+        attempted_ops = 0
+        succeeded_ops = 0
 
         # Authentik
         auth_configured = bool(self.authentik_client)
         auth_success = False
-        if self.authentik_client:
+        if auth_configured:
+            attempted_ops += 1
             auth_success = self.authentik_client.create_group(project_name)
+            if auth_success:
+                succeeded_ops += 1
         results_summary.append(f"{':white_check_mark:' if auth_success else ':x:'} Authentik group creation {'succeeded' if auth_success else 'failed'}. (Client configured: {auth_configured})")
-        if not auth_success and auth_configured: all_ok = False
-        if auth_success: any_ok = True
 
         # Outline
         outline_configured = bool(self.outline_client)
         outline_success = False
-        if self.outline_client:
+        if outline_configured:
+            attempted_ops += 1
             outline_success = self.outline_client.create_group(project_name)
+            if outline_success:
+                succeeded_ops += 1
         results_summary.append(f"{':white_check_mark:' if outline_success else ':x:'} Outline collection creation {'succeeded' if outline_success else 'failed'}. (Client configured: {outline_configured})")
-        if not outline_success and outline_configured: all_ok = False
-        if outline_success: any_ok = True
 
         # Mattermost
         mm_configured = bool(self.mattermost_api_client)
         mm_success = False
-        if self.mattermost_api_client:
+        if mm_configured:
+            attempted_ops += 1
             mm_success = self.mattermost_api_client.create_channel(project_name)
+            if mm_success:
+                succeeded_ops += 1
         results_summary.append(f"{':white_check_mark:' if mm_success else ':x:'} Mattermost channel creation {'succeeded' if mm_success else 'failed'}. (Client configured: {mm_configured})")
-        if not mm_success and mm_configured: all_ok = False
-        if mm_success: any_ok = True
 
-        if all_ok and (auth_configured or outline_configured or mm_configured): # All attempted operations succeeded
-             final_header = f":rocket: Successfully created all resources for project **`{project_name}`**!"
-        elif any_ok: # Some operations succeeded
-             final_header = f":warning: Partially completed group creation for project **`{project_name}`**:"
-        else: # All attempted and configured operations failed
-             final_header = f":boom: Failed to create any requested resources for project **`{project_name}`**."
+        if attempted_ops == 0:
+            final_header = f":information_source: No services configured for 'create_group' for project **`{project_name}`**. Please check bot configuration."
+        elif succeeded_ops == attempted_ops:
+            final_header = f":rocket: Successfully created all requested resources for project **`{project_name}`**!"
+        elif succeeded_ops > 0:
+            final_header = f":warning: Partially completed group creation for project **`{project_name}`**:"
+        else: # succeeded_ops == 0 and attempted_ops > 0
+            final_header = f":boom: Failed to create any requested resources for project **`{project_name}`**."
 
         final_response_message = f"{final_header}\n---\n" + "\n".join(results_summary)
         await asyncio.to_thread(self.envoyer_message, channel_id, final_response_message)
