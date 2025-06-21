@@ -38,15 +38,17 @@ pip install -r requirements.txt
 
 ## Running the Bot
 
-To run Marty Bot, use Uvicorn:
+To run Marty Bot directly:
 
 ```bash
-uvicorn app.main:app --reload
+python -m app.bot
 ```
 
-This will start the FastAPI server, and the Mattermost bot will connect in the background. The `--reload` flag is useful for development as it automatically reloads the server when code changes are detected.
+This command executes the `if __name__ == "__main__":` block in `app/bot.py`, which initializes and starts the bot.
 
-You should see output indicating the bot has connected to your Mattermost instance via WebSocket.
+You should see log output in your console indicating the bot is attempting to connect to your Mattermost instance via WebSocket. If `DEBUG=true` is set in your `.env` file, you will see more verbose logging.
+
+The bot runs as a standalone Python application.
 
 ## Commands
 
