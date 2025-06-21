@@ -332,8 +332,9 @@ class MartyBot:
                 )
                 async with websockets.connect(
                     websocket_url,
-                    extra_headers={"Authorization": f"Bearer {self.config.BOT_TOKEN}"},
-                    # Removed ping_interval and ping_timeout to address potential TypeError
+                    ping_interval=60,  # From user's working example
+                    ping_timeout=30,  # From user's working example
+                    # extra_headers argument removed
                 ) as self.websocket:
                     logging.info(f"Successfully connected to WebSocket: {websocket_url}")
                     await self.on_open(self.websocket)
