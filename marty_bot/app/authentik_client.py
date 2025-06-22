@@ -1,8 +1,9 @@
 import requests
-import logging # Added logging
-import json # Added json
+import logging  # Added logging
+import json  # Added json
 
 # Removed direct import of config, will be passed during instantiation
+
 
 class AuthentikClient:
     def __init__(self, base_url: str, token: str):
@@ -18,7 +19,7 @@ class AuthentikClient:
         self.headers = {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/json",
-            "Content-Type": "application/json", # Common for POST, harmless for GET
+            "Content-Type": "application/json",  # Common for POST, harmless for GET
         }
 
     def create_group(self, project_name: str) -> bool:
@@ -36,23 +37,28 @@ class AuthentikClient:
 
         try:
             response = requests.post(api_url, headers=self.headers, json=payload)
-            response.raise_for_status() # Check for HTTP errors
+            response.raise_for_status()  # Check for HTTP errors
             # If successful (201 Created), log and return True
-            logging.info(f"Authentik group '{project_name}' created successfully. Group ID: {response.json().get('pk')}")
+            logging.info(
+                f"Authentik group '{project_name}' created successfully. Group ID: {response.json().get('pk')}"
+            )
             return True
         except requests.exceptions.HTTPError as e:
             # Log specific HTTP errors, e.g. if group already exists (often a 400 or 409)
-            logging.error(f"HTTP error creating Authentik group '{project_name}': {e.response.status_code} - {e.response.text}")
+            error_msg = (  # noqa: E501
+                f"HTTP error creating Authentik group '{project_name}': "
+                f"{e.response.status_code} - {e.response.text}"  # noqa: E501
+            )
+            logging.error(error_msg)
             # Check if it's because group already exists - Authentik might return a specific error code/message
             # For example, if response.json().get('name') == ["group with this name already exists."]: logging.info(...) return True
             return False
         except requests.exceptions.RequestException as e:
             logging.error(f"Request failed for Authentik group creation '{project_name}': {e}")
             return False
-        except json.JSONDecodeError as e: # In case response.json() fails on success (unlikely for 201)
+        except json.JSONDecodeError as e:  # In case response.json() fails on success (unlikely for 201)
             logging.error(f"Error decoding JSON from Authentik group creation response for '{project_name}': {e}")
             return False
-
 
     def get_groups_with_users(self):
         """
@@ -61,14 +67,16 @@ class AuthentikClient:
         Each group object in the list should at least contain 'pk', 'name', and 'users' (list of user PKs).
         The dict_email_to_user_pk maps user email to their Authentik user PK.
         """
-        if not self.base_url or not self.token: # Should be caught by __init__ but good practice
+        if not self.base_url or not self.token:  # Should be caught by __init__ but good practice
             logging.error("Authentik client not configured (URL or Token missing).")
             return [], {}
 
         all_groups = []
         email_to_user_pk_map = {}
 
-        current_url = f"{self.base_url}/api/v3/core/groups/?include_users=true" # Assuming include_users provides users_obj
+        current_url = (
+            f"{self.base_url}/api/v3/core/groups/?include_users=true"  # Assuming include_users provides users_obj
+        )
         logging.info(f"Fetching Authentik groups (with users) from initial URL: {current_url}")
 
         page_count = 0
@@ -112,12 +120,15 @@ class AuthentikClient:
                 logging.error(f"Error decoding JSON from Authentik groups response ({current_url}): {e}")
                 return [], {}
 
-        logging.info(f"Fetched {len(all_groups)} groups and {len(email_to_user_pk_map)} unique user email-PK mappings from Authentik over {page_count} pages.")
+        logging.info(
+            f"Fetched {len(all_groups)} groups, {len(email_to_user_pk_map)} user email-PK mappings "
+            f"from Authentik over {page_count} pages."
+        )
         return all_groups, email_to_user_pk_map
 
     def add_user_to_group(self, group_pk, user_pk):
         """Adds a user to an Authentik group."""
-        if not self.base_url or not self.token: # Should be caught by __init__
+        if not self.base_url or not self.token:  # Should be caught by __init__
             logging.error("Authentik client not configured.")
             return False
         if not group_pk or user_pk is None:
@@ -144,7 +155,8 @@ class AuthentikClient:
             else:
                 # Should be caught by raise_for_status, but as a fallback
                 logging.warning(
-                    f"Adding user PK {user_pk} to group PK {group_pk} returned status {response.status_code}. Response: {response.text}"
+                    f"Adding user PK {user_pk} to group PK {group_pk} returned "
+                    f"status {response.status_code}. Response: {response.text}"
                 )
                 return False
         except requests.exceptions.HTTPError as e:
@@ -152,19 +164,25 @@ class AuthentikClient:
             # This depends on Authentik's exact error response structure
             try:
                 error_data = e.response.json()
-                if isinstance(error_data, dict) and any("already a member" in str(val).lower() for val in error_data.values()):
-                    logging.info(f"User PK {user_pk} is already a member of group PK {group_pk}. Considered successful.")
+                if isinstance(error_data, dict) and any(
+                    "already a member" in str(val).lower() for val in error_data.values()
+                ):
+                    logging.info(
+                        f"User PK {user_pk} is already a member of group PK {group_pk}. Considered successful."
+                    )
                     return True
             except json.JSONDecodeError:
-                pass # Not a JSON error response, or not the one we're looking for
+                pass  # Not a JSON error response, or not the one we're looking for
 
             logging.error(
-                f"HTTP error adding user PK {user_pk} to group PK {group_pk}: {e.response.status_code} - {e.response.text}"
+                f"HTTP error adding user PK {user_pk} to group PK {group_pk}: "
+                f"{e.response.status_code} - {e.response.text}"
             )
             return False
         except requests.exceptions.RequestException as e:
             logging.error(f"Request exception adding user PK {user_pk} to group PK {group_pk}: {e}")
             return False
+
 
 if __name__ == "__main__":
     from dotenv import load_dotenv
@@ -177,7 +195,8 @@ if __name__ == "__main__":
     if not auth_url or not auth_token:
         print("Please set AUTHENTIK_URL and AUTHENTIK_TOKEN environment variables for this example.")
     else:
-        logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s")
+        log_format = "%(asctime)s - %(levelname)s - " "[%(filename)s:%(lineno)d] - %(message)s"  # noqa: E501
+        logging.basicConfig(level=logging.DEBUG, format=log_format)
         print(f"Attempting to connect to Authentik at {auth_url}")
         try:
             client = AuthentikClient(base_url=auth_url, token=auth_token)

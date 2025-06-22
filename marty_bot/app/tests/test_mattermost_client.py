@@ -1,8 +1,6 @@
 import unittest
 from unittest.mock import patch, Mock
 import requests
-import logging # Added for client logging visibility
-import json # For constructing mock JSON responses
 
 from app.mattermost_client import MattermostClient, slugify
 
@@ -43,15 +41,23 @@ class TestMattermostClient(unittest.TestCase):
     @patch("requests.post")
     def test_create_channel_success_default_team_id(self, mock_post_request):
         mock_response = Mock(status_code=201)
-        mock_response.json.return_value = {"id": "channel_id_123", "display_name": "Test Project", "name": "test-project"}
+        mock_response.json.return_value = {
+            "id": "channel_id_123",
+            "display_name": "Test Project",
+            "name": "test-project",
+        }
         mock_post_request.return_value = mock_response
         project_name = "Test Project"
         result = self.client.create_channel(project_name)
         expected_api_url = f"{self.mock_url}/api/v4/channels"
         channel_name_slug = slugify(project_name)
         expected_payload = {
-            "team_id": self.mock_team_id, "name": channel_name_slug, "display_name": project_name,
-            "type": "O", "purpose": f"Channel for project {project_name}", "header": f"Project {project_name}",
+            "team_id": self.mock_team_id,
+            "name": channel_name_slug,
+            "display_name": project_name,
+            "type": "O",
+            "purpose": f"Channel for project {project_name}",
+            "header": f"Project {project_name}",
         }
         mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
         self.assertTrue(result)
@@ -66,12 +72,15 @@ class TestMattermostClient(unittest.TestCase):
         result = self.client.create_channel(project_name, team_id=override_team_id)
         self.assertTrue(result)
         _, kwargs = mock_post_request.call_args
-        self.assertEqual(kwargs['json']['team_id'], override_team_id)
+        self.assertEqual(kwargs["json"]["team_id"], override_team_id)
 
     @patch("requests.post")
-    def test_create_channel_failure_http_error(self, mock_post_request): # Renamed from api_error
+    def test_create_channel_failure_http_error(self, mock_post_request):  # Renamed from api_error
         mock_response = Mock(status_code=400)
-        mock_response.json.return_value = {"id": "store.sql_channel.save_channel.exists.app_error", "message": "Channel exists"}
+        mock_response.json.return_value = {
+            "id": "store.sql_channel.save_channel.exists.app_error",
+            "message": "Channel exists",
+        }
         mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
         mock_post_request.return_value = mock_response
         result = self.client.create_channel("Test Project Fail")
@@ -87,7 +96,12 @@ class TestMattermostClient(unittest.TestCase):
     @patch("requests.get")
     def test_get_channel_by_name_success(self, mock_get):
         channel_name = "test-channel"
-        expected_channel_data = {"id": "chan_id_1", "name": channel_name, "display_name": "Test Channel", "team_id": self.mock_team_id}
+        expected_channel_data = {
+            "id": "chan_id_1",
+            "name": channel_name,
+            "display_name": "Test Channel",
+            "team_id": self.mock_team_id,
+        }
         mock_response = Mock(status_code=200)
         mock_response.json.return_value = expected_channel_data
         mock_get.return_value = mock_response
@@ -144,8 +158,12 @@ class TestMattermostClient(unittest.TestCase):
         self.assertEqual(len(users), 201)
         self.assertEqual(users[-1]["id"], "user200")
         self.assertEqual(mock_get.call_count, 2)
-        mock_get.assert_any_call(f"{self.mock_url}/api/v4/users?in_channel={channel_id}&page=0&per_page=200", headers=self.client.headers)
-        mock_get.assert_any_call(f"{self.mock_url}/api/v4/users?in_channel={channel_id}&page=1&per_page=200", headers=self.client.headers)
+        mock_get.assert_any_call(
+            f"{self.mock_url}/api/v4/users?in_channel={channel_id}&page=0&per_page=200", headers=self.client.headers
+        )
+        mock_get.assert_any_call(
+            f"{self.mock_url}/api/v4/users?in_channel={channel_id}&page=1&per_page=200", headers=self.client.headers
+        )
 
     @patch("requests.get")
     def test_get_users_in_channel_api_error(self, mock_get):
@@ -156,7 +174,7 @@ class TestMattermostClient(unittest.TestCase):
     @patch("requests.get")
     def test_get_users_in_channel_empty(self, mock_get):
         mock_response = Mock(status_code=200)
-        mock_response.json.return_value = [] # Empty list for first page
+        mock_response.json.return_value = []  # Empty list for first page
         mock_get.return_value = mock_response
         users = self.client.get_users_in_channel("chan_id_empty")
         self.assertEqual(users, [])
@@ -179,6 +197,7 @@ class TestMattermostClient(unittest.TestCase):
             slugify("Test Project with really really long name that will be cut off at sixty four characters"),
             "test-project-with-really-really-long-name-that-will-be-cut-off-a",
         )
+
 
 if __name__ == "__main__":
     unittest.main()

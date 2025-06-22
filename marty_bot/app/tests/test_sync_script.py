@@ -1,223 +1,287 @@
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 import logging
 import sys
 import os
 
 # Adjust path to import from the app and scripts directory
-# This assumes tests are run from the repo root (e.g. /app) or marty_bot root.
-# If run from /app:
-# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))) # Adds /app to path
-# If run from /app/marty_bot:
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))) # Adds marty_bot to path for app imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../scripts'))) # Adds scripts to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-
-from app import config as app_config # For passing to initialize_clients if needed, or mocking
 from app.authentik_client import AuthentikClient
 from app.mattermost_client import MattermostClient, slugify
 
-# Functions to test from the script
-# Note: The script needs to be importable. If it has an if __name__ == "__main__": block
-# that runs logic immediately, that could be an issue for importing.
-# Assuming the script's functions can be imported.
-from sync_mm_authentik_groups import (
-    initialize_clients,
-    get_all_authentik_groups_and_user_map,
-    sync_single_authentik_group_with_mattermost,
-    main_sync_logic
-)
+# Import the script module itself to call its functions
+# The functions will be called as sync_mm_authentik_groups.function_name
+import scripts.sync_mm_authentik_groups as sync_mm_authentik_groups
 
 
 class TestSyncScriptLogic(unittest.TestCase):
 
     def setUp(self):
-        # Mock config for the script's functions
-        self.mock_config = MagicMock(spec=app_config)
-        self.mock_config.DEBUG = False
-        self.mock_config.AUTHENTIK_URL = "http://fake-auth.com"
-        self.mock_config.AUTHENTIK_TOKEN = "fake-auth-token"
-        self.mock_config.MATTERMOST_URL = "http://fake-mm.com"
-        self.mock_config.BOT_TOKEN = "fake_mm_bot_token"
-        self.mock_config.MATTERMOST_TEAM_ID = "fake_mm_team_id"
+        self.mock_auth_client_instance = MagicMock(spec=AuthentikClient)
+        self.mock_mm_client_instance = MagicMock(spec=MattermostClient)
+        self.test_mm_team_id_for_single_sync = "test_team_id_for_single_sync"
 
-        # Mock client instances that would be returned by initialize_clients
-        self.mock_auth_client = MagicMock(spec=AuthentikClient)
-        self.mock_mm_client = MagicMock(spec=MattermostClient)
+        # Suppress most logging during tests by default for cleaner output
+        # This will be overridden by the script's own logging config if DEBUG is True
+        logging.getLogger("scripts.sync_mm_authentik_groups").setLevel(logging.CRITICAL + 1)
+        logging.getLogger("app.authentik_client").setLevel(logging.CRITICAL + 1)
+        logging.getLogger("app.mattermost_client").setLevel(logging.CRITICAL + 1)
 
-        # Suppress logging from the script unless specifically testing for it
-        logging.getLogger('sync_mm_authentik_groups').setLevel(logging.CRITICAL)
+    # Tests for initialize_clients
+    # We patch the config attributes directly in the namespace where initialize_clients will look them up.
+    @patch("scripts.sync_mm_authentik_groups.MattermostClient")
+    @patch("scripts.sync_mm_authentik_groups.AuthentikClient")
+    @patch("scripts.sync_mm_authentik_groups.config")
+    def test_initialize_clients_success(self, mock_config, MockAuthentikClient, MockMattermostClient):
+        mock_config.AUTHENTIK_URL = "http://auth.example.com"
+        mock_config.AUTHENTIK_TOKEN = "auth_token"
+        mock_config.MATTERMOST_URL = "http://mm.example.com"
+        mock_config.BOT_TOKEN = "mm_bot_token"
+        mock_config.MATTERMOST_TEAM_ID = "mm_team_id"
+        mock_config.DEBUG = False
 
+        mock_auth_instance = MockAuthentikClient.return_value
+        mock_mm_instance = MockMattermostClient.return_value
 
-    @patch('scripts.sync_mm_authentik_groups.config', new_callable=MagicMock) # Patch config used by script
-    def test_initialize_clients_success(self, mock_script_config):
-        mock_script_config.AUTHENTIK_URL = "http://fake-auth.com"
-        mock_script_config.AUTHENTIK_TOKEN = "fake-auth-token"
-        mock_script_config.MATTERMOST_URL = "http://fake-mm.com"
-        mock_script_config.BOT_TOKEN = "fake_mm_bot_token"
-        mock_script_config.MATTERMOST_TEAM_ID = "fake_mm_team_id"
+        auth_client, mm_client = sync_mm_authentik_groups.initialize_clients()
 
-        with patch('scripts.sync_mm_authentik_groups.AuthentikClient') as MockAuthClient, \
-             patch('scripts.sync_mm_authentik_groups.MattermostClient') as MockMMClient:
+        MockAuthentikClient.assert_called_once_with("http://auth.example.com", "auth_token")
+        MockMattermostClient.assert_called_once_with("http://mm.example.com", "mm_bot_token", "mm_team_id")
+        self.assertEqual(auth_client, mock_auth_instance)
+        self.assertEqual(mm_client, mock_mm_instance)
 
-            mock_auth_instance = MockAuthClient.return_value
-            mock_mm_instance = MockMMClient.return_value
+    @patch("scripts.sync_mm_authentik_groups.MattermostClient")
+    @patch("scripts.sync_mm_authentik_groups.AuthentikClient")
+    @patch("scripts.sync_mm_authentik_groups.config")
+    def test_initialize_clients_auth_missing_config(self, mock_config, MockAuthentikClient, MockMattermostClient):
+        mock_config.AUTHENTIK_URL = None
+        mock_config.AUTHENTIK_TOKEN = None
+        mock_config.MATTERMOST_URL = "http://mm.example.com"
+        mock_config.BOT_TOKEN = "mm_bot_token"
+        mock_config.MATTERMOST_TEAM_ID = "mm_team_id"
+        mock_config.DEBUG = False
 
-            auth_client, mm_client = initialize_clients()
+        mock_mm_instance = MockMattermostClient.return_value
+        auth_client, mm_client = sync_mm_authentik_groups.initialize_clients()
 
-            MockAuthClient.assert_called_once_with("http://fake-auth.com", "fake-auth-token")
-            MockMMClient.assert_called_once_with("http://fake-mm.com", "fake_mm_bot_token", "fake_mm_team_id")
-            self.assertEqual(auth_client, mock_auth_instance)
-            self.assertEqual(mm_client, mock_mm_instance)
+        self.assertIsNone(auth_client)
+        MockAuthentikClient.assert_not_called()
+        self.assertEqual(mm_client, mock_mm_instance)
+        MockMattermostClient.assert_called_once_with("http://mm.example.com", "mm_bot_token", "mm_team_id")
 
-    @patch('scripts.sync_mm_authentik_groups.config', new_callable=MagicMock)
-    def test_initialize_clients_auth_missing_config(self, mock_script_config):
-        mock_script_config.AUTHENTIK_URL = None # Missing URL
-        mock_script_config.AUTHENTIK_TOKEN = "fake-auth-token"
-        # Assume MM config is fine
-        mock_script_config.MATTERMOST_URL = "http://fake-mm.com"
-        mock_script_config.BOT_TOKEN = "fake_mm_bot_token"
-        mock_script_config.MATTERMOST_TEAM_ID = "fake_mm_team_id"
+    @patch("scripts.sync_mm_authentik_groups.MattermostClient")
+    @patch("scripts.sync_mm_authentik_groups.AuthentikClient")
+    @patch("scripts.sync_mm_authentik_groups.config")
+    def test_initialize_clients_mm_missing_config(self, mock_config, MockAuthentikClient, MockMattermostClient):
+        mock_config.AUTHENTIK_URL = "http://auth.example.com"
+        mock_config.AUTHENTIK_TOKEN = "auth_token"
+        mock_config.MATTERMOST_URL = None
+        mock_config.BOT_TOKEN = None
+        mock_config.MATTERMOST_TEAM_ID = None
+        mock_config.DEBUG = False
 
-        with patch('scripts.sync_mm_authentik_groups.MattermostClient'): # Mock MM client to avoid its init issues
-            auth_client, _ = initialize_clients()
-            self.assertIsNone(auth_client)
-            # Test that mm_client would still be initialized if its config is present can be added if needed
+        mock_auth_instance = MockAuthentikClient.return_value
+        auth_client, mm_client = sync_mm_authentik_groups.initialize_clients()
 
-    # Test get_all_authentik_groups_and_user_map (currently a pass-through, so this tests interaction)
+        self.assertIsNone(mm_client)
+        MockMattermostClient.assert_not_called()
+        self.assertEqual(auth_client, mock_auth_instance)
+        MockAuthentikClient.assert_called_once_with("http://auth.example.com", "auth_token")
+
+    # Tests for get_all_authentik_groups_and_user_map (passes client as arg)
     def test_get_all_authentik_groups_and_user_map_passthrough(self):
         mock_groups_data = [{"name": "group1"}]
         mock_email_map_data = {"email@example.com": "pk1"}
-        self.mock_auth_client.get_groups_with_users.return_value = (mock_groups_data, mock_email_map_data)
+        self.mock_auth_client_instance.get_groups_with_users.return_value = (mock_groups_data, mock_email_map_data)
 
-        groups, email_map = get_all_authentik_groups_and_user_map(self.mock_auth_client)
+        groups, email_map = sync_mm_authentik_groups.get_all_authentik_groups_and_user_map(
+            self.mock_auth_client_instance
+        )
 
-        self.mock_auth_client.get_groups_with_users.assert_called_once()
+        self.mock_auth_client_instance.get_groups_with_users.assert_called_once()
         self.assertEqual(groups, mock_groups_data)
         self.assertEqual(email_map, mock_email_map_data)
 
-    # Core tests for sync_single_authentik_group_with_mattermost
+    # Tests for sync_single_authentik_group_with_mattermost (passes clients and team_id as args)
     def test_sync_single_group_user_added_successfully(self):
-        auth_group = {"pk": "auth_group_pk_1", "name": "Test Group One", "users": []} # No users initially
-        email_map = {"mm_user@example.com": "auth_user_pk_123"}
-        mm_users_in_channel = [{"email": "mm_user@example.com", "id": "mm_user_id_abc", "username": "mmuser"}]
+        auth_group = {"pk": "auth_g_pk1", "name": "Dev Team Sync", "users": []}
+        email_map = {"dev1@example.com": "auth_user_pk1"}
+        mm_users = [{"email": "dev1@example.com", "id": "mm_id_1"}]
+        self.mock_mm_client_instance.get_channel_by_name.return_value = {
+            "id": "mm_chan_id1",
+            "display_name": "Dev Team Sync",
+        }
+        self.mock_mm_client_instance.get_users_in_channel.return_value = mm_users
+        self.mock_auth_client_instance.add_user_to_group.return_value = True
 
-        self.mock_mm_client.get_channel_by_name.return_value = {"id": "mm_channel_id_1", "display_name": "Test Group One"}
-        self.mock_mm_client.get_users_in_channel.return_value = mm_users_in_channel
-        self.mock_auth_client.add_user_to_group.return_value = True
-
-        sync_single_authentik_group_with_mattermost(
-            self.mock_auth_client, self.mock_mm_client, self.mock_config.MATTERMOST_TEAM_ID,
-            auth_group, email_map
+        sync_mm_authentik_groups.sync_single_authentik_group_with_mattermost(
+            self.mock_auth_client_instance,
+            self.mock_mm_client_instance,
+            self.test_mm_team_id_for_single_sync,
+            auth_group,
+            email_map,
         )
-        # Verify slugify was used if you import it for the script, or direct name match
-        expected_mm_channel_slug = slugify(auth_group["name"])
-        self.mock_mm_client.get_channel_by_name.assert_called_once_with(self.mock_config.MATTERMOST_TEAM_ID, expected_mm_channel_slug)
-        self.mock_mm_client.get_users_in_channel.assert_called_once_with("mm_channel_id_1")
-        self.mock_auth_client.add_user_to_group.assert_called_once_with("auth_group_pk_1", "auth_user_pk_123")
+        expected_slug = slugify(auth_group["name"])
+        self.mock_mm_client_instance.get_channel_by_name.assert_called_once_with(
+            self.test_mm_team_id_for_single_sync, expected_slug
+        )
+        self.mock_mm_client_instance.get_users_in_channel.assert_called_once_with("mm_chan_id1")
+        self.mock_auth_client_instance.add_user_to_group.assert_called_once_with("auth_g_pk1", "auth_user_pk1")
 
     def test_sync_single_group_user_already_in_group(self):
-        auth_group = {"pk": "auth_group_pk_1", "name": "Test Group One", "users": ["auth_user_pk_123"]} # User already in group
-        email_map = {"mm_user@example.com": "auth_user_pk_123"}
-        mm_users_in_channel = [{"email": "mm_user@example.com", "id": "mm_user_id_abc"}]
-
-        self.mock_mm_client.get_channel_by_name.return_value = {"id": "mm_channel_id_1", "display_name": "Test Group One"}
-        self.mock_mm_client.get_users_in_channel.return_value = mm_users_in_channel
-
-        sync_single_authentik_group_with_mattermost(
-            self.mock_auth_client, self.mock_mm_client, self.mock_config.MATTERMOST_TEAM_ID,
-            auth_group, email_map
+        auth_group = {"pk": "auth_g_pk1", "name": "Dev Team Sync", "users": ["auth_user_pk1"]}
+        email_map = {"dev1@example.com": "auth_user_pk1"}
+        mm_users = [{"email": "dev1@example.com", "id": "mm_id_1"}]
+        self.mock_mm_client_instance.get_channel_by_name.return_value = {
+            "id": "mm_chan_id1",
+            "display_name": "Dev Team Sync",
+        }
+        self.mock_mm_client_instance.get_users_in_channel.return_value = mm_users
+        sync_mm_authentik_groups.sync_single_authentik_group_with_mattermost(
+            self.mock_auth_client_instance,
+            self.mock_mm_client_instance,
+            self.test_mm_team_id_for_single_sync,
+            auth_group,
+            email_map,
         )
-        self.mock_auth_client.add_user_to_group.assert_not_called()
-
+        self.mock_auth_client_instance.add_user_to_group.assert_not_called()
 
     def test_sync_single_group_mm_user_not_in_authentik_map(self):
-        auth_group = {"pk": "auth_group_pk_1", "name": "Test Group One", "users": []}
-        email_map = {"another_user@example.com": "auth_user_pk_456"} # MM user's email not in this map
-        mm_users_in_channel = [{"email": "mm_user@example.com", "id": "mm_user_id_abc"}]
-
-        self.mock_mm_client.get_channel_by_name.return_value = {"id": "mm_channel_id_1", "display_name": "Test Group One"}
-        self.mock_mm_client.get_users_in_channel.return_value = mm_users_in_channel
-
-        sync_single_authentik_group_with_mattermost(
-            self.mock_auth_client, self.mock_mm_client, self.mock_config.MATTERMOST_TEAM_ID,
-            auth_group, email_map
+        auth_group = {"pk": "auth_g_pk1", "name": "Dev Team Sync", "users": []}
+        email_map = {"another_user@example.com": "auth_user_pk_X"}
+        mm_users = [{"email": "dev1@example.com", "id": "mm_id_1"}]
+        self.mock_mm_client_instance.get_channel_by_name.return_value = {
+            "id": "mm_chan_id1",
+            "display_name": "Dev Team Sync",
+        }
+        self.mock_mm_client_instance.get_users_in_channel.return_value = mm_users
+        sync_mm_authentik_groups.sync_single_authentik_group_with_mattermost(
+            self.mock_auth_client_instance,
+            self.mock_mm_client_instance,
+            self.test_mm_team_id_for_single_sync,
+            auth_group,
+            email_map,
         )
-        self.mock_auth_client.add_user_to_group.assert_not_called()
+        self.mock_auth_client_instance.add_user_to_group.assert_not_called()
 
     def test_sync_single_group_mm_channel_not_found(self):
-        auth_group = {"pk": "auth_group_pk_1", "name": "NonExistentChannel", "users": []}
-        email_map = {"mm_user@example.com": "auth_user_pk_123"}
-
-        self.mock_mm_client.get_channel_by_name.return_value = None # Channel not found
-
-        sync_single_authentik_group_with_mattermost(
-            self.mock_auth_client, self.mock_mm_client, self.mock_config.MATTERMOST_TEAM_ID,
-            auth_group, email_map
+        auth_group = {"pk": "auth_g_pk1", "name": "NoChannelHere", "users": []}
+        email_map = {}
+        self.mock_mm_client_instance.get_channel_by_name.return_value = None
+        sync_mm_authentik_groups.sync_single_authentik_group_with_mattermost(
+            self.mock_auth_client_instance,
+            self.mock_mm_client_instance,
+            self.test_mm_team_id_for_single_sync,
+            auth_group,
+            email_map,
         )
-        self.mock_mm_client.get_users_in_channel.assert_not_called()
-        self.mock_auth_client.add_user_to_group.assert_not_called()
+        self.mock_mm_client_instance.get_users_in_channel.assert_not_called()
+        self.mock_auth_client_instance.add_user_to_group.assert_not_called()
 
     def test_sync_single_group_no_users_in_mm_channel(self):
-        auth_group = {"pk": "auth_group_pk_1", "name": "Test Group One", "users": []}
-        email_map = {"mm_user@example.com": "auth_user_pk_123"}
-        mm_users_in_channel = [] # No users in channel
-
-        self.mock_mm_client.get_channel_by_name.return_value = {"id": "mm_channel_id_1", "display_name": "Test Group One"}
-        self.mock_mm_client.get_users_in_channel.return_value = mm_users_in_channel
-
-        sync_single_authentik_group_with_mattermost(
-            self.mock_auth_client, self.mock_mm_client, self.mock_config.MATTERMOST_TEAM_ID,
-            auth_group, email_map
+        auth_group = {"pk": "auth_g_pk1", "name": "EmptyChannel", "users": []}
+        email_map = {}
+        self.mock_mm_client_instance.get_channel_by_name.return_value = {
+            "id": "mm_chan_id_empty",
+            "display_name": "EmptyChannel",
+        }
+        self.mock_mm_client_instance.get_users_in_channel.return_value = []
+        sync_mm_authentik_groups.sync_single_authentik_group_with_mattermost(
+            self.mock_auth_client_instance,
+            self.mock_mm_client_instance,
+            self.test_mm_team_id_for_single_sync,
+            auth_group,
+            email_map,
         )
-        self.mock_auth_client.add_user_to_group.assert_not_called()
+        self.mock_auth_client_instance.add_user_to_group.assert_not_called()
 
+    # Tests for main_sync_logic
+    @patch("scripts.sync_mm_authentik_groups.sync_single_authentik_group_with_mattermost")
+    @patch("scripts.sync_mm_authentik_groups.get_all_authentik_groups_and_user_map")
+    @patch("scripts.sync_mm_authentik_groups.initialize_clients")
+    @patch("scripts.sync_mm_authentik_groups.config")
+    def test_main_sync_logic_orchestration(
+        self, mock_script_config, mock_init_clients, mock_get_auth_groups_map, mock_sync_single
+    ):
+        # Configure the mock_script_config that main_sync_logic will see
+        mock_script_config.MATTERMOST_TEAM_ID = "mm_team1_orchestration"
+        # These are needed because initialize_clients (though mocked) might be called by main_sync_logic
+        # and its internal logging uses config.DEBUG. Also, main_sync_logic itself might have config checks.
+        mock_script_config.AUTHENTIK_URL = "http://auth.example.com"
+        mock_script_config.AUTHENTIK_TOKEN = "auth_token"
+        mock_script_config.MATTERMOST_URL = "http://mm.example.com"
+        mock_script_config.BOT_TOKEN = "mm_bot_token"
+        mock_script_config.DEBUG = False
 
-    # Test main_sync_logic orchestration
-    @patch('scripts.sync_mm_authentik_groups.initialize_clients')
-    @patch('scripts.sync_mm_authentik_groups.get_all_authentik_groups_and_user_map')
-    @patch('scripts.sync_mm_authentik_groups.sync_single_authentik_group_with_mattermost')
-    @patch('scripts.sync_mm_authentik_groups.config', new_callable=MagicMock)
-    def test_main_sync_logic_orchestration(self, mock_script_config, mock_sync_single, mock_get_auth_groups, mock_init_clients):
-        # Setup return values for the mocked orchestrating functions
-        mock_script_config.MATTERMOST_TEAM_ID = "test_team_id" # Ensure this is set for main_sync_logic checks
+        mock_auth_client = MagicMock(spec=AuthentikClient)
+        mock_mm_client = MagicMock(spec=MattermostClient)
+        mock_init_clients.return_value = (mock_auth_client, mock_mm_client)
 
-        mock_auth_client_inst = MagicMock()
-        mock_mm_client_inst = MagicMock()
-        mock_init_clients.return_value = (mock_auth_client_inst, mock_mm_client_inst)
+        mock_groups_list = [{"name": "group1", "pk": "g1"}, {"name": "group2", "pk": "g2"}]
+        mock_email_pk_map = {"user1@example.com": "upk1"}
+        mock_get_auth_groups_map.return_value = (mock_groups_list, mock_email_pk_map)
 
-        mock_groups = [{"name": "group1"}, {"name": "group2"}]
-        mock_email_map = {"user@example.com": "pk1"}
-        mock_get_auth_groups.return_value = (mock_groups, mock_email_map)
-
-        main_sync_logic()
+        sync_mm_authentik_groups.main_sync_logic()
 
         mock_init_clients.assert_called_once()
-        mock_get_auth_groups.assert_called_once_with(mock_auth_client_inst)
+        mock_get_auth_groups_map.assert_called_once_with(mock_auth_client)
         self.assertEqual(mock_sync_single.call_count, 2)
         mock_sync_single.assert_any_call(
-            mock_auth_client_inst, mock_mm_client_inst, "test_team_id",
-            mock_groups[0], mock_email_map
+            mock_auth_client, mock_mm_client, "mm_team1_orchestration", mock_groups_list[0], mock_email_pk_map
         )
         mock_sync_single.assert_any_call(
-            mock_auth_client_inst, mock_mm_client_inst, "test_team_id",
-            mock_groups[1], mock_email_map
+            mock_auth_client, mock_mm_client, "mm_team1_orchestration", mock_groups_list[1], mock_email_pk_map
         )
 
-    @patch('scripts.sync_mm_authentik_groups.initialize_clients')
-    def test_main_sync_logic_no_auth_client(self, mock_init_clients):
-        mock_init_clients.return_value = (None, self.mock_mm_client) # Auth client fails to init
-        # Use a logger to capture error messages if needed, or check return if function returns status
-        main_sync_logic()
-        # Assert that further processing like get_all_authentik_groups didn't happen
-        # This requires get_all_authentik_groups_and_user_map to NOT be called.
-        # For that, we would need to patch it as well.
-        # For now, this test mainly ensures it exits early if a client is missing.
+    @patch("scripts.sync_mm_authentik_groups.get_all_authentik_groups_and_user_map")
+    @patch("scripts.sync_mm_authentik_groups.initialize_clients")
+    @patch("scripts.sync_mm_authentik_groups.config")
+    def test_main_sync_logic_auth_client_init_fails(self, mock_script_config, mock_init_clients, mock_get_groups):
+        mock_script_config.AUTHENTIK_URL = None  # This will make initialize_clients return None for auth_client
+        mock_script_config.AUTHENTIK_TOKEN = None
+        mock_script_config.MATTERMOST_URL = "http://mm.example.com"
+        mock_script_config.BOT_TOKEN = "mm_bot_token"
+        mock_script_config.MATTERMOST_TEAM_ID = "mm_team1"
+        mock_script_config.DEBUG = False
+
+        # If we let the real initialize_clients run (by not patching it), it will see the mocked config
+        # and return (None, <mm_client_instance_or_mock>).
+        # Then main_sync_logic should exit early.
+
+        # To make this test more robust, we ensure initialize_clients is called and control its output
+        # to specifically test main_sync_logic's reaction to a None auth_client.
+        mock_mm_client_inst = MagicMock(spec=MattermostClient)
+        mock_init_clients.return_value = (None, mock_mm_client_inst)
+
+        sync_mm_authentik_groups.main_sync_logic()
+        mock_init_clients.assert_called_once()
+        mock_get_groups.assert_not_called()
+
+    @patch("scripts.sync_mm_authentik_groups.sync_single_authentik_group_with_mattermost")
+    @patch("scripts.sync_mm_authentik_groups.get_all_authentik_groups_and_user_map")
+    @patch("scripts.sync_mm_authentik_groups.initialize_clients")
+    @patch("scripts.sync_mm_authentik_groups.config")
+    def test_main_sync_logic_no_groups_found(
+        self, mock_script_config, mock_init_clients, mock_get_auth_groups_map, mock_sync_single
+    ):
+        mock_script_config.AUTHENTIK_URL = "http://auth.example.com"
+        mock_script_config.AUTHENTIK_TOKEN = "auth_token"
+        mock_script_config.MATTERMOST_URL = "http://mm.example.com"
+        mock_script_config.BOT_TOKEN = "mm_bot_token"
+        mock_script_config.MATTERMOST_TEAM_ID = "mm_team1"
+        mock_script_config.DEBUG = False
+
+        mock_auth_client = MagicMock(spec=AuthentikClient)
+        mock_mm_client = MagicMock(spec=MattermostClient)
+        mock_init_clients.return_value = (mock_auth_client, mock_mm_client)
+        mock_get_auth_groups_map.return_value = ([], {})  # No groups
+
+        sync_mm_authentik_groups.main_sync_logic()
+        mock_init_clients.assert_called_once()
+        mock_get_auth_groups_map.assert_called_once_with(mock_auth_client)
+        mock_sync_single.assert_not_called()
 
 
 if __name__ == "__main__":
-    # This allows running the tests directly if script path issues are handled
-    # Example: python -m unittest app/tests/test_sync_script.py
-    # Ensure PYTHONPATH includes the project root for 'app' and 'scripts' to be found.
-    # You might need to run from project root: python -m unittest marty_bot.app.tests.test_sync_script
     unittest.main()

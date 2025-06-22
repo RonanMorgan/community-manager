@@ -1,8 +1,7 @@
 import unittest
 from unittest.mock import patch, Mock
 import requests
-import logging # Added for client logging visibility if needed during tests
-import json # For constructing mock JSON responses
+import logging  # Added for client logging visibility if needed during tests
 
 from app.authentik_client import AuthentikClient
 
@@ -20,14 +19,12 @@ class TestAuthentikClient(unittest.TestCase):
         # Suppress client logging during most tests unless explicitly needed
         # logging.getLogger('app.authentik_client').setLevel(logging.CRITICAL)
 
-
     def test_constructor_success(self):
         self.assertEqual(self.client.base_url, self.mock_url)
         self.assertEqual(self.client.token, self.mock_token)
         self.assertIn(f"Bearer {self.mock_token}", self.client.headers["Authorization"])
         self.assertEqual(self.client.headers["Accept"], "application/json")
         self.assertEqual(self.client.headers["Content-Type"], "application/json")
-
 
     def test_constructor_value_error(self):
         with self.assertRaisesRegex(ValueError, "Authentik base_url and token must be provided."):
@@ -51,8 +48,8 @@ class TestAuthentikClient(unittest.TestCase):
         self.assertTrue(result)
 
     @patch("requests.post")
-    def test_create_group_failure_http_error(self, mock_post): # Renamed from api_error
-        mock_response = Mock(status_code=400) # Example: Bad Request
+    def test_create_group_failure_http_error(self, mock_post):  # Renamed from api_error
+        mock_response = Mock(status_code=400)  # Example: Bad Request
         mock_response.json.return_value = {"name": ["group with this name already exists."]}
         mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
         mock_post.return_value = mock_response
@@ -74,10 +71,14 @@ class TestAuthentikClient(unittest.TestCase):
     def test_get_groups_with_users_success_no_pagination(self, mock_get):
         mock_response_data = {
             "results": [
-                {"pk": "g1", "name": "Group 1", "users_obj": [{"email": "a@a.com", "pk": 1}, {"email": "b@b.com", "pk": 2}]},
-                {"pk": "g2", "name": "Group 2", "users_obj": [{"email": "c@c.com", "pk": 3}]}
+                {
+                    "pk": "g1",
+                    "name": "Group 1",
+                    "users_obj": [{"email": "a@a.com", "pk": 1}, {"email": "b@b.com", "pk": 2}],
+                },
+                {"pk": "g2", "name": "Group 2", "users_obj": [{"email": "c@c.com", "pk": 3}]},
             ],
-            "pagination": {"next": None}
+            "pagination": {"next": None},
         }
         mock_response = Mock(status_code=200)
         mock_response.json.return_value = mock_response_data
@@ -91,17 +92,19 @@ class TestAuthentikClient(unittest.TestCase):
         self.assertEqual(email_map["a@a.com"], 1)
         self.assertEqual(email_map["b@b.com"], 2)
         self.assertEqual(email_map["c@c.com"], 3)
-        mock_get.assert_called_once_with(f"{self.mock_url}/api/v3/core/groups/?include_users=true", headers=self.client.headers)
+        mock_get.assert_called_once_with(
+            f"{self.mock_url}/api/v3/core/groups/?include_users=true", headers=self.client.headers
+        )
 
     @patch("requests.get")
     def test_get_groups_with_users_success_with_pagination(self, mock_get):
         mock_response_page1_data = {
             "results": [{"pk": "g1", "name": "Group 1", "users_obj": [{"email": "a@a.com", "pk": 1}]}],
-            "pagination": {"next": f"{self.mock_url}/api/v3/core/groups/?page=2&include_users=true"}
+            "pagination": {"next": f"{self.mock_url}/api/v3/core/groups/?page=2&include_users=true"},
         }
         mock_response_page2_data = {
             "results": [{"pk": "g2", "name": "Group 2", "users_obj": [{"email": "b@b.com", "pk": 2}]}],
-            "pagination": {"next": None}
+            "pagination": {"next": None},
         }
         mock_response_page1 = Mock(status_code=200)
         mock_response_page1.json.return_value = mock_response_page1_data
@@ -118,8 +121,12 @@ class TestAuthentikClient(unittest.TestCase):
         self.assertEqual(email_map["a@a.com"], 1)
         self.assertEqual(email_map["b@b.com"], 2)
         self.assertEqual(mock_get.call_count, 2)
-        mock_get.assert_any_call(f"{self.mock_url}/api/v3/core/groups/?include_users=true", headers=self.client.headers)
-        mock_get.assert_any_call(f"{self.mock_url}/api/v3/core/groups/?page=2&include_users=true", headers=self.client.headers)
+        mock_get.assert_any_call(
+            f"{self.mock_url}/api/v3/core/groups/?include_users=true", headers=self.client.headers
+        )
+        mock_get.assert_any_call(
+            f"{self.mock_url}/api/v3/core/groups/?page=2&include_users=true", headers=self.client.headers
+        )
 
     @patch("requests.get")
     def test_get_groups_with_users_api_error(self, mock_get):
@@ -141,24 +148,27 @@ class TestAuthentikClient(unittest.TestCase):
     def test_get_groups_with_users_conflicting_email_pk(self, mock_get):
         mock_response_data = {
             "results": [
-                {"pk": "g1", "name": "Group 1", "users_obj": [{"email": "a@a.com", "pk": 1}, {"email": "a@a.com", "pk": 2}]},
+                {
+                    "pk": "g1",
+                    "name": "Group 1",
+                    "users_obj": [{"email": "a@a.com", "pk": 1}, {"email": "a@a.com", "pk": 2}],
+                },
             ],
-            "pagination": {"next": None}
+            "pagination": {"next": None},
         }
         mock_response = Mock(status_code=200)
         mock_response.json.return_value = mock_response_data
         mock_get.return_value = mock_response
 
-        with patch.object(logging, 'warning') as mock_log_warning:
+        with patch.object(logging, "warning") as mock_log_warning:
             _, email_map = self.client.get_groups_with_users()
-            self.assertEqual(email_map["a@a.com"], 2) # Uses the latest one
-            mock_log_warning.assert_called_once() # Check if warning was logged
-
+            self.assertEqual(email_map["a@a.com"], 2)  # Uses the latest one
+            mock_log_warning.assert_called_once()  # Check if warning was logged
 
     # Tests for add_user_to_group
     @patch("requests.post")
     def test_add_user_to_group_success(self, mock_post):
-        mock_response = Mock(status_code=204) # Or 200, depending on API
+        mock_response = Mock(status_code=204)  # Or 200, depending on API
         mock_post.return_value = mock_response
         result = self.client.add_user_to_group("group_pk_1", 123)
         self.assertTrue(result)
@@ -170,12 +180,14 @@ class TestAuthentikClient(unittest.TestCase):
     def test_add_user_to_group_already_member(self, mock_post):
         # Simulate user already member error (e.g., Authentik returns 400 with specific message)
         mock_err_response = Mock(status_code=400)
-        mock_err_response.json.return_value = {"non_field_errors": ["User is already a member of this group."]} # Example error
+        mock_err_response.json.return_value = {
+            "non_field_errors": ["User is already a member of this group."]
+        }  # Example error
         mock_err_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_err_response)
         mock_post.return_value = mock_err_response
 
         result = self.client.add_user_to_group("group_pk_1", 123)
-        self.assertTrue(result) # Should still be true if "already member" is handled as success
+        self.assertTrue(result)  # Should still be true if "already member" is handled as success
 
     @patch("requests.post")
     def test_add_user_to_group_failure_http_error(self, mock_post):
