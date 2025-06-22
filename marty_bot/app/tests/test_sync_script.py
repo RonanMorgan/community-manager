@@ -7,8 +7,8 @@ import os
 # Adjust path to import from the app and scripts directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from app.authentik_client import AuthentikClient
-from app.mattermost_client import MattermostClient, slugify
+from clients.authentik_client import AuthentikClient
+from clients.mattermost_client import MattermostClient, slugify
 
 # Import the script module itself to call its functions
 # The functions will be called as sync_mm_authentik_groups.function_name

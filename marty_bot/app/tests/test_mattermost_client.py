@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch, Mock
 import requests
 
-from app.mattermost_client import MattermostClient, slugify
+from clients.mattermost_client import MattermostClient, slugify
 
 
 class TestMattermostClient(unittest.TestCase):

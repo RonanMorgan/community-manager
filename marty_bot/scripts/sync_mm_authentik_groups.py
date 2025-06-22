@@ -6,8 +6,8 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app import config
-from app.authentik_client import AuthentikClient
-from app.mattermost_client import MattermostClient, slugify  # Import slugify if needed for channel name matching
+from clients.authentik_client import AuthentikClient
+from clients.mattermost_client import MattermostClient, slugify  # Import slugify if needed for channel name matching
 
 # Configure logging
 log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"

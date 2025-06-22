@@ -28,9 +28,9 @@ else:
 
 
 # Import client classes
-from app.authentik_client import AuthentikClient
-from app.outline_client import OutlineClient
-from app.mattermost_client import MattermostClient
+from clients.authentik_client import AuthentikClient
+from clients.outline_client import OutlineClient
+from clients.mattermost_client import MattermostClient
 
 
 class MartyBot:

@@ -3,7 +3,7 @@ from unittest.mock import patch, Mock
 import requests
 import logging  # Added for client logging visibility if needed during tests
 
-from app.authentik_client import AuthentikClient
+from clients.authentik_client import AuthentikClient
 
 
 class TestAuthentikClient(unittest.TestCase):
