@@ -32,6 +32,9 @@ from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.mattermost_client import MattermostClient
 
+# Import orchestration function for sync command
+from libraries.group_sync_services import orchestrate_authentik_mattermost_sync
+
 
 class MartyBot:
     def __init__(self, config_obj):
@@ -111,7 +114,63 @@ class MartyBot:
         self.commands = {
             "create_group": self._handle_create_group_command,
             "help": self._send_help_message,
+            "sync_user_channels": self._handle_sync_user_channels_command, # New command
         }
+
+    async def _handle_sync_user_channels_command(self, channel_id, arg_string=None): # arg_string is unused for now
+        """Triggers the synchronization of Mattermost channel users to Authentik groups."""
+        logging.info(f"'{self.bot_name_mention} sync_user_channels' command received in channel {channel_id}.")
+
+        # Send initial acknowledgement message
+        # Using asyncio.to_thread for the synchronous envoyer_message
+        await asyncio.to_thread(
+            self.envoyer_message,
+            channel_id,
+            ":hourglass_flowing_sand: Starting synchronization of Mattermost channel users to Authentik groups... This may take a while."
+        )
+
+        # Check if necessary clients and config are available on the bot instance
+        if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
+            logging.error("Bot is not properly configured for sync: Missing Authentik client, Mattermost API client, or Mattermost Team ID.")
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                ":warning: **Error:** Bot is not properly configured to perform synchronization. Please check server logs."
+            )
+            return
+
+        try:
+            # Run the synchronous orchestration function in a separate thread
+            # to avoid blocking the bot's main asyncio event loop.
+            logging.info("Dispatching synchronization task to a thread...")
+            success = await asyncio.to_thread(
+                orchestrate_authentik_mattermost_sync,
+                self.authentik_client,
+                self.mattermost_api_client,
+                self.config.MATTERMOST_TEAM_ID
+            )
+
+            if success:
+                logging.info("Synchronization task completed successfully (as reported by orchestrator).")
+                await asyncio.to_thread(
+                    self.envoyer_message,
+                    channel_id,
+                    ":rocket: Synchronization of Mattermost channel users to Authentik groups completed successfully!"
+                )
+            else:
+                logging.warning("Synchronization task reported failure or encountered errors during orchestration.")
+                await asyncio.to_thread(
+                    self.envoyer_message,
+                    channel_id,
+                    ":x: Synchronization of Mattermost channel users to Authentik groups failed or encountered errors. Please check server logs for details."
+                )
+        except Exception as e:
+            logging.error(f"An unexpected error occurred while dispatching or running the sync task: {e}", exc_info=True)
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                ":boom: An unexpected server error occurred while trying to run the synchronization. Please check server logs."
+            )
 
     def _request_shutdown(self):
         logging.info("Shutdown requested. Setting shutdown event.")
@@ -178,7 +237,8 @@ class MartyBot:
         help_lines.append(
             f"**Example:** `{self.bot_name_mention} create_group MyNewProject` - Creates resources for 'MyNewProject'."
         )
-        help_lines.append(f"Mention me with a command, like `{self.bot_name_mention} help`.")
+        help_lines.append(f"\n**Note:** The `{self.bot_name_mention} sync_user_channels` command may take some time to complete.")
+        help_lines.append(f"\nMention me with a command, like `{self.bot_name_mention} help`.")
         help_text = "\n".join(help_lines)
         await asyncio.to_thread(self.envoyer_message, channel_id, help_text)
 
