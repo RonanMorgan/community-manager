@@ -10,7 +10,8 @@ from clients.authentik_client import AuthentikClient
 from clients.mattermost_client import MattermostClient
 
 # Import the orchestrator function
-from libraries.group_sync_services import orchestrate_authentik_mattermost_sync
+from libraries.group_sync_services import orchestrate_group_synchronization  # Renamed
+from clients.outline_client import OutlineClient  # For potential initialization
 
 # Configure logging
 log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
@@ -47,9 +48,22 @@ def initialize_clients():
 
 
 def main_sync_logic():
-    logging.info("Attempting to run Mattermost to Authentik group synchronization via script...")
+    logging.info("Attempting to run Mattermost to Authentik & Outline group synchronization via script...")
 
     authentik_client, mattermost_client = initialize_clients()
+
+    # Initialize Outline client - for now, it's optional for the script's core logic
+    # This script primarily focuses on the Authentik-Mattermost part from its name,
+    # but the orchestrator now supports Outline. We'll pass None if not configured.
+    outline_client = None
+    if config.OUTLINE_URL and config.OUTLINE_TOKEN:
+        try:
+            outline_client = OutlineClient(config.OUTLINE_URL, config.OUTLINE_TOKEN)
+            logging.info("OutlineClient initialized successfully for sync script.")
+        except ValueError as e:
+            logging.error(f"Failed to initialize OutlineClient for script: {e}. Outline sync will be skipped.")
+    else:
+        logging.info("Outline URL or Token not configured for script. Outline sync will be skipped.")
 
     if not authentik_client:
         logging.critical("Authentik client not initialized in script. Aborting sync.")
@@ -61,13 +75,22 @@ def main_sync_logic():
         logging.critical("MATTERMOST_TEAM_ID not configured in script. Aborting sync.")
         return
 
-    logging.info("Clients initialized by script. Calling orchestration function from library...")
+    logging.info("Clients initialized by script. Calling group synchronization function from library...")
 
     # Call the main logic from the library
-    success = orchestrate_authentik_mattermost_sync(authentik_client, mattermost_client, config.MATTERMOST_TEAM_ID)
+    # The orchestrator now returns (bool_success, list_detailed_results)
+    success, detailed_results = orchestrate_group_synchronization(  # Renamed function
+        authentik_client,
+        mattermost_client,
+        outline_client,  # Pass the (potentially None) Outline client
+        config.MATTERMOST_TEAM_ID,
+    )
 
+    # The script's success logging can be based on the boolean or the content of detailed_results
     if success:
-        logging.info("Synchronization process orchestrated by script completed successfully.")
+        logging.info(
+            f"Group synchronization process orchestrated by script completed. Success: {success}. Results count: {len(detailed_results)}"
+        )
     else:
         logging.error("Synchronization process orchestrated by script encountered errors or failed.")
 

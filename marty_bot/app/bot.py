@@ -33,7 +33,7 @@ from clients.outline_client import OutlineClient
 from clients.mattermost_client import MattermostClient
 
 # Import orchestration function for sync command
-from libraries.group_sync_services import orchestrate_authentik_mattermost_sync
+from libraries.group_sync_services import orchestrate_group_synchronization
 
 
 class MartyBot:
@@ -122,100 +122,104 @@ class MartyBot:
         logging.info(f"'{self.bot_name_mention} sync_user_channels' command received in channel {channel_id}.")
 
         # Send initial acknowledgement message and get its ID for threading
-        initial_message_text = ":hourglass_flowing_sand: Starting synchronization of Mattermost channel users to Authentik groups... This may take a while."
-        # Using asyncio.to_thread for the synchronous envoyer_message
+        initial_message_text = ":hourglass_flowing_sand: Starting synchronization of Mattermost channel users to Authentik groups and Outline collections... This may take a while."
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
 
-        # Check if necessary clients and config are available on the bot instance
+        # Check if necessary clients for core functionality are available
         if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
-            error_msg = ":warning: **Error:** Bot is not properly configured to perform synchronization. Missing Authentik client, Mattermost API client, or Mattermost Team ID. Please check server logs."
+            error_msg = ":warning: **Error:** Bot is not properly configured for synchronization. Missing Authentik client, Mattermost API client, or Mattermost Team ID. Please check server logs."
             logging.error(
-                "Bot is not properly configured for sync: Missing Authentik client, Mattermost API client, or Mattermost Team ID."
+                "Bot is not properly configured for sync (core components): Missing Authentik client, Mattermost API client, or Mattermost Team ID."
             )
-            await asyncio.to_thread(
-                self.envoyer_message, channel_id, error_msg, thread_id=initial_post_id  # Reply in thread if possible
-            )
+            await asyncio.to_thread(self.envoyer_message, channel_id, error_msg, thread_id=initial_post_id)
             return
 
+        # Outline client is optional, its absence is handled by the orchestrator.
+        # We log here if it's not configured, for bot admin awareness.
+        if not self.outline_client:
+            logging.info("Outline client not configured on this bot instance. Outline sync will be skipped.")
+            # Optionally send a message to Mattermost? For now, just server log.
+
         try:
-            # Run the synchronous orchestration function in a separate thread
-            logging.info("Dispatching synchronization task to a thread...")
+            logging.info("Dispatching group synchronization task to a thread...")
             orchestration_success, detailed_results = await asyncio.to_thread(
-                orchestrate_authentik_mattermost_sync,
+                orchestrate_group_synchronization,  # Updated function name
                 self.authentik_client,
                 self.mattermost_api_client,
+                self.outline_client,  # Pass outline_client (can be None)
                 self.config.MATTERMOST_TEAM_ID,
             )
 
             final_summary_message = ""
-
             if not orchestration_success:
-                logging.warning("Synchronization task reported critical failure during orchestration.")
-                final_summary_message = ":x: Synchronization of Mattermost channel users to Authentik groups failed critically during orchestration. Please check server logs for details."
+                logging.warning("Group synchronization task reported critical failure during orchestration.")
+                final_summary_message = ":x: Group synchronization failed critically during orchestration. Please check server logs for details."
             else:
                 logging.info(
-                    f"Synchronization task orchestration completed. Detailed results count: {len(detailed_results)}"
+                    f"Group synchronization task orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
                 if not detailed_results:
-                    final_summary_message = ":information_source: Synchronization process completed, but no specific user operations were performed or reported. This could mean no groups were found, no channels matched, or no users were in the relevant channels."
+                    final_summary_message = ":information_source: Synchronization process completed, but no specific user operations were performed or reported."
                 else:
-                    # Process detailed_results and send messages
-                    success_count = 0
-                    failure_count = 0
+                    total_success_ops = 0
+                    total_problem_ops = 0  # Failures or critical skips
+
                     for result in detailed_results:
                         user_mm_name = result.get("mm_username", "Unknown User")
-                        auth_group = result.get("auth_group_name", "Unknown Group")
-                        mm_channel_name = result.get("mm_channel_display_name", "Unknown Channel")  # noqa E501
+                        service_name = result.get("service", "UnknownService").upper()
+                        target_resource = result.get("target_resource_name", "UnknownResource")
                         action = result.get("action", "NO_ACTION")
                         status = result.get("status", "FAILURE")
                         error_msg = result.get("error_message")
 
                         icon = ":white_check_mark:" if status == "SUCCESS" else ":x:"
-                        user_message = f"{icon} **User:** `{user_mm_name}`"
-                        if result.get("mm_user_email"):
-                            user_message += f" ({result.get('mm_user_email')})"  # noqa E501
+                        if status == "SKIPPED" and action != "SKIPPED_NO_MM_EMAIL":  # SKIPPED_NO_MM_EMAIL is neutral
+                            icon = ":warning:"
 
-                        if action == "ADDED_TO_AUTHENTIK_GROUP":
-                            message_detail = f" successfully added to Authentik group `{auth_group}` (from MM channel `{mm_channel_name}`)."
-                            success_count += 1
-                        elif action == "ALREADY_IN_AUTHENTIK_GROUP":
-                            message_detail = f" already in Authentik group `{auth_group}`."
-                            success_count += 1  # Still a success in terms of state
-                        elif action == "FAILED_TO_ADD_TO_AUTHENTIK_GROUP":
-                            message_detail = (
-                                f" FAILED to be added to Authentik group `{auth_group}`. Reason: {error_msg}"
-                            )
-                            failure_count += 1
-                        elif action == "SKIPPED_NO_MM_EMAIL":
-                            message_detail = f" skipped for Authentik group `{auth_group}` (MM channel `{mm_channel_name}`) - User has no email in Mattermost."
-                            # This is not a failure of the sync process itself, but a data issue.
-                        elif action == "SKIPPED_MM_USER_NOT_IN_AUTHENTIK":
-                            message_detail = f" skipped for Authentik group `{auth_group}` (MM channel `{mm_channel_name}`) - User email not found in Authentik."
-                            # Also a data issue.
-                        else:  # SKIPPED_AUTHENTIK_GROUP_UNCHANGED or other new/default cases
-                            message_detail = f" processed for Authentik group `{auth_group}`. Action: `{action}`. Status: `{status}`."
-                            if status != "SUCCESS":
-                                failure_count += 1
-                            else:
-                                success_count += 1
+                        user_line = f"{icon} **User:** `{user_mm_name}`"
+                        if result.get("mm_user_email") and result.get("mm_user_email") != "NoEmailProvided":
+                            user_line += f" ({result.get('mm_user_email')})"
 
-                        full_user_report_message = f"{user_message}{message_detail}"
+                        service_line = "**Service:** `{}`".format(service_name)
+                        resource_line = "**Resource:** `{}`".format(target_resource)
+                        action_line = "**Action:** `{}`".format(action)
+
+                        message_parts = [user_line, service_line, resource_line, action_line]
+
+                        if status == "SUCCESS":
+                            total_success_ops += 1
+                            if action == "USER_ADDED_TO_AUTHENTIK_GROUP":
+                                message_parts.append(f"Successfully added to Authentik group.")
+                            elif action == "USER_ALREADY_IN_AUTHENTIK_GROUP":
+                                message_parts.append(f"Already member of Authentik group.")
+                            elif action == "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION":
+                                message_parts.append(f"Membership ensured in Outline collection.")
+                            # Add more success cases as they are defined
+                        elif status == "SKIPPED":
+                            # SKIPPED_NO_MM_EMAIL is handled globally if desired, or per user here.
+                            # For other skips, they might indicate data issues or non-fatal problems.
+                            message_parts.append(f"Skipped. Reason: {error_msg if error_msg else 'Not specified'}")
+                            if action != "SKIPPED_NO_MM_EMAIL":  # Count other skips as "problems" for summary
+                                total_problem_ops += 1
+                        else:  # FAILURE
+                            total_problem_ops += 1
+                            message_parts.append(f"FAILED. Reason: {error_msg if error_msg else 'Not specified'}")
+
+                        full_user_report_message = "\n".join(message_parts)
                         await asyncio.to_thread(
                             self.envoyer_message, channel_id, full_user_report_message, thread_id=initial_post_id
                         )
 
-                    if failure_count > 0 and success_count > 0:
-                        final_summary_message = f":warning: Synchronization partially completed. {success_count} successful operations, {failure_count} failures/issues. See details above."
-                    elif failure_count > 0:
-                        final_summary_message = (
-                            f":x: Synchronization completed with {failure_count} failures/issues. See details above."
-                        )
-                    elif success_count > 0:
-                        final_summary_message = f":rocket: Synchronization completed successfully with {success_count} operations. See details above."
-                    else:  # Should be covered by the "no specific user operations" if detailed_results was not empty but all were skips
-                        final_summary_message = ":white_check_mark: Synchronization process completed. No direct user additions or failures to report, check details for skips or existing memberships."
+                    # Constructing the final summary message
+                    if total_problem_ops > 0 and total_success_ops > 0:
+                        final_summary_message = f":warning: Synchronization partially completed. {total_success_ops} successful operations, {total_problem_ops} issues/skips requiring attention. See details above."
+                    elif total_problem_ops > 0:
+                        final_summary_message = f":x: Synchronization completed with {total_problem_ops} issues/skips requiring attention. See details above."
+                    elif total_success_ops > 0:
+                        final_summary_message = f":rocket: Synchronization completed successfully with {total_success_ops} operations. See details above."
+                    else:  # No successes, no "problems" (e.g. all SKIPPED_NO_MM_EMAIL or no results at all)
+                        final_summary_message = ":white_check_mark: Synchronization process completed. No new memberships created or critical issues found. Check details for skips or existing memberships."
 
-            # Send the final summary message
             if final_summary_message:
                 await asyncio.to_thread(
                     self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id
