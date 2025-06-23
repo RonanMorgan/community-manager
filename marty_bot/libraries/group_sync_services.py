@@ -219,8 +219,8 @@ def sync_single_group_to_services(
                                 collection_url = f"{config.OUTLINE_URL}/collection/{collection_url_slug_part}-{outline_collection_id}"
 
                                 dm_message = (
-                                    f"Hello @{mm_username}, you have been added to the Outline collection **{coll_name}**.\n"
-                                    f"You can access it here: {collection_url}"
+                                    f"Bonjour @{mm_username}, vous avez été ajouté(e) à la collection Outline **{coll_name}**.\n"
+                                    f"Vous pouvez y accéder ici : {collection_url}"
                                 )
                                 if mattermost_client.send_dm(mm_user_id, dm_message):
                                     outline_user_result["action"] = "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT"

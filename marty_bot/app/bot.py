@@ -119,15 +119,16 @@ class MartyBot:
 
     async def _handle_sync_user_channels_command(self, channel_id, arg_string=None):  # arg_string is unused for now
         """Triggers the synchronization of Mattermost channel users to Authentik groups."""
+        # FR: Déclenche la synchronisation des utilisateurs des canaux Mattermost vers les groupes Authentik.
         logging.info(f"'{self.bot_name_mention} sync_user_channels' command received in channel {channel_id}.")
 
         # Send initial acknowledgement message and get its ID for threading
-        initial_message_text = ":hourglass_flowing_sand: Starting synchronization of Mattermost channel users to Authentik groups and Outline collections... This may take a while."
+        initial_message_text = ":hourglass_flowing_sand: Démarrage de la synchronisation des utilisateurs des canaux Mattermost vers les groupes Authentik et collections Outline... Ceci peut prendre un moment."
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
 
         # Check if necessary clients for core functionality are available
         if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
-            error_msg = ":warning: **Error:** Bot is not properly configured for synchronization. Missing Authentik client, Mattermost API client, or Mattermost Team ID. Please check server logs."
+            error_msg = ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la synchronisation. Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. Veuillez vérifier les logs du serveur."
             logging.error(
                 "Bot is not properly configured for sync (core components): Missing Authentik client, Mattermost API client, or Mattermost Team ID."
             )
@@ -153,57 +154,60 @@ class MartyBot:
             final_summary_message = ""
             if not orchestration_success:
                 logging.warning("Group synchronization task reported critical failure during orchestration.")
-                final_summary_message = ":x: Group synchronization failed critically during orchestration. Please check server logs for details."
+                final_summary_message = ":x: La synchronisation des groupes a échoué de manière critique durant l'orchestration. Veuillez consulter les logs du serveur pour plus de détails."
             else:
                 logging.info(
                     f"Group synchronization task orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
                 if not detailed_results:
-                    final_summary_message = ":information_source: Synchronization process completed, but no specific user operations were performed or reported."
+                    final_summary_message = ":information_source: Processus de synchronisation terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
                 else:
                     total_success_ops = 0
                     total_problem_ops = 0  # Failures or critical skips
 
                     for result in detailed_results:
-                        user_mm_name = result.get("mm_username", "Unknown User")
-                        service_name = result.get("service", "UnknownService").upper()
-                        target_resource = result.get("target_resource_name", "UnknownResource")
-                        action = result.get("action", "NO_ACTION")
-                        status = result.get("status", "FAILURE")
+                        user_mm_name = result.get("mm_username", "Utilisateur inconnu")
+                        service_name = result.get("service", "ServiceInconnu").upper()
+                        target_resource = result.get("target_resource_name", "RessourceInconnue")
+                        action = result.get("action", "AUCUNE_ACTION")
+                        status = result.get("status", "ECHEC")
                         error_msg = result.get("error_message")
 
                         icon = ":white_check_mark:" if status == "SUCCESS" else ":x:"
-                        if status == "SKIPPED" and action != "SKIPPED_NO_MM_EMAIL":  # SKIPPED_NO_MM_EMAIL is neutral
+                        if status == "SKIPPED" and action != "SKIPPED_NO_MM_EMAIL":
                             icon = ":warning:"
 
-                        user_line = f"{icon} **User:** `{user_mm_name}`"
+                        user_line = f"{icon} **Utilisateur :** `{user_mm_name}`"
                         if result.get("mm_user_email") and result.get("mm_user_email") != "NoEmailProvided":
                             user_line += f" ({result.get('mm_user_email')})"
 
-                        service_line = "**Service:** `{}`".format(service_name)
-                        resource_line = "**Resource:** `{}`".format(target_resource)
-                        action_line = "**Action:** `{}`".format(action)
+                        service_line = "**Service :** `{}`".format(service_name)
+                        resource_line = "**Ressource :** `{}`".format(target_resource)
+                        action_line = "**Action :** `{}`".format(action)
 
                         message_parts = [user_line, service_line, resource_line, action_line]
 
                         if status == "SUCCESS":
                             total_success_ops += 1
                             if action == "USER_ADDED_TO_AUTHENTIK_GROUP":
-                                message_parts.append(f"Successfully added to Authentik group.")
+                                message_parts.append(f"Ajouté avec succès au groupe Authentik.")
                             elif action == "USER_ALREADY_IN_AUTHENTIK_GROUP":
-                                message_parts.append(f"Already member of Authentik group.")
-                            elif action == "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION":
-                                message_parts.append(f"Membership ensured in Outline collection.")
-                            # Add more success cases as they are defined
+                                message_parts.append(f"Déjà membre du groupe Authentik.")
+                            elif action == "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT":
+                                message_parts.append(f"Ajouté à la collection Outline et MP envoyé.")
+                            elif action == "USER_ADDED_TO_OUTLINE_COLLECTION_DM_FAILED":
+                                message_parts.append(f"Ajouté à la collection Outline, mais échec de l'envoi du MP.")
+                            elif action == "USER_ALREADY_IN_OUTLINE_COLLECTION":
+                                message_parts.append(f"Déjà membre de la collection Outline.")
+                            elif action == "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION": # Generic, might be replaced by more specific ones
+                                message_parts.append(f"Appartenance assurée à la collection Outline.")
                         elif status == "SKIPPED":
-                            # SKIPPED_NO_MM_EMAIL is handled globally if desired, or per user here.
-                            # For other skips, they might indicate data issues or non-fatal problems.
-                            message_parts.append(f"Skipped. Reason: {error_msg if error_msg else 'Not specified'}")
-                            if action != "SKIPPED_NO_MM_EMAIL":  # Count other skips as "problems" for summary
+                            message_parts.append(f"Ignoré. Raison : {error_msg if error_msg else 'Non spécifiée'}")
+                            if action != "SKIPPED_NO_MM_EMAIL":
                                 total_problem_ops += 1
                         else:  # FAILURE
                             total_problem_ops += 1
-                            message_parts.append(f"FAILED. Reason: {error_msg if error_msg else 'Not specified'}")
+                            message_parts.append(f"ÉCHEC. Raison : {error_msg if error_msg else 'Non spécifiée'}")
 
                         full_user_report_message = "\n".join(message_parts)
                         await asyncio.to_thread(
@@ -212,13 +216,13 @@ class MartyBot:
 
                     # Constructing the final summary message
                     if total_problem_ops > 0 and total_success_ops > 0:
-                        final_summary_message = f":warning: Synchronization partially completed. {total_success_ops} successful operations, {total_problem_ops} issues/skips requiring attention. See details above."
+                        final_summary_message = f":warning: Synchronisation partiellement terminée. {total_success_ops} opérations réussies, {total_problem_ops} problèmes/omissions nécessitant attention. Voir détails ci-dessus."
                     elif total_problem_ops > 0:
-                        final_summary_message = f":x: Synchronization completed with {total_problem_ops} issues/skips requiring attention. See details above."
+                        final_summary_message = f":x: Synchronisation terminée avec {total_problem_ops} problèmes/omissions nécessitant attention. Voir détails ci-dessus."
                     elif total_success_ops > 0:
-                        final_summary_message = f":rocket: Synchronization completed successfully with {total_success_ops} operations. See details above."
-                    else:  # No successes, no "problems" (e.g. all SKIPPED_NO_MM_EMAIL or no results at all)
-                        final_summary_message = ":white_check_mark: Synchronization process completed. No new memberships created or critical issues found. Check details for skips or existing memberships."
+                        final_summary_message = f":rocket: Synchronisation terminée avec succès avec {total_success_ops} opérations. Voir détails ci-dessus."
+                    else:
+                        final_summary_message = ":white_check_mark: Processus de synchronisation terminé. Aucune nouvelle appartenance créée ou problème critique détecté. Vérifiez les détails pour les omissions ou appartenances existantes."
 
             if final_summary_message:
                 await asyncio.to_thread(
@@ -229,7 +233,7 @@ class MartyBot:
             logging.error(
                 f"An unexpected error occurred while dispatching or running the sync task: {e}", exc_info=True
             )
-            error_response_msg = ":boom: An unexpected server error occurred while trying to run the synchronization. Please check server logs."
+            error_response_msg = ":boom: Une erreur serveur inattendue s'est produite lors de la tentative d'exécution de la synchronisation. Veuillez consulter les logs du serveur."
             await asyncio.to_thread(self.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id)
 
     def _request_shutdown(self):
@@ -299,37 +303,40 @@ class MartyBot:
 
     async def _send_help_message(self, channel_id, arg_string=None):
         """Displays this help message listing all available commands."""
-        help_lines = ["### MartyBot Available Commands", "---"]
+        # FR: Affiche ce message d'aide listant toutes les commandes disponibles.
+        help_lines = ["### Commandes disponibles pour MartyBot", "---"]
         if not self.commands:
-            help_lines.append("No commands are currently available.")
+            help_lines.append("Aucune commande n'est actuellement disponible.")
         else:
             for cmd, handler_method in self.commands.items():
                 docstring = handler_method.__doc__
                 description = ""
                 if docstring:
+                    # Assuming docstrings might remain in English or be simple enough not to need immediate translation in help text
                     first_line = docstring.strip().split("\n")[0]
                     description = f" - _{first_line}_"
                 help_lines.append(f"* **`{cmd}`**{description}")
         help_lines.append("\n---")
         help_lines.append(
-            f"**Example:** `{self.bot_name_mention} create_group MyNewProject` - Creates resources for 'MyNewProject'."
+            f"**Exemple :** `{self.bot_name_mention} create_group MonNouveauProjet` - Crée les ressources pour 'MonNouveauProjet'."
         )
         help_lines.append(
-            f"\n**Note:** The `{self.bot_name_mention} sync_user_channels` command may take some time to complete."
+            f"\n**Note :** La commande `{self.bot_name_mention} sync_user_channels` peut prendre un certain temps pour s'exécuter."
         )
-        help_lines.append(f"\nMention me with a command, like `{self.bot_name_mention} help`.")
+        help_lines.append(f"\nMentionnez-moi avec une commande, comme `{self.bot_name_mention} help`.")
         help_text = "\n".join(help_lines)
         await asyncio.to_thread(self.envoyer_message, channel_id, help_text)
 
     async def _handle_create_group_command(self, channel_id, project_name_str):
         """Creates all necessary group resources for a new project."""
+        # FR: Crée toutes les ressources de groupe nécessaires pour un nouveau projet.
         if not project_name_str:
-            message = f":warning: **Error:** Project name is required. Usage: `{self.bot_name_mention} create_group <projectName>`"
+            message = f":warning: **Erreur :** Le nom du projet est requis. Utilisation : `{self.bot_name_mention} create_group <nomDuProjet>`"
             await asyncio.to_thread(self.envoyer_message, channel_id, message)
             return
 
         project_name = project_name_str
-        processing_message = f":hourglass_flowing_sand: Processing 'create_group' for project: **`{project_name}`**..."
+        processing_message = f":hourglass_flowing_sand: Traitement de 'create_group' pour le projet : **`{project_name}`**..."
         await asyncio.to_thread(self.envoyer_message, channel_id, processing_message)
 
         results_summary = []
@@ -344,7 +351,7 @@ class MartyBot:
             if auth_success:
                 succeeded_ops += 1
         results_summary.append(
-            f"{':white_check_mark:' if auth_success else ':x:'} Authentik group creation {'succeeded' if auth_success else 'failed'}. (Client configured: {auth_configured})"
+            f"{':white_check_mark:' if auth_success else ':x:'} Création du groupe Authentik {'réussie' if auth_success else 'échouée'}. (Client configuré : {auth_configured})"
         )
 
         outline_configured = bool(self.outline_client)
@@ -355,7 +362,7 @@ class MartyBot:
             if outline_success:
                 succeeded_ops += 1
         results_summary.append(
-            f"{':white_check_mark:' if outline_success else ':x:'} Outline collection creation {'succeeded' if outline_success else 'failed'}. (Client configured: {outline_configured})"
+            f"{':white_check_mark:' if outline_success else ':x:'} Création de la collection Outline {'réussie' if outline_success else 'échouée'}. (Client configuré : {outline_configured})"
         )
 
         mm_configured = bool(self.mattermost_api_client)
@@ -366,17 +373,17 @@ class MartyBot:
             if mm_success:
                 succeeded_ops += 1
         results_summary.append(
-            f"{':white_check_mark:' if mm_success else ':x:'} Mattermost channel creation {'succeeded' if mm_success else 'failed'}. (Client configured: {mm_configured})"
+            f"{':white_check_mark:' if mm_success else ':x:'} Création du canal Mattermost {'réussie' if mm_success else 'échouée'}. (Client configuré : {mm_configured})"
         )
 
         if attempted_ops == 0:
-            final_header = f":information_source: No services configured for 'create_group' for project **`{project_name}`**. Please check bot configuration."
+            final_header = f":information_source: Aucun service n'est configuré pour 'create_group' pour le projet **`{project_name}`**. Veuillez vérifier la configuration du bot."
         elif succeeded_ops == attempted_ops:
-            final_header = f":rocket: Successfully created all requested resources for project **`{project_name}`**!"
+            final_header = f":rocket: Toutes les ressources demandées pour le projet **`{project_name}`** ont été créées avec succès !"
         elif succeeded_ops > 0:
-            final_header = f":warning: Partially completed group creation for project **`{project_name}`**:"
+            final_header = f":warning: Création de groupe partiellement terminée pour le projet **`{project_name}`** :"
         else:
-            final_header = f":boom: Failed to create any requested resources for project **`{project_name}`**."
+            final_header = f":boom: Échec de la création des ressources demandées pour le projet **`{project_name}`**."
 
         final_response_message = f"{final_header}\n---\n" + "\n".join(results_summary)
         await asyncio.to_thread(self.envoyer_message, channel_id, final_response_message)
@@ -403,10 +410,10 @@ class MartyBot:
             if handler_method:
                 await handler_method(channel_id, arg_string)
             else:
-                message = f":question: Unknown command: **`{command_verb}`**. Try `{self.bot_name_mention} help` for a list of available commands."
+                message = f":question: Commande inconnue : **`{command_verb}`**. Essayez `{self.bot_name_mention} help` pour une liste des commandes disponibles."
                 await asyncio.to_thread(self.envoyer_message, channel_id, message)
         elif text_after_mention is None or text_after_mention.strip() == "":
-            message = f"Hi there! You mentioned me. Try `{self.bot_name_mention} help` for a list of commands."
+            message = f"Bonjour ! Vous m'avez mentionné. Essayez `{self.bot_name_mention} help` pour une liste des commandes."
             await asyncio.to_thread(self.envoyer_message, channel_id, message)
 
     async def on_message(self, ws, message_str):
