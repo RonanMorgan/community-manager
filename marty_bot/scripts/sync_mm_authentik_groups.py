@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from app import config
 from clients.authentik_client import AuthentikClient
 from clients.mattermost_client import MattermostClient
+
 # Import the orchestrator function
 from libraries.group_sync_services import orchestrate_authentik_mattermost_sync
 
@@ -56,18 +57,14 @@ def main_sync_logic():
     if not mattermost_client:
         logging.critical("Mattermost client not initialized in script. Aborting sync.")
         return
-    if not config.MATTERMOST_TEAM_ID: # This is also checked by mm_client init, but good for script-level clarity
+    if not config.MATTERMOST_TEAM_ID:  # This is also checked by mm_client init, but good for script-level clarity
         logging.critical("MATTERMOST_TEAM_ID not configured in script. Aborting sync.")
         return
 
     logging.info("Clients initialized by script. Calling orchestration function from library...")
 
     # Call the main logic from the library
-    success = orchestrate_authentik_mattermost_sync(
-        authentik_client,
-        mattermost_client,
-        config.MATTERMOST_TEAM_ID
-    )
+    success = orchestrate_authentik_mattermost_sync(authentik_client, mattermost_client, config.MATTERMOST_TEAM_ID)
 
     if success:
         logging.info("Synchronization process orchestrated by script completed successfully.")

@@ -114,63 +114,119 @@ class MartyBot:
         self.commands = {
             "create_group": self._handle_create_group_command,
             "help": self._send_help_message,
-            "sync_user_channels": self._handle_sync_user_channels_command, # New command
+            "sync_user_channels": self._handle_sync_user_channels_command,  # New command
         }
 
-    async def _handle_sync_user_channels_command(self, channel_id, arg_string=None): # arg_string is unused for now
+    async def _handle_sync_user_channels_command(self, channel_id, arg_string=None):  # arg_string is unused for now
         """Triggers the synchronization of Mattermost channel users to Authentik groups."""
         logging.info(f"'{self.bot_name_mention} sync_user_channels' command received in channel {channel_id}.")
 
-        # Send initial acknowledgement message
+        # Send initial acknowledgement message and get its ID for threading
+        initial_message_text = ":hourglass_flowing_sand: Starting synchronization of Mattermost channel users to Authentik groups... This may take a while."
         # Using asyncio.to_thread for the synchronous envoyer_message
-        await asyncio.to_thread(
-            self.envoyer_message,
-            channel_id,
-            ":hourglass_flowing_sand: Starting synchronization of Mattermost channel users to Authentik groups... This may take a while."
-        )
+        initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
 
         # Check if necessary clients and config are available on the bot instance
         if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
-            logging.error("Bot is not properly configured for sync: Missing Authentik client, Mattermost API client, or Mattermost Team ID.")
+            error_msg = ":warning: **Error:** Bot is not properly configured to perform synchronization. Missing Authentik client, Mattermost API client, or Mattermost Team ID. Please check server logs."
+            logging.error(
+                "Bot is not properly configured for sync: Missing Authentik client, Mattermost API client, or Mattermost Team ID."
+            )
             await asyncio.to_thread(
-                self.envoyer_message,
-                channel_id,
-                ":warning: **Error:** Bot is not properly configured to perform synchronization. Please check server logs."
+                self.envoyer_message, channel_id, error_msg, thread_id=initial_post_id  # Reply in thread if possible
             )
             return
 
         try:
             # Run the synchronous orchestration function in a separate thread
-            # to avoid blocking the bot's main asyncio event loop.
             logging.info("Dispatching synchronization task to a thread...")
-            success = await asyncio.to_thread(
+            orchestration_success, detailed_results = await asyncio.to_thread(
                 orchestrate_authentik_mattermost_sync,
                 self.authentik_client,
                 self.mattermost_api_client,
-                self.config.MATTERMOST_TEAM_ID
+                self.config.MATTERMOST_TEAM_ID,
             )
 
-            if success:
-                logging.info("Synchronization task completed successfully (as reported by orchestrator).")
-                await asyncio.to_thread(
-                    self.envoyer_message,
-                    channel_id,
-                    ":rocket: Synchronization of Mattermost channel users to Authentik groups completed successfully!"
-                )
+            final_summary_message = ""
+
+            if not orchestration_success:
+                logging.warning("Synchronization task reported critical failure during orchestration.")
+                final_summary_message = ":x: Synchronization of Mattermost channel users to Authentik groups failed critically during orchestration. Please check server logs for details."
             else:
-                logging.warning("Synchronization task reported failure or encountered errors during orchestration.")
-                await asyncio.to_thread(
-                    self.envoyer_message,
-                    channel_id,
-                    ":x: Synchronization of Mattermost channel users to Authentik groups failed or encountered errors. Please check server logs for details."
+                logging.info(
+                    f"Synchronization task orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
+                if not detailed_results:
+                    final_summary_message = ":information_source: Synchronization process completed, but no specific user operations were performed or reported. This could mean no groups were found, no channels matched, or no users were in the relevant channels."
+                else:
+                    # Process detailed_results and send messages
+                    success_count = 0
+                    failure_count = 0
+                    for result in detailed_results:
+                        user_mm_name = result.get("mm_username", "Unknown User")
+                        auth_group = result.get("auth_group_name", "Unknown Group")
+                        mm_channel_name = result.get("mm_channel_display_name", "Unknown Channel")  # noqa E501
+                        action = result.get("action", "NO_ACTION")
+                        status = result.get("status", "FAILURE")
+                        error_msg = result.get("error_message")
+
+                        icon = ":white_check_mark:" if status == "SUCCESS" else ":x:"
+                        user_message = f"{icon} **User:** `{user_mm_name}`"
+                        if result.get("mm_user_email"):
+                            user_message += f" ({result.get('mm_user_email')})"  # noqa E501
+
+                        if action == "ADDED_TO_AUTHENTIK_GROUP":
+                            message_detail = f" successfully added to Authentik group `{auth_group}` (from MM channel `{mm_channel_name}`)."
+                            success_count += 1
+                        elif action == "ALREADY_IN_AUTHENTIK_GROUP":
+                            message_detail = f" already in Authentik group `{auth_group}`."
+                            success_count += 1  # Still a success in terms of state
+                        elif action == "FAILED_TO_ADD_TO_AUTHENTIK_GROUP":
+                            message_detail = (
+                                f" FAILED to be added to Authentik group `{auth_group}`. Reason: {error_msg}"
+                            )
+                            failure_count += 1
+                        elif action == "SKIPPED_NO_MM_EMAIL":
+                            message_detail = f" skipped for Authentik group `{auth_group}` (MM channel `{mm_channel_name}`) - User has no email in Mattermost."
+                            # This is not a failure of the sync process itself, but a data issue.
+                        elif action == "SKIPPED_MM_USER_NOT_IN_AUTHENTIK":
+                            message_detail = f" skipped for Authentik group `{auth_group}` (MM channel `{mm_channel_name}`) - User email not found in Authentik."
+                            # Also a data issue.
+                        else:  # SKIPPED_AUTHENTIK_GROUP_UNCHANGED or other new/default cases
+                            message_detail = f" processed for Authentik group `{auth_group}`. Action: `{action}`. Status: `{status}`."
+                            if status != "SUCCESS":
+                                failure_count += 1
+                            else:
+                                success_count += 1
+
+                        full_user_report_message = f"{user_message}{message_detail}"
+                        await asyncio.to_thread(
+                            self.envoyer_message, channel_id, full_user_report_message, thread_id=initial_post_id
+                        )
+
+                    if failure_count > 0 and success_count > 0:
+                        final_summary_message = f":warning: Synchronization partially completed. {success_count} successful operations, {failure_count} failures/issues. See details above."
+                    elif failure_count > 0:
+                        final_summary_message = (
+                            f":x: Synchronization completed with {failure_count} failures/issues. See details above."
+                        )
+                    elif success_count > 0:
+                        final_summary_message = f":rocket: Synchronization completed successfully with {success_count} operations. See details above."
+                    else:  # Should be covered by the "no specific user operations" if detailed_results was not empty but all were skips
+                        final_summary_message = ":white_check_mark: Synchronization process completed. No direct user additions or failures to report, check details for skips or existing memberships."
+
+            # Send the final summary message
+            if final_summary_message:
+                await asyncio.to_thread(
+                    self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id
+                )
+
         except Exception as e:
-            logging.error(f"An unexpected error occurred while dispatching or running the sync task: {e}", exc_info=True)
-            await asyncio.to_thread(
-                self.envoyer_message,
-                channel_id,
-                ":boom: An unexpected server error occurred while trying to run the synchronization. Please check server logs."
+            logging.error(
+                f"An unexpected error occurred while dispatching or running the sync task: {e}", exc_info=True
             )
+            error_response_msg = ":boom: An unexpected server error occurred while trying to run the synchronization. Please check server logs."
+            await asyncio.to_thread(self.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id)
 
     def _request_shutdown(self):
         logging.info("Shutdown requested. Setting shutdown event.")
@@ -181,10 +237,14 @@ class MartyBot:
             # but loop.add_signal_handler usually runs callback in loop's thread.
             asyncio.create_task(self.websocket.close(code=1000, reason="Bot shutdown"))
 
-    def envoyer_message(self, channel_id, message_text, thread_id=None):
+    def envoyer_message(self, channel_id, message_text, thread_id=None) -> str | None:
+        """
+        Sends a message to the specified Mattermost channel.
+        Returns the post ID of the sent message if successful, None otherwise.
+        """
         if not self.config.BOT_TOKEN or not self.config.MATTERMOST_URL:
             logging.error("BOT_TOKEN or MATTERMOST_URL not configured for bot instance. Cannot send message.")
-            return
+            return None
 
         headers = {
             "Authorization": f"Bearer {self.config.BOT_TOKEN}",
@@ -206,9 +266,22 @@ class MartyBot:
         try:
             response = requests.post(post_url, headers=headers, json=payload)
             response.raise_for_status()
-            logging.info(f"Message sent successfully to channel {channel_id}")
+            post_data = response.json()
+            post_id = post_data.get("id")
+            if post_id:
+                logging.info(f"Message sent successfully to channel {channel_id}. Post ID: {post_id}")
+                return post_id
+            else:
+                logging.error(
+                    f"Message sent to channel {channel_id} but no post ID was returned in response: {post_data}"
+                )
+                return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Error sending message to Mattermost: {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON response from Mattermost after sending message: {e}")
+            return None
 
     def _parse_command_from_mention(self, message_text_after_mention):
         stripped_text = message_text_after_mention.strip()
@@ -237,7 +310,9 @@ class MartyBot:
         help_lines.append(
             f"**Example:** `{self.bot_name_mention} create_group MyNewProject` - Creates resources for 'MyNewProject'."
         )
-        help_lines.append(f"\n**Note:** The `{self.bot_name_mention} sync_user_channels` command may take some time to complete.")
+        help_lines.append(
+            f"\n**Note:** The `{self.bot_name_mention} sync_user_channels` command may take some time to complete."
+        )
         help_lines.append(f"\nMention me with a command, like `{self.bot_name_mention} help`.")
         help_text = "\n".join(help_lines)
         await asyncio.to_thread(self.envoyer_message, channel_id, help_text)
