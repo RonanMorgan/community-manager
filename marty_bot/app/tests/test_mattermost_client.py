@@ -7,16 +7,32 @@ from clients.mattermost_client import MattermostClient, slugify
 
 class TestMattermostClient(unittest.TestCase):
 
-    def setUp(self):
+    # Patch requests.get at the class level to affect setUp
+    @patch('requests.get')
+    def setUp(self, mock_requests_get_for_setup: Mock): # Renamed arg
         self.mock_url = "http://fake-mattermost-url.com"
         self.mock_token = "fake_mm_admin_token"
         self.mock_team_id = "fake_team_id"
+
+        # Configure the mock for the get_me call within MattermostClient.__init__
+        mock_setup_response = Mock(status_code=200)
+        mock_setup_response.json.return_value = {"id": "bot_user_id_setup", "username": "testbot_setup"}
+        mock_requests_get_for_setup.return_value = mock_setup_response
+
         try:
             self.client = MattermostClient(base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id)
         except ValueError:
             self.fail("Client instantiation failed in setUp")
-        # Suppress client logging during most tests
-        # logging.getLogger('app.mattermost_client').setLevel(logging.CRITICAL)
+
+        # Verify bot_user_id was set during init
+        self.assertEqual(self.client.bot_user_id, "bot_user_id_setup")
+        # Ensure the mock was called for /users/me
+        mock_requests_get_for_setup.assert_called_once_with(
+            f"{self.mock_url}/api/v4/users/me", headers=self.client.headers
+        )
+        # Reset for other tests that might patch requests.get themselves or want a fresh mock
+        mock_requests_get_for_setup.reset_mock()
+
 
     def test_constructor_success(self):
         self.assertEqual(self.client.base_url, self.mock_url)
@@ -197,6 +213,126 @@ class TestMattermostClient(unittest.TestCase):
             slugify("Test Project with really really long name that will be cut off at sixty four characters"),
             "test-project-with-really-really-long-name-that-will-be-cut-off-a",
         )
+
+    @patch("requests.get")
+    def test_get_me_success_initialization(self, mock_get_request):
+        mock_response = Mock(status_code=200)
+        expected_bot_details = {"id": "bot_user_id_123", "username": "mybot"}
+        mock_response.json.return_value = expected_bot_details
+        mock_get_request.return_value = mock_response
+
+        # Re-initialize client to trigger _initialize_bot_user_id which calls get_me
+        # This client's __init__ will call get_me
+        client = MattermostClient(base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id)
+
+        self.assertEqual(client.bot_user_id, "bot_user_id_123")
+        expected_api_url = f"{self.mock_url}/api/v4/users/me"
+        mock_get_request.assert_called_once_with(expected_api_url, headers=client.headers)
+
+        # Test direct call to get_me as well (will be second call)
+        details = client.get_me()
+        self.assertEqual(details, expected_bot_details)
+        self.assertEqual(mock_get_request.call_count, 2)
+
+    @patch("requests.get")
+    def test_get_me_failure_initialization(self, mock_get_request):
+        mock_http_error_response = Mock()
+        mock_http_error_response.status_code = 401
+        mock_http_error_response.text = "Client error: Unauthorized"
+
+        mock_response = Mock(status_code=401, response=mock_http_error_response)
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("Unauthorized", response=mock_http_error_response)
+        mock_get_request.return_value = mock_response
+
+        # Re-initialize client; _initialize_bot_user_id should handle failure gracefully
+        client = MattermostClient(base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id)
+        self.assertIsNone(client.bot_user_id) # Bot ID should be None after failed fetch
+
+        # Direct call should also fail
+        details = client.get_me()
+        self.assertIsNone(details)
+        self.assertEqual(mock_get_request.call_count, 2) # Once in init, once direct
+
+
+    @patch("requests.post")
+    def test_create_direct_channel_success(self, mock_post_request):
+        # Ensure bot_user_id is set on the existing client for this test
+        # In real usage, it's set during __init__
+        with patch.object(self.client, 'get_me', return_value={'id': 'bot_id_for_test', 'username': 'testbot'}):
+            self.client._initialize_bot_user_id() # Manually call to set bot_user_id based on new mock
+        self.assertEqual(self.client.bot_user_id, 'bot_id_for_test')
+
+        mock_response = Mock(status_code=201)
+        expected_dm_channel = {"id": "dm_channel_id_456", "type": "D"}
+        mock_response.json.return_value = expected_dm_channel
+        mock_post_request.return_value = mock_response
+
+        other_user_id = "other_user_id_789"
+        dm_channel_id = self.client.create_direct_channel(other_user_id)
+
+        self.assertEqual(dm_channel_id, "dm_channel_id_456")
+        expected_api_url = f"{self.mock_url}/api/v4/channels/direct"
+        expected_payload = [self.client.bot_user_id, other_user_id]
+        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
+
+    def test_create_direct_channel_fail_no_bot_id(self):
+        original_bot_id = self.client.bot_user_id
+        self.client.bot_user_id = None # Simulate bot_id not initialized
+        with patch('requests.post') as mock_post: # ensure no API call is made
+            dm_channel_id = self.client.create_direct_channel("other_user_id_789")
+            self.assertIsNone(dm_channel_id)
+            mock_post.assert_not_called()
+        self.client.bot_user_id = original_bot_id # Restore
+
+    @patch('clients.mattermost_client.MattermostClient.post_message')
+    @patch('clients.mattermost_client.MattermostClient.create_direct_channel')
+    def test_send_dm_success(self, mock_create_direct_channel_class, mock_post_message_class):
+        self.client.bot_user_id = "bot_for_dm_test"
+
+        target_user_id = "target_user_1"
+        dm_message = "Hello there!"
+        mock_dm_channel_id = "dm_channel_for_target_1"
+
+        mock_create_direct_channel_class.return_value = mock_dm_channel_id
+        mock_post_message_class.return_value = True
+
+        success = self.client.send_dm(target_user_id, dm_message)
+
+        self.assertTrue(success)
+        mock_create_direct_channel_class.assert_called_once_with(target_user_id)
+        mock_post_message_class.assert_called_once_with(channel_id=mock_dm_channel_id, message=dm_message)
+
+    @patch('clients.mattermost_client.MattermostClient.post_message')
+    @patch('clients.mattermost_client.MattermostClient.create_direct_channel')
+    def test_send_dm_fail_channel_creation(self, mock_create_direct_channel_class, mock_post_message_class):
+        self.client.bot_user_id = "bot_for_dm_test"
+
+        target_user_id = "target_user_2"
+        dm_message = "Test DM"
+        mock_create_direct_channel_class.return_value = None # Simulate DM channel creation failure
+
+        success = self.client.send_dm(target_user_id, dm_message)
+        self.assertFalse(success)
+        mock_create_direct_channel_class.assert_called_once_with(target_user_id)
+        mock_post_message_class.assert_not_called()
+
+    @patch('clients.mattermost_client.MattermostClient.post_message')
+    @patch('clients.mattermost_client.MattermostClient.create_direct_channel')
+    def test_send_dm_fail_post_message(self, mock_create_direct_channel_class, mock_post_message_class):
+        self.client.bot_user_id = "bot_for_dm_test"
+
+        target_user_id = "target_user_3"
+        dm_message = "Another Test DM"
+        mock_dm_channel_id = "dm_channel_for_target_3"
+
+        mock_create_direct_channel_class.return_value = mock_dm_channel_id
+        mock_post_message_class.return_value = False # Simulate post_message failure
+
+        success = self.client.send_dm(target_user_id, dm_message)
+
+        self.assertFalse(success)
+        mock_create_direct_channel_class.assert_called_once_with(target_user_id)
+        mock_post_message_class.assert_called_once_with(channel_id=mock_dm_channel_id, message=dm_message)
 
 
 if __name__ == "__main__":

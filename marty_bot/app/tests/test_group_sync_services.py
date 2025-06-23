@@ -7,6 +7,7 @@ from libraries.group_sync_services import sync_single_group_to_services, orchest
 # you can patch 'libraries.group_sync_services.config'
 from app import config as app_config # Import the actual config to potentially reload/reset it
 import dotenv # Required for wraps=dotenv.main.load_dotenv
+from clients.mattermost_client import slugify # For test URL construction
 
 # Helper to reset parts of the config if necessary between tests,
 # especially if it's loaded at import time.
@@ -213,6 +214,105 @@ class TestGroupSyncServices(unittest.TestCase):
         # Test successful loading and parsing of the file
         reload_config_module()
         self.assertEqual(app_config.EXCLUDED_USERS, {"userA", "userB", "userC"})
+
+    @patch('libraries.group_sync_services.config') # To mock config.OUTLINE_URL
+    def test_sync_single_group_outline_dm_on_new_add(self, mock_config):
+        mock_config.EXCLUDED_USERS = set() # No exclusions for this test
+        mock_config.OUTLINE_URL = "http://fake-outline.com"
+
+        mm_user_for_dm = {"username": "dm_user", "email": "dmuser@example.com", "id": "mm_user_id_dm"}
+        auth_group_for_dm = {**self.authentik_group_fixture, "name": "DM Test Group"}
+        email_map_for_dm = {"dmuser@example.com": "auth_user_pk_dm"}
+
+        outline_user_data = {"id": "outline_user_id_dm", "email": "dmuser@example.com"}
+        outline_collection_data = {"id": "outline_coll_id_dm", "name": "DM Test Group"}
+
+        self.mock_mattermost_client.get_channel_by_name.return_value = self.mm_channel_fixture
+        self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user_for_dm]
+        self.mock_authentik_client.add_user_to_group.return_value = True # Authentik part is not focus here
+
+        self.mock_outline_client.get_user_by_email.return_value = outline_user_data
+        self.mock_outline_client.get_collection_by_name.return_value = outline_collection_data
+        self.mock_outline_client.get_collection_members.return_value = [] # User is NOT already a member
+        self.mock_outline_client.add_user_to_collection.return_value = True # Adding is successful
+        self.mock_outline_client.get_collection_details.return_value = outline_collection_data
+        self.mock_mattermost_client.send_dm.return_value = True # DM sending is successful
+
+        results = sync_single_group_to_services(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            mm_team_id=self.mm_team_id,
+            authentik_group=auth_group_for_dm,
+            email_to_authentik_user_pk_map=email_map_for_dm,
+        )
+
+        self.assertEqual(len(results), 2) # 1 for Authentik, 1 for Outline
+        outline_result = next(r for r in results if r["service"] == "OUTLINE")
+        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT")
+        self.mock_mattermost_client.send_dm.assert_called_once()
+        call_args = self.mock_mattermost_client.send_dm.call_args[0]
+        self.assertEqual(call_args[0], mm_user_for_dm["id"]) # mm_user_id
+        expected_url = f"{mock_config.OUTLINE_URL}/collection/{slugify(outline_collection_data['name'])}-{outline_collection_data['id']}"
+        self.assertIn(expected_url, call_args[1]) # message content
+        self.assertIn(outline_collection_data['name'], call_args[1])
+
+    @patch('libraries.group_sync_services.config')
+    def test_sync_single_group_outline_dm_fails(self, mock_config):
+        mock_config.EXCLUDED_USERS = set()
+        mock_config.OUTLINE_URL = "http://fake-outline.com"
+        mm_user_for_dm = {"username": "dm_user_fail", "email": "dmuserfail@example.com", "id": "mm_user_id_dm_fail"}
+        # ... similar setup as above ...
+        self.mock_mattermost_client.get_channel_by_name.return_value = self.mm_channel_fixture
+        self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user_for_dm]
+        self.mock_authentik_client.add_user_to_group.return_value = True
+        outline_user_data = {"id": "outline_user_id_dm_fail", "email": "dmuserfail@example.com"}
+        outline_collection_data = {"id": "outline_coll_id_dm_fail", "name": "DM Fail Group"}
+        self.mock_outline_client.get_user_by_email.return_value = outline_user_data
+        self.mock_outline_client.get_collection_by_name.return_value = outline_collection_data
+        self.mock_outline_client.get_collection_members.return_value = []
+        self.mock_outline_client.add_user_to_collection.return_value = True
+        self.mock_outline_client.get_collection_details.return_value = outline_collection_data
+        self.mock_mattermost_client.send_dm.return_value = False # DM sending FAILS
+
+        results = sync_single_group_to_services(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            mm_team_id=self.mm_team_id,
+            authentik_group={"name": "DM Fail Group", "pk": "auth_pk_dm_fail"},
+            email_to_authentik_user_pk_map={"dmuserfail@example.com": "auth_user_pk_dm_fail"},
+        )
+        outline_result = next(r for r in results if r["service"] == "OUTLINE")
+        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_DM_FAILED")
+        self.mock_mattermost_client.send_dm.assert_called_once()
+
+    @patch('libraries.group_sync_services.config')
+    def test_sync_single_group_outline_user_already_member_no_dm(self, mock_config):
+        mock_config.EXCLUDED_USERS = set()
+        mm_user_already_member = {"username": "already_member", "email": "already@example.com", "id": "mm_user_id_already"}
+        outline_user_data = {"id": "outline_user_id_already", "email": "already@example.com"}
+        outline_collection_data = {"id": "outline_coll_id_already", "name": "Already Member Group"}
+
+        self.mock_mattermost_client.get_channel_by_name.return_value = self.mm_channel_fixture
+        self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user_already_member]
+        self.mock_authentik_client.add_user_to_group.return_value = True
+        self.mock_outline_client.get_user_by_email.return_value = outline_user_data
+        self.mock_outline_client.get_collection_by_name.return_value = outline_collection_data
+        self.mock_outline_client.get_collection_members.return_value = [outline_user_data["id"]] # User IS already a member
+
+        results = sync_single_group_to_services(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            mm_team_id=self.mm_team_id,
+            authentik_group={"name": "Already Member Group", "pk": "auth_pk_already"},
+            email_to_authentik_user_pk_map={"already@example.com": "auth_user_pk_already"},
+        )
+        outline_result = next(r for r in results if r["service"] == "OUTLINE")
+        self.assertEqual(outline_result["action"], "USER_ALREADY_IN_OUTLINE_COLLECTION")
+        self.mock_outline_client.add_user_to_collection.assert_not_called()
+        self.mock_mattermost_client.send_dm.assert_not_called()
 
 
 if __name__ == "__main__":

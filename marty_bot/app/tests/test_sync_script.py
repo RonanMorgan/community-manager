@@ -127,16 +127,25 @@ class TestSyncLogic(unittest.TestCase):
         # Authentik mocks
         self.mock_auth_client_instance.add_user_to_group.return_value = True
 
-        # Outline mocks
+        # Outline mocks for newly added user + DM success
         self.mock_outline_client_instance.get_user_by_email.return_value = {"id": outline_user_id, "email": user_email}
-        self.mock_outline_client_instance.get_collection_by_name.return_value = {
+        self.mock_outline_client_instance.get_collection_by_name.return_value = { # Used to get collection_id
             "id": outline_collection_id,
-            "name": "Dev Team Sync",
+            "name": "Dev Team Sync" # Name used if get_collection_details is not called or fails
         }
-        self.mock_outline_client_instance.add_user_to_collection.return_value = True
+        self.mock_outline_client_instance.get_collection_members.return_value = [] # Not a member
+        self.mock_outline_client_instance.add_user_to_collection.return_value = True # Add success
+        self.mock_outline_client_instance.get_collection_details.return_value = { # For DM message
+            "id": outline_collection_id,
+            "name": "Dev Team Sync Official Name"
+        }
+        self.mock_mm_client_instance.send_dm.return_value = True # DM success
 
-        results = sync_single_group_to_services(
-            self.mock_auth_client_instance,
+        # Mock config for OUTLINE_URL
+        with patch('libraries.group_sync_services.config') as mock_lib_config:
+            mock_lib_config.OUTLINE_URL = "http://test-outline.com"
+            results = sync_single_group_to_services(
+                self.mock_auth_client_instance,
             self.mock_mm_client_instance,
             self.mock_outline_client_instance,  # Provide Outline client
             self.test_mm_team_id,
@@ -156,13 +165,22 @@ class TestSyncLogic(unittest.TestCase):
         # Outline result assertions
         outline_result = next(r for r in results if r["service"] == "OUTLINE")
         self.assertEqual(outline_result["status"], "SUCCESS")
-        self.assertEqual(outline_result["action"], "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION")
+        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT")
         self.assertEqual(outline_result["mm_username"], "dev1")
+
         self.mock_outline_client_instance.get_user_by_email.assert_called_once_with(user_email)
         self.mock_outline_client_instance.get_collection_by_name.assert_called_once_with(auth_group["name"])
+        self.mock_outline_client_instance.get_collection_members.assert_called_once_with(outline_collection_id)
         self.mock_outline_client_instance.add_user_to_collection.assert_called_once_with(
             outline_collection_id, outline_user_id
         )
+        self.mock_outline_client_instance.get_collection_details.assert_called_once_with(outline_collection_id)
+        self.mock_mm_client_instance.send_dm.assert_called_once()
+        dm_call_args = self.mock_mm_client_instance.send_dm.call_args[0]
+        self.assertEqual(dm_call_args[0], "mm_id_1") # mm_user_id
+        self.assertIn("Dev Team Sync Official Name", dm_call_args[1])
+        self.assertIn(f"http://test-outline.com/collection/dev-team-sync-official-name-{outline_collection_id}", dm_call_args[1])
+
 
         self.mock_mm_client_instance.get_channel_by_name.assert_called_once()
         self.mock_mm_client_instance.get_users_in_channel.assert_called_once_with("mm_chan_id1")
@@ -228,9 +246,11 @@ class TestSyncLogic(unittest.TestCase):
             "id": "outline_coll_id_1",
             "name": "Dev Team Sync",
         }
-        # To simulate "already member", add_user_to_collection might return True (idempotent) or specific error
-        # For now, assume it returns true, and action reflects "ensured"
-        self.mock_outline_client_instance.add_user_to_collection.return_value = True
+        # To simulate "already member" for Outline:
+        # get_collection_members should indicate user is already there.
+        outline_user_id_for_test = "outline_user_id_1" # from get_user_by_email mock
+        self.mock_outline_client_instance.get_collection_members.return_value = [outline_user_id_for_test]
+        # add_user_to_collection should NOT be called if already a member.
 
         results = sync_single_group_to_services(
             self.mock_auth_client_instance,
@@ -248,13 +268,17 @@ class TestSyncLogic(unittest.TestCase):
 
         outline_res = next(r for r in results if r["service"] == "OUTLINE")
         self.assertEqual(outline_res["status"], "SUCCESS")
-        self.assertEqual(outline_res["action"], "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION")
+        self.assertEqual(outline_res["action"], "USER_ALREADY_IN_OUTLINE_COLLECTION")
 
         self.mock_auth_client_instance.add_user_to_group.assert_not_called()
-        self.mock_outline_client_instance.add_user_to_collection.assert_called_once()  # It's called to ensure membership
+        self.mock_outline_client_instance.get_collection_members.assert_called_once()
+        self.mock_outline_client_instance.add_user_to_collection.assert_not_called()
+        self.mock_mm_client_instance.send_dm.assert_not_called() # Crucially, no DM if already a member
 
         # Reset mocks for next part of the test if necessary, or make it a separate test
-        self.mock_outline_client_instance.reset_mock()
+        self.mock_auth_client_instance.reset_mock() # Reset auth client for the "no outline" part
+        self.mock_mm_client_instance.reset_mock() # Reset MM client
+        self.mock_outline_client_instance.reset_mock() # Reset outline client
 
         # Case 2: Outline client is None
         results_no_outline = sync_single_group_to_services(

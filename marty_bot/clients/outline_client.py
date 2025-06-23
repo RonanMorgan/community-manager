@@ -166,6 +166,85 @@ class OutlineClient:
             )
             return None
 
+    def get_collection_members(self, collection_id: str, limit: int = 100) -> list[str] | None:
+        """
+        Retrieves user IDs of members for a specific collection.
+        :param collection_id: The ID of the collection.
+        :param limit: The number of items to return per page. Max 100.
+        :return: A list of user IDs if successful, None otherwise.
+        """
+        if not collection_id:
+            logging.error("Collection ID must be provided to get collection members.")
+            return None
+
+        api_url = f"{self.base_url}/api/collections.memberships"
+        member_user_ids = []
+        offset = 0
+        page_count = 0
+
+        logging.debug(f"Outline API >> Getting collection members for ID '{collection_id}'")
+
+        try:
+            while True:
+                page_count += 1
+                payload = {"id": collection_id, "offset": offset, "limit": min(limit, 100)} # Ensure limit doesn't exceed API max
+                logging.debug(f"Outline API >> Fetching page {page_count} for collection members (offset: {offset}, limit: {payload['limit']})")
+                response = requests.post(api_url, headers=self.headers, json=payload)
+                response.raise_for_status()
+                response_data = response.json()
+
+                data_block = response_data.get("data", {})
+                memberships = data_block.get("memberships", []) # Based on API doc, user IDs are in 'memberships' list
+
+                if not memberships and not data_block.get("users"): # If both are empty, probably an issue or empty collection
+                    if offset == 0: # First page and no members
+                        logging.info(f"No members found for Outline collection ID '{collection_id}'.")
+                    break # Exit loop if no memberships returned on this page
+
+                for membership in memberships:
+                    user_id = membership.get("userId")
+                    if user_id:
+                        member_user_ids.append(user_id)
+
+                # Check pagination from response directly
+                pagination_info = response_data.get("pagination", {})
+                response_limit = pagination_info.get("limit", payload["limit"]) # Use actual limit from response if available
+                response_offset = pagination_info.get("offset", offset)
+
+                # Determine if there are more pages
+                # If number of returned memberships is less than the limit, it's the last page
+                if len(memberships) < response_limit:
+                    break
+
+                # If total is available and we've fetched enough, break (optional, relies on 'total' field)
+                # total_members = pagination_info.get("total")
+                # if total_members is not None and len(member_user_ids) >= total_members:
+                #    break
+
+                offset += len(memberships) # More robust: advance offset by number of items actually returned
+                if offset >= 10000: # Safety break for very large collections or unexpected loops
+                    logging.warning(f"Safety break after fetching {len(member_user_ids)} members for collection {collection_id}. Reached offset {offset}.")
+                    break
+
+
+            logging.info(f"Successfully fetched {len(member_user_ids)} member IDs for Outline collection ID '{collection_id}' over {page_count} pages.")
+            return member_user_ids
+
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error fetching members for Outline collection ID '{collection_id}': "
+                f"{e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed while fetching members for Outline collection ID '{collection_id}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(
+                f"Error decoding JSON from Outline collections.memberships response for collection ID '{collection_id}': {e}"
+            )
+            return None
+
     def add_user_to_collection(self, collection_id: str, user_id: str, permission: str = "read") -> bool:
         """
         Adds a user to an Outline collection.
@@ -232,6 +311,51 @@ class OutlineClient:
                 f"in collection '{collection_id}': {e}"
             )
             return False
+
+    def get_collection_details(self, collection_id: str) -> dict | None:
+        """
+        Retrieves details for a specific collection by its ID.
+        :param collection_id: The ID of the collection.
+        :return: A dictionary containing the collection data if found, None otherwise.
+        """
+        if not collection_id:
+            logging.error("Collection ID must be provided to get collection details.")
+            return None
+
+        api_url = f"{self.base_url}/api/collections.info"
+        payload = {"id": collection_id}
+        logging.debug(f"Outline API >> Getting collection details for ID '{collection_id}'")
+
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()  # Check for HTTP errors
+
+            response_data = response.json()
+            collection_data = response_data.get("data")
+
+            if collection_data:
+                logging.info(f"Successfully fetched details for Outline collection ID '{collection_id}'.")
+                return collection_data
+            else:
+                logging.warning(
+                    f"Outline collection.info for ID '{collection_id}' returned successfully "
+                    f"but 'data' key was missing or response was unexpected: {response.text}"
+                )
+                return None
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error fetching details for Outline collection ID '{collection_id}': "
+                f"{e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed while fetching details for Outline collection ID '{collection_id}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(
+                f"Error decoding JSON from Outline collections.info response for collection ID '{collection_id}': {e}"
+            )
+            return None
 
 
 if __name__ == "__main__":

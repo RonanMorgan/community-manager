@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Optional  # Added Optional
 from app import config  # Import config to access EXCLUDED_USERS
 
 # Import client-specific utilities and classes for type hinting
-from clients.mattermost_client import slugify
+from clients.mattermost_client import slugify # For URL construction
 
 if TYPE_CHECKING:
     from clients.authentik_client import AuthentikClient
@@ -175,25 +175,69 @@ def sync_single_group_to_services(
                 outline_user_result["error_message"] = f"User email '{mm_user_email}' not found in Outline."
             else:
                 outline_user_id = outline_user.get("id")
+                mm_user_id = mm_user.get("id") # Mattermost user ID for DM
+
                 # Convention: Outline collection name is the same as Authentik group name
-                outline_collection = outline_client.get_collection_by_name(auth_group_name)
-                if not outline_collection:
+                # First, get the collection by name to find its ID
+                outline_collection_obj = outline_client.get_collection_by_name(auth_group_name)
+
+                if not outline_collection_obj:
                     outline_user_result["status"] = "SKIPPED"
                     outline_user_result["action"] = "SKIPPED_OUTLINE_COLLECTION_NOT_FOUND"
-                    error_msg = f"Outline collection named '{auth_group_name}' not found."
+                    error_msg = f"Outline collection named '{auth_group_name}' not found (to get its ID)."
                     outline_user_result["error_message"] = error_msg
                 else:
-                    outline_collection_id = outline_collection.get("id")
-                    # Assuming add_user_to_collection is somewhat idempotent or we don't check membership first
-                    if outline_client.add_user_to_collection(outline_collection_id, outline_user_id):
+                    outline_collection_id = outline_collection_obj.get("id")
+
+                    # Check if user is already a member
+                    collection_members = outline_client.get_collection_members(outline_collection_id)
+                    is_already_member = False
+                    if collection_members is not None: # If None, API call failed, proceed to add tentatively
+                        is_already_member = outline_user_id in collection_members
+
+                    if is_already_member:
                         outline_user_result["status"] = "SUCCESS"
-                        # TODO: Differentiate between USER_ADDED and USER_ALREADY_MEMBER if API allows or by pre-checking
-                        outline_user_result["action"] = "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION"
+                        outline_user_result["action"] = "USER_ALREADY_IN_OUTLINE_COLLECTION"
                     else:
-                        action_msg = "FAILED_TO_ADD_TO_OUTLINE_COLLECTION"
-                        outline_user_result["action"] = action_msg
-                        error_msg = "API call to add user to Outline collection failed."
-                        outline_user_result["error_message"] = error_msg
+                        # Attempt to add the user
+                        if outline_client.add_user_to_collection(outline_collection_id, outline_user_id):
+                            outline_user_result["status"] = "SUCCESS"
+                            outline_user_result["action"] = "USER_ADDED_TO_OUTLINE_COLLECTION"
+
+                            # User was newly added, try to send DM
+                            collection_details = outline_client.get_collection_details(outline_collection_id)
+                            if collection_details and collection_details.get("name") and mm_user_id:
+                                coll_name = collection_details.get("name")
+                                # Construct URL: OUTLINE_URL/collection/collection_name-collection_id
+                                # The API returns an 'id' (UUID) and a 'urlId' (short human-readable).
+                                # The example URL format `OUTLINE_URL/collection/collection_name-collection_id` seems to imply
+                                # using the name and the main UUID. Let's try that.
+                                # A safer bet might be `OUTLINE_URL/c/{collection_id}` or using `urlId` if it's the public one.
+                                # Given the user's example: collection_name-collection_id
+                                # Let's assume collection_id is the UUID.
+                                collection_url_slug_part = slugify(coll_name) # slugify the name part
+                                collection_url = f"{config.OUTLINE_URL}/collection/{collection_url_slug_part}-{outline_collection_id}"
+
+                                dm_message = (
+                                    f"Hello @{mm_username}, you have been added to the Outline collection **{coll_name}**.\n"
+                                    f"You can access it here: {collection_url}"
+                                )
+                                if mattermost_client.send_dm(mm_user_id, dm_message):
+                                    outline_user_result["action"] = "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT"
+                                    logging.info(f"Sent DM to {mm_username} for Outline collection {coll_name}.")
+                                else:
+                                    outline_user_result["action"] = "USER_ADDED_TO_OUTLINE_COLLECTION_DM_FAILED"
+                                    logging.warning(f"User added to Outline collection {coll_name}, but failed to send DM to {mm_username}.")
+                            else:
+                                logging.warning(
+                                    f"User added to Outline collection {auth_group_name} (ID: {outline_collection_id}), "
+                                    "but could not get collection details or MM user ID to send DM."
+                                )
+                        else:
+                            # add_user_to_collection failed
+                            outline_user_result["action"] = "FAILED_TO_ADD_TO_OUTLINE_COLLECTION"
+                            error_msg = "API call to add user to Outline collection failed."
+                            outline_user_result["error_message"] = error_msg
             results.append(outline_user_result)
 
     logging.info(

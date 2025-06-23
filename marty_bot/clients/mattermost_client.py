@@ -54,6 +54,86 @@ class MattermostClient:
             "Accept": "application/json",
             "Authorization": f"Bearer {self.token}",
         }
+        self.bot_user_id: str | None = None # Will store the bot's own user ID
+        self._initialize_bot_user_id()
+
+    def _initialize_bot_user_id(self) -> None:
+        """
+        Fetches and stores the bot's own user ID by calling get_me().
+        Logs an error if fetching fails, as DMs will not work.
+        """
+        logging.debug("MattermostClient: Initializing Bot User ID...")
+        user_details = self.get_me()
+        if user_details and user_details.get("id"):
+            self.bot_user_id = user_details["id"]
+            logging.info(f"MattermostClient: Bot User ID initialized to {self.bot_user_id}")
+        else:
+            self.bot_user_id = None # Ensure it's None if fetching failed
+            logging.error(
+                "MattermostClient: FAILED to fetch Bot User ID. Direct messaging functionality will be impaired."
+            )
+            # Depending on requirements, one might raise an error here if bot_user_id is critical for all operations
+
+    def get_me(self) -> dict | None:
+        """
+        Fetches details for the currently authenticated user (assumed to be the bot).
+        Corresponds to Mattermost API: GET /api/v4/users/me
+        :return: A dictionary containing user details if successful, None otherwise.
+        """
+        api_url = f"{self.base_url}/api/v4/users/me"
+        logging.debug(f"Mattermost API >> Getting current user (bot) details from {api_url}")
+        try:
+            response = requests.get(api_url, headers=self.headers)
+            response.raise_for_status()
+            user_data = response.json()
+            logging.info(f"Successfully fetched bot's user details. Bot User ID: {user_data.get('id')}")
+            return user_data
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error fetching bot user details: {e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception fetching bot user details: {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from bot user details response: {e}")
+            return None
+
+    def post_message(self, channel_id: str, message: str) -> bool:
+        """
+        Posts a message to a specific channel.
+        Corresponds to Mattermost API: POST /api/v4/posts
+        :param channel_id: The ID of the channel to post to (can be a public, private, or DM channel).
+        :param message: The message string to post.
+        :return: True if successful, False otherwise.
+        """
+        if not channel_id or message is None: # message can be an empty string
+            logging.error("Channel ID and message must be provided to post a message.")
+            return False
+
+        api_url = f"{self.base_url}/api/v4/posts"
+        payload = {
+            "channel_id": channel_id,
+            "message": message,
+        }
+        logging.debug(f"Mattermost API >> Posting to channel {channel_id}: {json.dumps(payload)}")
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            logging.info(f"Message posted successfully to channel {channel_id}.")
+            return True
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error posting to Mattermost channel {channel_id}: {e.response.status_code} - {e.response.text}"
+            )
+            return False
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception during Mattermost post to channel {channel_id}: {e}")
+            return False
+        except json.JSONDecodeError as e: # Should not happen on success, but good practice
+            logging.error(f"Error decoding JSON from post message response to channel {channel_id}: {e}")
+            return False
 
     def create_channel(self, project_name: str, team_id: str = None) -> bool:
         """
@@ -198,6 +278,73 @@ class MattermostClient:
 
         logging.info(f"Successfully fetched {len(all_users)} users from channel '{channel_id}'.")
         return all_users
+
+    def create_direct_channel(self, other_user_id: str) -> str | None:
+        """
+        Creates a direct message (DM) channel between the bot and another user.
+        Corresponds to Mattermost API: POST /api/v4/channels/direct
+        :param other_user_id: The user ID of the other participant in the DM channel.
+        :return: The ID of the DM channel if successful, None otherwise.
+        """
+        if not self.bot_user_id:
+            logging.error("Cannot create direct channel: Bot User ID is not initialized.")
+            return None
+        if not other_user_id:
+            logging.error("Cannot create direct channel: Other user ID is not provided.")
+            return None
+
+        api_url = f"{self.base_url}/api/v4/channels/direct"
+        # Payload is a list of two user IDs: [bot_id, other_user_id]
+        payload = [self.bot_user_id, other_user_id]
+
+        logging.debug(f"Mattermost API >> Creating direct channel with user '{other_user_id}'. Payload: {json.dumps(payload)}")
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            channel_data = response.json()
+            dm_channel_id = channel_data.get("id")
+            if dm_channel_id:
+                logging.info(f"Successfully created/retrieved direct channel with user '{other_user_id}'. Channel ID: {dm_channel_id}")
+                return dm_channel_id
+            else:
+                logging.error(f"Failed to create/retrieve direct channel with user '{other_user_id}'. 'id' missing in response: {channel_data}")
+                return None
+        except requests.exceptions.HTTPError as e:
+            # Mattermost often returns 200 or 201 even if channel exists.
+            # Specific errors like 400 for invalid user ID, 401/403 for permissions.
+            logging.error(
+                f"HTTP error creating direct channel with user '{other_user_id}': {e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception creating direct channel with user '{other_user_id}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from create direct channel response with user '{other_user_id}': {e}")
+            return None
+
+    def send_dm(self, user_id: str, message: str) -> bool:
+        """
+        Sends a direct message to a specific user.
+        This is a helper method that first creates/retrieves the DM channel
+        and then posts the message to it.
+        :param user_id: The Mattermost User ID of the recipient.
+        :param message: The message string to send.
+        :return: True if the DM was sent successfully, False otherwise.
+        """
+        if not user_id or not message:
+            logging.error("User ID and message must be provided to send a DM.")
+            return False
+
+        # 1. Create/Get the direct channel
+        dm_channel_id = self.create_direct_channel(user_id)
+        if not dm_channel_id:
+            logging.error(f"Failed to create/get DM channel with user '{user_id}'. Cannot send DM.")
+            return False
+
+        # 2. Post the message to the DM channel
+        logging.info(f"Sending DM to user '{user_id}' (channel ID: {dm_channel_id}).")
+        return self.post_message(channel_id=dm_channel_id, message=message)
 
 
 if __name__ == "__main__":
