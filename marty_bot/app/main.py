@@ -1,42 +1,39 @@
-from fastapi import FastAPI
-import uvicorn
-import threading
-import logging  # Added logging
-from app.bot import MartyBot  # Changed import
-from app import config  # Added direct config import
+# This file is no longer the primary entry point for running the bot.
+# To run the bot, use: python -m app.bot
+#
+# (Original FastAPI application code has been removed.)
+#
+# If you wish to re-integrate with a web framework or add health checks,
+# you can do so here, but the bot itself is now self-contained and
+# runnable via app/bot.py.
 
-app = FastAPI()
+# Example (optional, if you still want main.py to be runnable for the bot):
+#
+# import logging
+# from app.bot import MartyBot
+# from app import config
+#
+# if __name__ == "__main__":
+#     # Ensure logging is configured (bot.py also does this, but good for standalone)
+#     log_level = logging.DEBUG if config.DEBUG else logging.INFO
+#     log_format = (
+#         "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+#         if config.DEBUG
+#         else "%(asctime)s - %(levelname)s - %(message)s"
+#     )
+#     logging.basicConfig(level=log_level, format=log_format)
+#
+#     logging.info("Attempting to start MartyBot directly via main.py fallback...")
+#     if not config.MATTERMOST_URL or not config.BOT_TOKEN or not config.BOT_NAME:
+#         logging.critical(
+#             "Cannot start: Essential Mattermost configuration (URL, BOT_TOKEN, BOT_NAME) is missing."
+#         )
+#     elif not config.MATTERMOST_TEAM_ID: # Assuming this is still critical for some operations
+#         logging.warning(
+#             "MATTERMOST_TEAM_ID is not set. Some operations like 'create_group' might fail."
+#         )
+#     else:
+#         bot_instance = MartyBot(config)
+#         bot_instance.start()
 
-# Configure logging for main.py as well, if not already configured by bot.py at this point
-# This depends on import order and how/when bot.py's logging is set up.
-# For safety, can configure it here too, or ensure bot.py's config is run first.
-# Assuming bot.py's logging config is sufficient for now if it's imported early.
-# logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-marty_bot_instance = None  # Optional: can be global if needed for shutdown or other interactions
-
-
-@app.on_event("startup")
-async def startup_event():
-    global marty_bot_instance
-    logging.info("Application startup: Initializing and starting MartyBot...")
-
-    # Pass the actual config module to MartyBot constructor
-    marty_bot_instance = MartyBot(config)
-
-    logging.info("Starting MartyBot in a new thread...")
-    # MartyBot.start() method handles its own asyncio loop management
-    bot_thread = threading.Thread(target=marty_bot_instance.start, daemon=True)
-    bot_thread.start()
-    logging.info("MartyBot thread started.")
-
-
-@app.get("/")
-async def root():
-    return {"message": "Marty Bot is running!"}
-
-
-if __name__ == "__main__":
-    # This is for running FastAPI directly, e.g., for development
-    # Uvicorn will be run from the command line in production or using the suggested command
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+pass  # Ensure the file is not empty if all code is commented out.

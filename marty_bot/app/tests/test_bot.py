@@ -62,22 +62,22 @@ class TestMartyBot(unittest.TestCase):
         self.assertEqual(processing_args[0], "channel123")
         self.assertEqual(
             processing_args[1],
-            f":hourglass_flowing_sand: Processing 'create_group' for project: **`{project_name}`**...",
+            f":hourglass_flowing_sand: Traitement de 'create_group' pour le projet : **`{project_name}`**...",
         )
 
         summary_args, _ = self.bot.envoyer_message.call_args_list[1]
         self.assertEqual(summary_args[0], "channel123")
         self.assertIn(
-            f":rocket: Successfully created all requested resources for project **`{project_name}`**!", summary_args[1]
-        )  # Changed "all resources" to "all requested resources"
-        self.assertIn(
-            ":white_check_mark: Authentik group creation succeeded. (Client configured: True)", summary_args[1]
+            f":rocket: Toutes les ressources demandées pour le projet **`{project_name}`** ont été créées avec succès !", summary_args[1]
         )
         self.assertIn(
-            ":white_check_mark: Outline collection creation succeeded. (Client configured: True)", summary_args[1]
+            ":white_check_mark: Création du groupe Authentik réussie. (Client configuré : True)", summary_args[1]
         )
         self.assertIn(
-            ":white_check_mark: Mattermost channel creation succeeded. (Client configured: True)", summary_args[1]
+            ":white_check_mark: Création de la collection Outline réussie. (Client configuré : True)", summary_args[1]
+        )
+        self.assertIn(
+            ":white_check_mark: Création du canal Mattermost réussie. (Client configuré : True)", summary_args[1]
         )
 
     @async_test
@@ -104,14 +104,14 @@ class TestMartyBot(unittest.TestCase):
         summary_args, _ = self.bot.envoyer_message.call_args_list[1]
         self.assertEqual(summary_args[0], "channel789")
         self.assertIn(
-            f":warning: Partially completed group creation for project **`{project_name}`**:", summary_args[1]
+            f":warning: Création de groupe partiellement terminée pour le projet **`{project_name}`** :", summary_args[1]
         )
         self.assertIn(
-            ":white_check_mark: Authentik group creation succeeded. (Client configured: True)", summary_args[1]
+            ":white_check_mark: Création du groupe Authentik réussie. (Client configuré : True)", summary_args[1]
         )
-        self.assertIn(":x: Outline collection creation failed. (Client configured: True)", summary_args[1])
+        self.assertIn(":x: Création de la collection Outline échouée. (Client configuré : True)", summary_args[1])
         self.assertIn(
-            ":white_check_mark: Mattermost channel creation succeeded. (Client configured: True)", summary_args[1]
+            ":white_check_mark: Création du canal Mattermost réussie. (Client configuré : True)", summary_args[1]
         )
 
     @async_test
@@ -137,16 +137,15 @@ class TestMartyBot(unittest.TestCase):
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_args, _ = self.bot.envoyer_message.call_args_list[1]
         self.assertEqual(summary_args[0], "channel_no_auth")
-        # If Authentik is not configured, the other two can still make it a :rocket: for "all requested"
         self.assertIn(
-            f":rocket: Successfully created all requested resources for project **`{project_name}`**!", summary_args[1]
+            f":rocket: Toutes les ressources demandées pour le projet **`{project_name}`** ont été créées avec succès !", summary_args[1]
         )
-        self.assertIn(":x: Authentik group creation failed. (Client configured: False)", summary_args[1])
+        self.assertIn(":x: Création du groupe Authentik échouée. (Client configuré : False)", summary_args[1])
         self.assertIn(
-            ":white_check_mark: Outline collection creation succeeded. (Client configured: True)", summary_args[1]
+            ":white_check_mark: Création de la collection Outline réussie. (Client configuré : True)", summary_args[1]
         )
         self.assertIn(
-            ":white_check_mark: Mattermost channel creation succeeded. (Client configured: True)", summary_args[1]
+            ":white_check_mark: Création du canal Mattermost réussie. (Client configuré : True)", summary_args[1]
         )
 
     @async_test
@@ -172,17 +171,16 @@ class TestMartyBot(unittest.TestCase):
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_args, _ = self.bot.envoyer_message.call_args_list[1]
         self.assertEqual(summary_args[0], "channel_no_mm")
-        # If Mattermost is not configured, the other two can still make it a :rocket: for "all requested"
         self.assertIn(
-            f":rocket: Successfully created all requested resources for project **`{project_name}`**!", summary_args[1]
+            f":rocket: Toutes les ressources demandées pour le projet **`{project_name}`** ont été créées avec succès !", summary_args[1]
         )
         self.assertIn(
-            ":white_check_mark: Authentik group creation succeeded. (Client configured: True)", summary_args[1]
+            ":white_check_mark: Création du groupe Authentik réussie. (Client configuré : True)", summary_args[1]
         )
         self.assertIn(
-            ":white_check_mark: Outline collection creation succeeded. (Client configured: True)", summary_args[1]
+            ":white_check_mark: Création de la collection Outline réussie. (Client configuré : True)", summary_args[1]
         )
-        self.assertIn(":x: Mattermost channel creation failed. (Client configured: False)", summary_args[1])
+        self.assertIn(":x: Création du canal Mattermost échouée. (Client configuré : False)", summary_args[1])
 
     @async_test
     async def test_handle_simple_mention_unknown_command(self):
@@ -201,7 +199,7 @@ class TestMartyBot(unittest.TestCase):
         await self.bot.on_message(None, json.dumps(mock_message_data))
         self.bot.envoyer_message.assert_called_once_with(
             "general",
-            f":question: Unknown command: **`hello`**. Try `{self.bot.bot_name_mention} help` for a list of available commands.",
+            f":question: Commande inconnue : **`hello`**. Essayez `{self.bot.bot_name_mention} help` pour une liste des commandes disponibles.",
         )
 
     @async_test
@@ -217,7 +215,7 @@ class TestMartyBot(unittest.TestCase):
         await self.bot.on_message(None, json.dumps(mock_message_data))
         self.bot.envoyer_message.assert_called_once_with(
             "town-square",
-            f"Hi there! You mentioned me. Try `{self.bot.bot_name_mention} help` for a list of commands.",  # noqa: E501
+            f"Bonjour ! Vous m'avez mentionné. Essayez `{self.bot.bot_name_mention} help` pour une liste des commandes.",
         )
 
     @async_test
@@ -259,7 +257,7 @@ class TestMartyBot(unittest.TestCase):
         self.bot.mattermost_api_client.create_channel.assert_not_called()
         self.bot.envoyer_message.assert_called_once_with(
             "channel_no_proj",
-            f":warning: **Error:** Project name is required. Usage: `{self.bot.bot_name_mention} create_group <projectName>`",  # noqa: E501
+            f":warning: **Erreur :** Le nom du projet est requis. Utilisation : `{self.bot.bot_name_mention} create_group <nomDuProjet>`",
         )
 
     def test_parse_command_from_mention_logic(self):
