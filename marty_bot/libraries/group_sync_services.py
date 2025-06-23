@@ -105,20 +105,10 @@ def sync_single_group_to_services(
         # --- Check for User Exclusion ---
         if mm_username in config.EXCLUDED_USERS:
             logging.info(
-                f"User '{mm_username}' is in the exclusion list. Skipping sync for this user in channel '{mm_channel_display_name}'."
+                f"User '{mm_username}' is in the exclusion list and will be completely ignored for sync and reporting in channel '{mm_channel_display_name}'."
             )
-            results.append(
-                {
-                    "mm_username": mm_username,
-                    "mm_user_email": mm_user_email or "NoEmailProvided",
-                    "mm_channel_display_name": mm_channel_display_name,
-                    "target_resource_name": auth_group_name,
-                    "service": "ALL_SERVICES", # Special marker for exclusion
-                    "status": "SKIPPED",
-                    "action": "SKIPPED_USER_EXCLUDED",
-                    "error_message": f"User '{mm_username}' is configured to be excluded from synchronization.",
-                }
-            )
+            # No result is added to the 'results' list for this user.
+            # This ensures they are not mentioned in any summary/report generated from these results.
             continue # Move to the next user in the Mattermost channel
 
         base_user_info = {

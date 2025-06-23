@@ -78,26 +78,24 @@ class TestGroupSyncServices(unittest.TestCase):
 
         # Assertions
         # 2 users processed (user1, user2) x 2 services (Authentik, Outline) = 4 results
-        # 2 users skipped (excluded_user, marty) x 1 result each = 2 results
-        # Total = 4 + 2 = 6
-        self.assertEqual(len(results), 6)
+        # 2 users skipped (excluded_user, marty) generate 0 results each.
+        # Total = 4
+        self.assertEqual(len(results), 4)
 
         # Detailed check for results
         processed_usernames_authentik = set()
         processed_usernames_outline = set()
-        skipped_usernames = set()
 
         for r in results:
-            if r.get("action") == "SKIPPED_USER_EXCLUDED":
-                skipped_usernames.add(r["mm_username"])
-            elif r.get("service") == "AUTHENTIK" and r.get("status") == "SUCCESS":
+            # Ensure no results for excluded users are present
+            self.assertNotIn(r.get("mm_username"), {"excluded_user", "marty"})
+            self.assertNotEqual(r.get("action"), "SKIPPED_USER_EXCLUDED")
+
+            if r.get("service") == "AUTHENTIK" and r.get("status") == "SUCCESS":
                  processed_usernames_authentik.add(r["mm_username"])
             elif r.get("service") == "OUTLINE" and r.get("status") == "SUCCESS":
                  processed_usernames_outline.add(r["mm_username"])
 
-
-        self.assertIn("excluded_user", skipped_usernames)
-        self.assertIn("marty", skipped_usernames)
         self.assertNotIn("excluded_user", processed_usernames_authentik)
         self.assertNotIn("marty", processed_usernames_authentik)
         self.assertNotIn("excluded_user", processed_usernames_outline)
@@ -145,16 +143,13 @@ class TestGroupSyncServices(unittest.TestCase):
         # Define a side effect for sync_single_group_to_services to simulate its behavior
         # including returning results that would indicate an exclusion happened.
         def sync_single_side_effect(*args, **kwargs):
-            # Simulate that 'marty' would be skipped by sync_single_group_to_services
-            # if it were not mocked. Here, we just return a result that looks like it was skipped.
-            # This is more of an integration test for orchestrate.
-            mm_users_for_this_group = self.mm_users_fixture
+            # Simulate that 'marty' would be completely skipped by sync_single_group_to_services
+            # and thus generate no result entry.
+            mm_users_for_this_group = self.mm_users_fixture # Contains marty, user1, user2, excluded_user
             results_for_group = []
             for user in mm_users_for_this_group:
-                if user["username"] in app_config.EXCLUDED_USERS :
-                     results_for_group.append({
-                        "mm_username": user["username"], "action": "SKIPPED_USER_EXCLUDED", "service": "ALL_SERVICES"
-                    })
+                if user["username"] in app_config.EXCLUDED_USERS: # In this test, EXCLUDED_USERS is {"marty"}
+                    continue # Silently skip, add no result
                 else:
                     # Simulate successful sync for non-excluded users for both services
                     results_for_group.append({
@@ -177,11 +172,17 @@ class TestGroupSyncServices(unittest.TestCase):
         self.assertTrue(success)
         mock_sync_single.assert_called_once() # Ensure it was called for the one group
 
-        # Check that the results from the mocked sync_single (which simulates exclusion) are passed through
-        found_marty_skipped = any(
-            r["mm_username"] == "marty" and r["action"] == "SKIPPED_USER_EXCLUDED" for r in detailed_results
+        # Check that no results for "marty" are present in the detailed_results
+        found_marty_in_results = any(
+            r.get("mm_username") == "marty" for r in detailed_results
         )
-        self.assertTrue(found_marty_skipped, "Marty should have a SKIPPED_USER_EXCLUDED result from the mocked sync_single_group")
+        self.assertFalse(found_marty_in_results, "Marty should not have any entry in the detailed_results.")
+
+        # Verify that other users (user1, user2, excluded_user - who is not excluded in *this specific test's* config) are present
+        # self.mm_users_fixture has 4 users. 'marty' is excluded by app_config.EXCLUDED_USERS = {"marty"}
+        # So, 3 users (user1, user2, excluded_user) should be processed by the mock_sync_single.
+        # Each processed user generates 2 results (Authentik + Outline). So 3 * 2 = 6 results expected.
+        self.assertEqual(len(detailed_results), 6)
 
         # Restore original config
         app_config.EXCLUDED_USERS = original_excluded_users
