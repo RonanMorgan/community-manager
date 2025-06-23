@@ -5,6 +5,8 @@
 import logging
 from typing import TYPE_CHECKING, Optional  # Added Optional
 
+from app import config  # Import config to access EXCLUDED_USERS
+
 # Import client-specific utilities and classes for type hinting
 from clients.mattermost_client import slugify
 
@@ -99,6 +101,25 @@ def sync_single_group_to_services(
     for mm_user in mm_users_in_channel:
         mm_user_email = mm_user.get("email")
         mm_username = mm_user.get("username", "UnknownUser")
+
+        # --- Check for User Exclusion ---
+        if mm_username in config.EXCLUDED_USERS:
+            logging.info(
+                f"User '{mm_username}' is in the exclusion list. Skipping sync for this user in channel '{mm_channel_display_name}'."
+            )
+            results.append(
+                {
+                    "mm_username": mm_username,
+                    "mm_user_email": mm_user_email or "NoEmailProvided",
+                    "mm_channel_display_name": mm_channel_display_name,
+                    "target_resource_name": auth_group_name,
+                    "service": "ALL_SERVICES", # Special marker for exclusion
+                    "status": "SKIPPED",
+                    "action": "SKIPPED_USER_EXCLUDED",
+                    "error_message": f"User '{mm_username}' is configured to be excluded from synchronization.",
+                }
+            )
+            continue # Move to the next user in the Mattermost channel
 
         base_user_info = {
             "mm_username": mm_username,

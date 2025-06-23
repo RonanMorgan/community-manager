@@ -44,18 +44,24 @@ class OutlineClient:
             # For example, creating an existing collection returns the existing collection data.
             if response.status_code == 200:
                 response_data = response.json()
-                collection_id = response_data.get("data", {}).get("id")
+                # Ensure 'data' exists and is a dictionary before trying to get 'id'
+                data_content = response_data.get("data")
+                if isinstance(data_content, dict):
+                    collection_id = data_content.get("id")
+                else:
+                    collection_id = None
+
                 if collection_id:
                     logging.info(
                         f"Outline collection '{project_name}' (ID: {collection_id}) processed successfully (either created or existed)."
                     )
-                    return True  # Assuming success if we get an ID, actual creation or existence.
+                    return True
                 else:
                     logging.warning(
                         f"Outline collection '{project_name}' creation/fetch reported success (200), "
-                        f"but response data is not as expected: {response.text}"
+                        f"but 'id' could not be retrieved from response data: {response.text}"
                     )
-                    return False  # Or handle as a specific state if needed
+                    return False
             else:
                 # Attempt to parse error for better logging
                 error_details_msg = ""
