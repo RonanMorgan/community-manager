@@ -26,25 +26,29 @@ class OutlineClient:
         """
         Creates a collection (space) in Outline.
         :param project_name: The name of the project/collection to create.
-        :return: True if successful, False otherwise.
+        :return: True if successful (created or already existed), False otherwise.
         """
-        # Outline's API endpoint for creating collections is /api/collections.create
-        api_url = f"{self.base_url}/api/collections.create"
+        # 1. Check if collection already exists
+        existing_collection = self.get_collection_by_name(project_name)
+        if existing_collection:
+            collection_id = existing_collection.get("id")
+            logging.info(
+                f"Outline collection '{project_name}' (ID: {collection_id}) already exists. No action taken."
+            )
+            return True # Indicate success as the collection is present
 
-        payload = {
-            "name": project_name,
-            # "description": f"Collection for project {project_name}",
-            # "permission": "read_write",
-            # "private": False
-        }
+        # 2. If not, create it
+        create_api_url = f"{self.base_url}/api/collections.create"
+        payload = {"name": project_name}
         logging.debug(f"Outline API >> Creating collection '{project_name}' with payload: {json.dumps(payload)}")
+
         try:
-            response = requests.post(api_url, headers=self.headers, json=payload)
-            # Outline API often returns 200 on successful creation, even if it already exists
-            # For example, creating an existing collection returns the existing collection data.
+            response = requests.post(create_api_url, headers=self.headers, json=payload)
+            # Outline API returns 200 on successful creation.
+            # It might also return 200 if it finds an existing one by some internal logic,
+            # but we've already checked by name.
             if response.status_code == 200:
                 response_data = response.json()
-                # Ensure 'data' exists and is a dictionary before trying to get 'id'
                 data_content = response_data.get("data")
                 if isinstance(data_content, dict):
                     collection_id = data_content.get("id")
@@ -53,17 +57,19 @@ class OutlineClient:
 
                 if collection_id:
                     logging.info(
-                        f"Outline collection '{project_name}' (ID: {collection_id}) processed successfully (either created or existed)."
+                        f"Outline collection '{project_name}' (ID: {collection_id}) created successfully."
                     )
                     return True
                 else:
+                    # This case should ideally not be reached if status is 200 and creation is successful.
+                    # It implies a 200 OK but no valid collection data returned.
                     logging.warning(
-                        f"Outline collection '{project_name}' creation/fetch reported success (200), "
+                        f"Outline collection '{project_name}' creation reported success (200), "
                         f"but 'id' could not be retrieved from response data: {response.text}"
                     )
-                    return False
+                    return False # Or handle as an unexpected state
             else:
-                # Attempt to parse error for better logging
+                # Handle non-200 responses for collections.create
                 error_details_msg = ""
                 try:
                     error_json = response.json()
@@ -72,11 +78,11 @@ class OutlineClient:
                     error_details_msg = " (Could not parse JSON error response)"
 
                 logging.error(
-                    f"Error creating/processing Outline collection '{project_name}': {response.status_code} - {response.text}{error_details_msg}"
+                    f"Error creating Outline collection '{project_name}': {response.status_code} - {response.text}{error_details_msg}"
                 )
                 return False
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request failed for Outline collection creation '{project_name}': {e}")
+            logging.error(f"Request failed during Outline collection creation for '{project_name}': {e}")
             return False
 
     def get_user_by_email(self, email: str) -> dict | None:

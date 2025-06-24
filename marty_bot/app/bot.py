@@ -318,7 +318,7 @@ class MartyBot:
                 help_lines.append(f"* **`{cmd}`**{description}")
         help_lines.append("\n---")
         help_lines.append(
-            f"**Exemple `create_group` :** `{self.bot_name_mention} create_group ProjetAlpha ProjetBeta` - Crée les ressources pour 'ProjetAlpha' et 'ProjetBeta'."
+            f"**Exemple :** `{self.bot_name_mention} create_group MonNouveauProjet` - Crée les ressources pour 'MonNouveauProjet'."
         )
         help_lines.append(
             f"\n**Note :** La commande `{self.bot_name_mention} sync_user_channels` peut prendre un certain temps pour s'exécuter."
@@ -327,133 +327,65 @@ class MartyBot:
         help_text = "\n".join(help_lines)
         await asyncio.to_thread(self.envoyer_message, channel_id, help_text)
 
-    async def _handle_create_group_command(self, channel_id, project_names_str):
-        """Creates all necessary group resources for one or more new projects."""
-        # FR: Crée toutes les ressources de groupe nécessaires pour un ou plusieurs nouveaux projets.
-        if not project_names_str:
-            message = f":warning: **Erreur :** Au moins un nom de projet est requis. Utilisation : `{self.bot_name_mention} create_group <nomDuProjet1> [nomDuProjet2 ...]`"
+    async def _handle_create_group_command(self, channel_id, project_name_str):
+        """Creates all necessary group resources for a new project."""
+        # FR: Crée toutes les ressources de groupe nécessaires pour un nouveau projet.
+        if not project_name_str:
+            message = f":warning: **Erreur :** Le nom du projet est requis. Utilisation : `{self.bot_name_mention} create_group <nomDuProjet>`"
             await asyncio.to_thread(self.envoyer_message, channel_id, message)
             return
 
-        project_names = project_names_str.split()
-        num_projects = len(project_names)
+        project_name = project_name_str
+        processing_message = f":hourglass_flowing_sand: Traitement de 'create_group' pour le projet : **`{project_name}`**..."
+        await asyncio.to_thread(self.envoyer_message, channel_id, processing_message)
 
-        # Message initial de traitement pour tous les projets
-        initial_processing_message = (
-            f":hourglass_flowing_sand: Traitement de 'create_group' pour {num_projects} projet(s) : "
-            f"**`{'`, `'.join(project_names)}`**..."
+        results_summary = []
+        attempted_ops = 0
+        succeeded_ops = 0
+
+        auth_configured = bool(self.authentik_client)
+        auth_success = False
+        if auth_configured:
+            attempted_ops += 1
+            auth_success = self.authentik_client.create_group(project_name)
+            if auth_success:
+                succeeded_ops += 1
+        results_summary.append(
+            f"{':white_check_mark:' if auth_success else ':x:'} Création du groupe Authentik {'réussie' if auth_success else 'échouée'}. (Client configuré : {auth_configured})"
         )
-        await asyncio.to_thread(self.envoyer_message, channel_id, initial_processing_message)
 
-        overall_summary_parts = [] # Collecte les résumés par projet
-        any_project_had_all_success = False
-        any_project_had_partial_success = False
-        any_project_had_total_failure = False
-        all_projects_no_services_configured = True # Vrai jusqu'à ce qu'un service configuré soit trouvé
+        outline_configured = bool(self.outline_client)
+        outline_success = False
+        if outline_configured:
+            attempted_ops += 1
+            outline_success = self.outline_client.create_group(project_name)
+            if outline_success:
+                succeeded_ops += 1
+        results_summary.append(
+            f"{':white_check_mark:' if outline_success else ':x:'} Création de la collection Outline {'réussie' if outline_success else 'échouée'}. (Client configuré : {outline_configured})"
+        )
 
-        for project_name in project_names:
-            project_specific_results_lines = [f"--- Résumé pour le projet **`{project_name}`** ---"]
-            attempted_ops_for_project = 0
-            succeeded_ops_for_project = 0
+        mm_configured = bool(self.mattermost_api_client)
+        mm_success = False
+        if mm_configured:
+            attempted_ops += 1
+            mm_success = self.mattermost_api_client.create_channel(project_name)
+            if mm_success:
+                succeeded_ops += 1
+        results_summary.append(
+            f"{':white_check_mark:' if mm_success else ':x:'} Création du canal Mattermost {'réussie' if mm_success else 'échouée'}. (Client configuré : {mm_configured})"
+        )
 
-            # Authentik
-            auth_configured = bool(self.authentik_client)
-            auth_success = False
-            auth_message = "non configuré"
-            if auth_configured:
-                all_projects_no_services_configured = False
-                attempted_ops_for_project += 1
-                try:
-                    # Supposons que .create_group retourne True pour succès, False pour échec/existe déjà
-                    auth_success = self.authentik_client.create_group(project_name)
-                    if auth_success:
-                        succeeded_ops_for_project += 1
-                        auth_message = "groupe Authentik créé avec succès."
-                    else:
-                        # Le client doit logger si c'est "existe déjà" vs autre échec.
-                        auth_message = "échec de la création du groupe Authentik (ou existe déjà, voir logs)."
-                except Exception as e:
-                    logging.error(f"Exception creating Authentik group for {project_name}: {e}", exc_info=True)
-                    auth_message = f"erreur interne lors de la création du groupe Authentik."
-            project_specific_results_lines.append(
-                f"{':white_check_mark:' if auth_success else (':warning:' if auth_configured and not auth_success else ':x:')} Authentik : {auth_message}"
-            )
-
-            # Outline
-            outline_configured = bool(self.outline_client)
-            outline_success = False
-            outline_message = "non configuré"
-            if outline_configured:
-                all_projects_no_services_configured = False
-                attempted_ops_for_project += 1
-                try:
-                    outline_success = self.outline_client.create_group(project_name)
-                    if outline_success:
-                        succeeded_ops_for_project += 1
-                        outline_message = "collection Outline créée avec succès."
-                    else:
-                        outline_message = "échec de la création de la collection Outline (ou existe déjà, voir logs)."
-                except Exception as e:
-                    logging.error(f"Exception creating Outline collection for {project_name}: {e}", exc_info=True)
-                    outline_message = f"erreur interne lors de la création de la collection Outline."
-            project_specific_results_lines.append(
-                f"{':white_check_mark:' if outline_success else (':warning:' if outline_configured and not outline_success else ':x:')} Outline : {outline_message}"
-            )
-
-            # Mattermost
-            mm_configured = bool(self.mattermost_api_client)
-            mm_success = False
-            mm_message = "non configuré"
-            if mm_configured:
-                all_projects_no_services_configured = False
-                attempted_ops_for_project += 1
-                try:
-                    mm_success = self.mattermost_api_client.create_channel(project_name)
-                    if mm_success:
-                        succeeded_ops_for_project += 1
-                        mm_message = "canal Mattermost créé avec succès."
-                    else:
-                        mm_message = "échec de la création du canal Mattermost (ou existe déjà, voir logs)."
-                except Exception as e:
-                    logging.error(f"Exception creating Mattermost channel for {project_name}: {e}", exc_info=True)
-                    mm_message = f"erreur interne lors de la création du canal Mattermost."
-            project_specific_results_lines.append(
-                f"{':white_check_mark:' if mm_success else (':warning:' if mm_configured and not mm_success else ':x:')} Mattermost : {mm_message}"
-            )
-
-            # Statut pour ce projet spécifique
-            project_status_prefix = ""
-            if attempted_ops_for_project == 0:
-                 project_status_prefix = f":information_source: Aucun service actif n'a été tenté pour **`{project_name}`**."
-            elif succeeded_ops_for_project == attempted_ops_for_project:
-                project_status_prefix = f":rocket: Toutes les ressources demandées pour **`{project_name}`** ont été traitées avec succès (ou existaient déjà)."
-                any_project_had_all_success = True
-            elif succeeded_ops_for_project > 0:
-                project_status_prefix = f":warning: Création partiellement terminée pour **`{project_name}`**."
-                any_project_had_partial_success = True
-            else:
-                project_status_prefix = f":boom: Échec de la création de toutes les ressources demandées pour **`{project_name}`**."
-                any_project_had_total_failure = True
-
-            project_specific_results_lines.insert(1, project_status_prefix)
-            overall_summary_parts.append("\n".join(project_specific_results_lines))
-
-        final_summary_header = ""
-        if all_projects_no_services_configured and num_projects > 0:
-            final_summary_header = f":information_source: Aucun service (Authentik, Outline, Mattermost) n'est configuré pour la commande 'create_group'. Veuillez vérifier la configuration du bot."
-            final_response_message = final_summary_header
+        if attempted_ops == 0:
+            final_header = f":information_source: Aucun service n'est configuré pour 'create_group' pour le projet **`{project_name}`**. Veuillez vérifier la configuration du bot."
+        elif succeeded_ops == attempted_ops:
+            final_header = f":rocket: Toutes les ressources demandées pour le projet **`{project_name}`** ont été créées avec succès !"
+        elif succeeded_ops > 0:
+            final_header = f":warning: Création de groupe partiellement terminée pour le projet **`{project_name}`** :"
         else:
-            if num_projects == 1:
-                final_response_message = "\n".join(overall_summary_parts)
-            else:
-                if any_project_had_all_success and not any_project_had_partial_success and not any_project_had_total_failure:
-                    final_summary_header = f":rocket: Tous les projets ont été traités avec succès !"
-                elif any_project_had_total_failure and not any_project_had_partial_success and not any_project_had_all_success:
-                    final_summary_header = f":boom: Échec complet pour au moins un projet ou tous."
-                else:
-                    final_summary_header = f":information_source: Traitement de 'create_group' pour {num_projects} projets terminé. Voir détails ci-dessous :"
-                final_response_message = f"{final_summary_header}\n" + "\n\n".join(overall_summary_parts)
+            final_header = f":boom: Échec de la création des ressources demandées pour le projet **`{project_name}`**."
 
+        final_response_message = f"{final_header}\n---\n" + "\n".join(results_summary)
         await asyncio.to_thread(self.envoyer_message, channel_id, final_response_message)
 
     async def _handle_message_event(self, message_data):

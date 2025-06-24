@@ -28,25 +28,117 @@ class TestOutlineClient(unittest.TestCase):
             OutlineClient(base_url="fake", token=None)
         self.assertEqual(str(cm.exception), "Outline base_url and token must be provided.")
 
-    @patch("requests.post")  # Patch requests.post used by the client instance
-    def test_create_group_success(self, mock_post_request):
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"data": {"id": "collection_id_123", "name": "test_project"}}
-        mock_post_request.return_value = mock_response
+    @patch("requests.post")
+    def test_create_group_success_collection_does_not_exist(self, mock_post_request):
+        # Mock for get_collection_by_name (first call to collections.list)
+        mock_list_response = Mock()
+        mock_list_response.status_code = 200
+        # Simulate no collection found by that name - empty 'data' or not matching name
+        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 25}}
 
-        project_name = "test_project"
+        # Mock for collections.create (second call)
+        mock_create_response = Mock()
+        mock_create_response.status_code = 200
+        mock_create_response.json.return_value = {"data": {"id": "collection_id_123", "name": "new_project"}}
+
+        mock_post_request.side_effect = [mock_list_response, mock_create_response]
+
+        project_name = "new_project"
         result = self.client.create_group(project_name)
-
-        expected_api_url = f"{self.mock_url}/api/collections.create"
-        expected_payload = {
-            "name": project_name,
-        }
-        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
         self.assertTrue(result)
 
+        self.assertEqual(mock_post_request.call_count, 2)
+
+        # Call 1: collections.list (from get_collection_by_name)
+        list_call_args = mock_post_request.call_args_list[0]
+        self.assertEqual(list_call_args[0][0], f"{self.mock_url}/api/collections.list")
+        # self.assertIn(project_name, list_call_args[1]['json'].get('query', '')) # If using query for name
+
+        # Call 2: collections.create
+        create_call_args = mock_post_request.call_args_list[1]
+        self.assertEqual(create_call_args[0][0], f"{self.mock_url}/api/collections.create")
+        self.assertEqual(create_call_args[1]['json'], {"name": project_name})
+
+
     @patch("requests.post")
-    def test_create_group_success_unexpected_response_data(self, mock_post_request):
+    def test_create_group_success_collection_already_exists(self, mock_post_request):
+        project_name = "existing_project"
+        # Mock for get_collection_by_name (first call to collections.list)
+        mock_list_response = Mock()
+        mock_list_response.status_code = 200
+        # Simulate collection found
+        mock_list_response.json.return_value = {
+            "data": [{"id": "existing_id_456", "name": project_name}],
+            "pagination": {"offset": 0, "limit": 25}
+        }
+        mock_post_request.return_value = mock_list_response # Only collections.list should be called
+
+        result = self.client.create_group(project_name)
+        self.assertTrue(result) # Should be true as collection exists
+
+        # Only collections.list should be called, not collections.create
+        mock_post_request.assert_called_once()
+        list_call_args = mock_post_request.call_args_list[0]
+        self.assertEqual(list_call_args[0][0], f"{self.mock_url}/api/collections.list")
+        # self.assertIn(project_name, list_call_args[1]['json'].get('query', ''))
+
+
+    @patch("requests.post")
+    def test_create_group_failure_during_list_check(self, mock_post_request):
+        # Simulate failure during the get_collection_by_name call
+        mock_post_request.side_effect = requests.exceptions.RequestException("Network error during list")
+
+        project_name = "project_list_fail"
+        result = self.client.create_group(project_name)
+        self.assertFalse(result)
+        # Expect 2 calls because:
+        # 1. get_collection_by_name calls collections.list, catches RequestException, returns None.
+        # 2. create_group then proceeds to call collections.create, which also fails due to the side_effect.
+        self.assertEqual(mock_post_request.call_count, 2)
+
+
+    @patch("requests.post")
+    def test_create_group_failure_during_actual_creation(self, mock_post_request):
+        # Mock for get_collection_by_name (collections.list) - simulate collection not found
+        mock_list_response = Mock()
+        mock_list_response.status_code = 200
+        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 25}}
+
+        # Mock for collections.create - simulate API error during creation
+        mock_create_response = Mock()
+        mock_create_response.status_code = 403 # Forbidden, for example
+        mock_create_response.json.return_value = {"message": "Cannot create"}
+
+        mock_post_request.side_effect = [mock_list_response, mock_create_response]
+
+        project_name = "project_create_fail"
+        result = self.client.create_group(project_name)
+        self.assertFalse(result)
+        self.assertEqual(mock_post_request.call_count, 2) # collections.list then collections.create
+
+
+    @patch("requests.post")
+    def test_create_group_success_unexpected_response_data_in_create(self, mock_post_request):
+        # Mock for get_collection_by_name (collections.list) - simulate collection not found
+        mock_list_response = Mock()
+        mock_list_response.status_code = 200
+        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 25}}
+
+        # Mock for collections.create - simulate success status but malformed data
+        mock_create_response = Mock()
+        mock_create_response.status_code = 200
+        mock_create_response.json.return_value = {"data": None}  # Malformed success response
+
+        mock_post_request.side_effect = [mock_list_response, mock_create_response]
+
+        project_name = "test_project_malformed_success_create"
+        result = self.client.create_group(project_name)
+        self.assertFalse(result)
+        self.assertEqual(mock_post_request.call_count, 2)
+
+
+    @patch("requests.post")
+    def test_create_group_failure_api_error(self, mock_post_request):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"data": None}  # Malformed success response
