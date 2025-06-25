@@ -8,8 +8,8 @@ from clients.mattermost_client import MattermostClient, slugify
 class TestMattermostClient(unittest.TestCase):
 
     # Patch requests.get at the class level to affect setUp
-    @patch('requests.get')
-    def setUp(self, mock_requests_get_for_setup: Mock): # Renamed arg
+    @patch("requests.get")
+    def setUp(self, mock_requests_get_for_setup: Mock):  # Renamed arg
         self.mock_url = "http://fake-mattermost-url.com"
         self.mock_token = "fake_mm_admin_token"
         self.mock_team_id = "fake_team_id"
@@ -32,7 +32,6 @@ class TestMattermostClient(unittest.TestCase):
         )
         # Reset for other tests that might patch requests.get themselves or want a fresh mock
         mock_requests_get_for_setup.reset_mock()
-
 
     def test_constructor_success(self):
         self.assertEqual(self.client.base_url, self.mock_url)
@@ -241,26 +240,27 @@ class TestMattermostClient(unittest.TestCase):
         mock_http_error_response.text = "Client error: Unauthorized"
 
         mock_response = Mock(status_code=401, response=mock_http_error_response)
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("Unauthorized", response=mock_http_error_response)
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "Unauthorized", response=mock_http_error_response
+        )
         mock_get_request.return_value = mock_response
 
         # Re-initialize client; _initialize_bot_user_id should handle failure gracefully
         client = MattermostClient(base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id)
-        self.assertIsNone(client.bot_user_id) # Bot ID should be None after failed fetch
+        self.assertIsNone(client.bot_user_id)  # Bot ID should be None after failed fetch
 
         # Direct call should also fail
         details = client.get_me()
         self.assertIsNone(details)
-        self.assertEqual(mock_get_request.call_count, 2) # Once in init, once direct
-
+        self.assertEqual(mock_get_request.call_count, 2)  # Once in init, once direct
 
     @patch("requests.post")
     def test_create_direct_channel_success(self, mock_post_request):
         # Ensure bot_user_id is set on the existing client for this test
         # In real usage, it's set during __init__
-        with patch.object(self.client, 'get_me', return_value={'id': 'bot_id_for_test', 'username': 'testbot'}):
-            self.client._initialize_bot_user_id() # Manually call to set bot_user_id based on new mock
-        self.assertEqual(self.client.bot_user_id, 'bot_id_for_test')
+        with patch.object(self.client, "get_me", return_value={"id": "bot_id_for_test", "username": "testbot"}):
+            self.client._initialize_bot_user_id()  # Manually call to set bot_user_id based on new mock
+        self.assertEqual(self.client.bot_user_id, "bot_id_for_test")
 
         mock_response = Mock(status_code=201)
         expected_dm_channel = {"id": "dm_channel_id_456", "type": "D"}
@@ -277,15 +277,15 @@ class TestMattermostClient(unittest.TestCase):
 
     def test_create_direct_channel_fail_no_bot_id(self):
         original_bot_id = self.client.bot_user_id
-        self.client.bot_user_id = None # Simulate bot_id not initialized
-        with patch('requests.post') as mock_post: # ensure no API call is made
+        self.client.bot_user_id = None  # Simulate bot_id not initialized
+        with patch("requests.post") as mock_post:  # ensure no API call is made
             dm_channel_id = self.client.create_direct_channel("other_user_id_789")
             self.assertIsNone(dm_channel_id)
             mock_post.assert_not_called()
-        self.client.bot_user_id = original_bot_id # Restore
+        self.client.bot_user_id = original_bot_id  # Restore
 
-    @patch('clients.mattermost_client.MattermostClient.post_message')
-    @patch('clients.mattermost_client.MattermostClient.create_direct_channel')
+    @patch("clients.mattermost_client.MattermostClient.post_message")
+    @patch("clients.mattermost_client.MattermostClient.create_direct_channel")
     def test_send_dm_success(self, mock_create_direct_channel_class, mock_post_message_class):
         self.client.bot_user_id = "bot_for_dm_test"
 
@@ -302,22 +302,22 @@ class TestMattermostClient(unittest.TestCase):
         mock_create_direct_channel_class.assert_called_once_with(target_user_id)
         mock_post_message_class.assert_called_once_with(channel_id=mock_dm_channel_id, message=dm_message)
 
-    @patch('clients.mattermost_client.MattermostClient.post_message')
-    @patch('clients.mattermost_client.MattermostClient.create_direct_channel')
+    @patch("clients.mattermost_client.MattermostClient.post_message")
+    @patch("clients.mattermost_client.MattermostClient.create_direct_channel")
     def test_send_dm_fail_channel_creation(self, mock_create_direct_channel_class, mock_post_message_class):
         self.client.bot_user_id = "bot_for_dm_test"
 
         target_user_id = "target_user_2"
         dm_message = "Test DM"
-        mock_create_direct_channel_class.return_value = None # Simulate DM channel creation failure
+        mock_create_direct_channel_class.return_value = None  # Simulate DM channel creation failure
 
         success = self.client.send_dm(target_user_id, dm_message)
         self.assertFalse(success)
         mock_create_direct_channel_class.assert_called_once_with(target_user_id)
         mock_post_message_class.assert_not_called()
 
-    @patch('clients.mattermost_client.MattermostClient.post_message')
-    @patch('clients.mattermost_client.MattermostClient.create_direct_channel')
+    @patch("clients.mattermost_client.MattermostClient.post_message")
+    @patch("clients.mattermost_client.MattermostClient.create_direct_channel")
     def test_send_dm_fail_post_message(self, mock_create_direct_channel_class, mock_post_message_class):
         self.client.bot_user_id = "bot_for_dm_test"
 
@@ -326,7 +326,7 @@ class TestMattermostClient(unittest.TestCase):
         mock_dm_channel_id = "dm_channel_for_target_3"
 
         mock_create_direct_channel_class.return_value = mock_dm_channel_id
-        mock_post_message_class.return_value = False # Simulate post_message failure
+        mock_post_message_class.return_value = False  # Simulate post_message failure
 
         success = self.client.send_dm(target_user_id, dm_message)
 

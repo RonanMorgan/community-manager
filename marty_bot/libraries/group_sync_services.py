@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Optional  # Added Optional
 from app import config  # Import config to access EXCLUDED_USERS
 
 # Import client-specific utilities and classes for type hinting
-from clients.mattermost_client import slugify # For URL construction
+from clients.mattermost_client import slugify  # For URL construction
 
 if TYPE_CHECKING:
     from clients.authentik_client import AuthentikClient
@@ -109,7 +109,7 @@ def sync_single_group_to_services(
             )
             # No result is added to the 'results' list for this user.
             # This ensures they are not mentioned in any summary/report generated from these results.
-            continue # Move to the next user in the Mattermost channel
+            continue  # Move to the next user in the Mattermost channel
 
         base_user_info = {
             "mm_username": mm_username,
@@ -175,7 +175,7 @@ def sync_single_group_to_services(
                 outline_user_result["error_message"] = f"User email '{mm_user_email}' not found in Outline."
             else:
                 outline_user_id = outline_user.get("id")
-                mm_user_id = mm_user.get("id") # Mattermost user ID for DM
+                mm_user_id = mm_user.get("id")  # Mattermost user ID for DM
 
                 # Convention: Outline collection name is the same as Authentik group name
                 # First, get the collection by name to find its ID
@@ -192,7 +192,7 @@ def sync_single_group_to_services(
                     # Check if user is already a member
                     collection_members = outline_client.get_collection_members(outline_collection_id)
                     is_already_member = False
-                    if collection_members is not None: # If None, API call failed, proceed to add tentatively
+                    if collection_members is not None:  # If None, API call failed, proceed to add tentatively
                         is_already_member = outline_user_id in collection_members
 
                     if is_already_member:
@@ -215,7 +215,7 @@ def sync_single_group_to_services(
                                 # A safer bet might be `OUTLINE_URL/c/{collection_id}` or using `urlId` if it's the public one.
                                 # Given the user's example: collection_name-collection_id
                                 # Let's assume collection_id is the UUID.
-                                collection_url_slug_part = slugify(coll_name) # slugify the name part
+                                collection_url_slug_part = slugify(coll_name)  # slugify the name part
                                 collection_url = f"{config.OUTLINE_URL}/collection/{collection_url_slug_part}-{outline_collection_id}"
 
                                 dm_message = (
@@ -227,7 +227,9 @@ def sync_single_group_to_services(
                                     logging.info(f"Sent DM to {mm_username} for Outline collection {coll_name}.")
                                 else:
                                     outline_user_result["action"] = "USER_ADDED_TO_OUTLINE_COLLECTION_DM_FAILED"
-                                    logging.warning(f"User added to Outline collection {coll_name}, but failed to send DM to {mm_username}.")
+                                    logging.warning(
+                                        f"User added to Outline collection {coll_name}, but failed to send DM to {mm_username}."
+                                    )
                             else:
                                 logging.warning(
                                     f"User added to Outline collection {auth_group_name} (ID: {outline_collection_id}), "
