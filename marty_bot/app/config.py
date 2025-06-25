@@ -21,7 +21,7 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 # User Exclusion Configuration
 # Defines the path to the file containing a list of usernames to exclude from sync operations.
 # Each username should be on a new line.
-EXCLUDED_USERS_FILE_PATH = os.getenv("EXCLUDED_USERS_FILE_PATH", "marty_bot/config/excluded_users.txt")
+EXCLUDED_USERS_FILE_PATH = os.getenv("EXCLUDED_USERS_FILE_PATH", "config/excluded_users.txt")
 EXCLUDED_USERS: set[str] = set()
 
 # Attempt to load the excluded users list
