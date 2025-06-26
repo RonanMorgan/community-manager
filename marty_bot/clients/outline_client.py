@@ -231,8 +231,8 @@ class OutlineClient:
                     )
                     break
 
-            logging.info(
-                f"Successfully fetched {len(member_user_ids)} member IDs for Outline collection ID "  # noqa: E501
+            logging.info(  # noqa: E501
+                f"Successfully fetched {len(member_user_ids)} member IDs for Outline collection ID "
                 f"'{collection_id}' over {page_count} pages."
             )
             return member_user_ids

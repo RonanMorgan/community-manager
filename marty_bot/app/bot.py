@@ -112,7 +112,6 @@ class MartyBot:
         self.MAX_RECONNECT_DELAY = 60  # seconds
 
         self.commands = {
-            # "create_group": self._handle_create_group_command, # To be replaced
             "create_projet": self._handle_create_projet_command,
             "create_antenne": self._handle_create_antenne_command,
             "create_pole": self._handle_create_pole_command,
@@ -121,116 +120,133 @@ class MartyBot:
         }
 
     async def _create_resources_for_category(
-        self, base_name: str, category_key: str, admin_category_key: str | None, channel_id: str
+        self,
+        base_name: str,
+        category_key: str,
+        admin_category_key: str | None,
+        channel_id: str,
+        item_type_display: str,
     ):
         """
         Helper function to create resources based on permission matrix categories.
-        It creates resources for a primary category and optionally for an admin category.
+        It creates resources for a primary category and optionally for an admin category for a single base_name.
+        Returns a list of log messages for this specific base_name.
         """
-        results_log = []
-        overall_success = True
+        item_results_log = []
+        # overall_success_for_item = True # This can be tracked if needed per item
 
         categories_to_process = [(category_key, base_name)]
         if admin_category_key:
             admin_resource_name = f"{base_name} Admin"
             categories_to_process.append((admin_category_key, admin_resource_name))
 
+        item_results_log.append(f"--- Création pour {item_type_display} **`{base_name}`** ---")
+
         for current_category_key, resource_name_prefix in categories_to_process:
             category_permissions = self.config.PERMISSIONS_MATRIX.get(current_category_key)
 
             if not category_permissions:
-                msg = f":x: Configuration error: No permissions found for category '{current_category_key}' in the matrix."
+                msg = f":x: Configuration error: No permissions found for category '{current_category_key}' in the matrix for '{resource_name_prefix}'."
                 logging.error(msg)
-                results_log.append(msg)
-                overall_success = False
+                item_results_log.append(msg)
+                # overall_success_for_item = False
                 continue
 
-            results_log.append(
-                f"--- Traitement pour **`{resource_name_prefix}`** (Basé sur *{current_category_key}*) ---"
+            item_results_log.append(
+                f"  - Sous-groupe/canal **`{resource_name_prefix}`** (basé sur *{current_category_key}*):"
             )
 
-            auth_msg = "Authentik: "
+            auth_msg = "    - Authentik: "
             if self.authentik_client:
                 try:
                     if self.authentik_client.create_group(resource_name_prefix):
-                        auth_msg += ":white_check_mark: Groupe créé avec succès."
+                        auth_msg += ":white_check_mark: Groupe créé."
                     else:
-                        auth_msg += ":warning: Échec création (ou groupe existe déjà)."
-                        overall_success = False
+                        auth_msg += ":warning: Échec création (ou existe déjà)."
+                        # overall_success_for_item = False
                 except Exception as e:
                     logging.error(
                         f"Error creating Authentik group for {resource_name_prefix} ({current_category_key}): {e}",
                         exc_info=True,
                     )
                     auth_msg += f":x: Erreur interne ({e})."
-                    overall_success = False
+                    # overall_success_for_item = False
             else:
-                auth_msg += ":information_source: Client non configuré, ignoré."
-            results_log.append(auth_msg)
+                auth_msg += ":information_source: Client non configuré."
+            item_results_log.append(auth_msg)
 
-            outline_msg = "Outline: "
+            outline_msg = "    - Outline: "
             if self.outline_client:
                 try:
                     status = self.outline_client.create_group(resource_name_prefix)
                     if status == "CREATED":
-                        outline_msg += ":white_check_mark: Collection créée avec succès."
+                        outline_msg += ":white_check_mark: Collection créée."
                     elif status == "EXISTS":
                         outline_msg += ":information_source: Collection existait déjà."
                     else:  # FAILED
-                        outline_msg += ":warning: Échec création/vérification de la collection."
-                        overall_success = False
+                        outline_msg += ":warning: Échec création/vérification."
+                        # overall_success_for_item = False
                 except Exception as e:
                     logging.error(
                         f"Error creating Outline collection for {resource_name_prefix} ({current_category_key}): {e}",
                         exc_info=True,
                     )
                     outline_msg += f":x: Erreur interne ({e})."
-                    overall_success = False
+                    # overall_success_for_item = False
             else:
-                outline_msg += ":information_source: Client non configuré, ignoré."
-            results_log.append(outline_msg)
+                outline_msg += ":information_source: Client non configuré."
+            item_results_log.append(outline_msg)
 
             mm_settings = category_permissions.get("mattermost", {})
             mm_channel_type = mm_settings.get("channel_type", "O")
-            mm_msg = "Mattermost: "
+            mm_msg = "    - Mattermost: "
             if self.mattermost_api_client:
                 try:
                     if self.mattermost_api_client.create_channel(resource_name_prefix, channel_type=mm_channel_type):
-                        mm_msg += f":white_check_mark: Canal ({'Public' if mm_channel_type == 'O' else 'Privé'}) créé avec succès."
+                        mm_msg += f":white_check_mark: Canal ({'Public' if mm_channel_type == 'O' else 'Privé'}) créé."
                     else:
-                        mm_msg += f":warning: Échec création canal ({'Public' if mm_channel_type == 'O' else 'Privé'}) (ou existe déjà)."
-                        overall_success = False
+                        mm_msg += f":warning: Échec création ({'Public' if mm_channel_type == 'O' else 'Privé'}) (ou existe déjà)."  # noqa: E501
+                        # overall_success_for_item = False
                 except Exception as e:
                     logging.error(
                         f"Error creating Mattermost channel for {resource_name_prefix} ({current_category_key}): {e}",
                         exc_info=True,
                     )
                     mm_msg += f":x: Erreur interne ({e})."
-                    overall_success = False
+                    # overall_success_for_item = False
             else:
-                mm_msg += ":information_source: Client non configuré, ignoré."
-            results_log.append(mm_msg)
+                mm_msg += ":information_source: Client non configuré."
+            item_results_log.append(mm_msg)
 
-        final_message = "\n".join(results_log)
-        await asyncio.to_thread(self.envoyer_message, channel_id, final_message)
-        return overall_success
+        return item_results_log
 
-    async def _handle_create_projet_command(self, channel_id, arg_string):
-        """Crée les ressources pour un nouveau projet (standard et admin). Usage: create_projet <NomDuProjet>"""
+    async def _execute_batch_create_command(
+        self,
+        channel_id: str,
+        arg_string: str | None,
+        item_type_display: str,
+        category_key: str,
+        admin_category_key: str | None,
+        command_name: str,
+    ):
+        """Generic handler for create commands supporting multiple arguments."""
         if not arg_string:
             await asyncio.to_thread(
                 self.envoyer_message,
                 channel_id,
-                f":warning: Nom du projet manquant. Usage: `{self.bot_name_mention} create_projet <NomDuProjet>`",
+                f":warning: Au moins un nom de {item_type_display} est requis. Usage: `{self.bot_name_mention} {command_name} <Nom1> [Nom2 ...]`",  # noqa: E501
             )
             return
-        project_base_name = arg_string.strip()
-        logging.info(f"'create_projet' command received for: {project_base_name}")
-        await asyncio.to_thread(
-            self.envoyer_message,
-            channel_id,
-            f":hourglass_flowing_sand: Création des ressources pour le projet **`{project_base_name}`**...",
+
+        base_names = arg_string.split()
+        num_items = len(base_names)
+        plural_s = "s" if num_items > 1 else ""
+
+        initial_message = (
+            f":hourglass_flowing_sand: Traitement de '{command_name}' pour {num_items} {item_type_display}{plural_s}: "
+            f"**`{'`, `'.join(base_names)}`**..."
         )
+        await asyncio.to_thread(self.envoyer_message, channel_id, initial_message)
 
         if not self.config.PERMISSIONS_MATRIX:
             await asyncio.to_thread(
@@ -240,76 +256,38 @@ class MartyBot:
             )
             return
 
-        await self._create_resources_for_category(
-            base_name=project_base_name,
-            category_key="PROJET",
-            admin_category_key="PROJET_ADMIN",
-            channel_id=channel_id,
+        overall_log_parts = [f"### Résumé global pour la commande `{command_name}`"]
+
+        for base_name in base_names:
+            logging.info(f"'{command_name}' command processing for: {base_name}")
+            item_log = await self._create_resources_for_category(
+                base_name=base_name,
+                category_key=category_key,
+                admin_category_key=admin_category_key,
+                channel_id=channel_id,  # Not used by _create_resources_for_category for sending messages anymore
+                item_type_display=item_type_display,
+            )
+            overall_log_parts.extend(item_log)
+            overall_log_parts.append("---")  # Separator between items
+
+        final_summary_message = "\n".join(overall_log_parts)
+        await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message)
+
+    async def _handle_create_projet_command(self, channel_id, arg_string):
+        """Crée les ressources pour un ou plusieurs projets (standard et admin). Usage: create_projet <NomProjet1> [NomProjet2 ...]"""
+        await self._execute_batch_create_command(
+            channel_id, arg_string, "projet", "PROJET", "PROJET_ADMIN", "create_projet"
         )
 
     async def _handle_create_antenne_command(self, channel_id, arg_string):
-        """Crée les ressources pour une nouvelle antenne (standard et admin). Usage: create_antenne <NomDeLAntenne>"""
-        if not arg_string:
-            await asyncio.to_thread(
-                self.envoyer_message,
-                channel_id,
-                f":warning: Nom de l'antenne manquant. Usage: `{self.bot_name_mention} create_antenne <NomDeLAntenne>`",
-            )
-            return
-        antenne_base_name = arg_string.strip()
-        logging.info(f"'create_antenne' command received for: {antenne_base_name}")
-        await asyncio.to_thread(
-            self.envoyer_message,
-            channel_id,
-            f":hourglass_flowing_sand: Création des ressources pour l'antenne **`{antenne_base_name}`**...",
-        )
-
-        if not self.config.PERMISSIONS_MATRIX:
-            await asyncio.to_thread(
-                self.envoyer_message,
-                channel_id,
-                ":x: Erreur: La matrice des permissions n'est pas chargée. Impossible de continuer.",
-            )
-            return
-
-        await self._create_resources_for_category(
-            base_name=antenne_base_name,
-            category_key="ANTENNE",
-            admin_category_key="ANTENNE_ADMIN",
-            channel_id=channel_id,
+        """Crée les ressources pour une ou plusieurs antennes (standard et admin). Usage: create_antenne <NomAntenne1> [NomAntenne2 ...]"""
+        await self._execute_batch_create_command(
+            channel_id, arg_string, "antenne", "ANTENNE", "ANTENNE_ADMIN", "create_antenne"
         )
 
     async def _handle_create_pole_command(self, channel_id, arg_string):
-        """Crée les ressources pour un nouveau pôle (standard et admin). Usage: create_pole <NomDuPole>"""
-        if not arg_string:
-            await asyncio.to_thread(
-                self.envoyer_message,
-                channel_id,
-                f":warning: Nom du pôle manquant. Usage: `{self.bot_name_mention} create_pole <NomDuPole>`",
-            )
-            return
-        pole_base_name = arg_string.strip()
-        logging.info(f"'create_pole' command received for: {pole_base_name}")
-        await asyncio.to_thread(
-            self.envoyer_message,
-            channel_id,
-            f":hourglass_flowing_sand: Création des ressources pour le pôle **`{pole_base_name}`**...",
-        )
-
-        if not self.config.PERMISSIONS_MATRIX:
-            await asyncio.to_thread(
-                self.envoyer_message,
-                channel_id,
-                ":x: Erreur: La matrice des permissions n'est pas chargée. Impossible de continuer.",
-            )
-            return
-
-        await self._create_resources_for_category(
-            base_name=pole_base_name,
-            category_key="POLES",
-            admin_category_key="POLES_ADMIN",
-            channel_id=channel_id,
-        )
+        """Crée les ressources pour un ou plusieurs pôles (standard et admin). Usage: create_pole <NomPole1> [NomPole2 ...]"""
+        await self._execute_batch_create_command(channel_id, arg_string, "pôle", "POLES", "POLES_ADMIN", "create_pole")
 
     async def _handle_sync_user_channels_command(self, channel_id, arg_string=None):
         """Triggers the synchronization of Mattermost channel users to Authentik groups."""
@@ -500,10 +478,10 @@ class MartyBot:
                     description = f" - _{first_line}_"
                 help_lines.append(f"* **`{cmd}`**{description}")
         help_lines.append("\n---")
-        help_lines.append("**Exemples de création :**")  # Corrected F541
-        help_lines.append(f"* `{self.bot_name_mention} create_projet MonSuperProjet`")
+        help_lines.append("**Exemples de création :**")
+        help_lines.append(f"* `{self.bot_name_mention} create_projet MonProjet1 MonProjet2`")
         help_lines.append(f"* `{self.bot_name_mention} create_antenne AntenneRegionale`")
-        help_lines.append(f"* `{self.bot_name_mention} create_pole PoleTechnique`")
+        help_lines.append(f"* `{self.bot_name_mention} create_pole PoleTechnique AutrePole`")
         help_lines.append(
             f"\n**Note :** La commande `{self.bot_name_mention} sync_user_channels` peut prendre un certain temps pour s'exécuter."
         )
