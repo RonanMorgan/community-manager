@@ -135,36 +135,48 @@ class MartyBot:
         """
         item_results_log = []
 
-        categories_to_process = [(category_key, base_name)]
+        # Determine the prefix string based on the primary category_key
+        prefix_str = ""
+        if category_key == "PROJET":
+            prefix_str = "projet_"
+        elif category_key == "ANTENNE":
+            prefix_str = "antenne_"
+        elif category_key == "POLES":
+            prefix_str = "pole_"
+
+        prefixed_base_name = f"{prefix_str}{base_name}"
+
+        categories_to_process = [(category_key, prefixed_base_name)]
         if admin_category_key:
-            admin_resource_name = f"{base_name} Admin"
+            admin_resource_name = f"{prefixed_base_name} Admin"
             categories_to_process.append((admin_category_key, admin_resource_name))
 
-        item_results_log.append(f"--- Création pour {item_type_display} **`{base_name}`** ---")
+        item_results_log.append(f"--- Création pour {item_type_display} **`{base_name}`** (préfixé en `{prefix_str}`) ---")
 
-        for current_category_key, resource_name_prefix in categories_to_process:
+        # Loop variable 'name_for_creation' now holds the correctly prefixed name
+        for current_category_key, name_for_creation in categories_to_process:
             category_permissions = self.config.PERMISSIONS_MATRIX.get(current_category_key)
 
             if not category_permissions:
-                msg = f":x: Configuration error: No permissions found for category '{current_category_key}' in the matrix for '{resource_name_prefix}'."
+                msg = f":x: Configuration error: No permissions found for category '{current_category_key}' in the matrix for '{name_for_creation}'."
                 logging.error(msg)
                 item_results_log.append(msg)
                 continue
 
             item_results_log.append(
-                f"  - Sous-groupe/canal **`{resource_name_prefix}`** (basé sur *{current_category_key}*):"
+                f"  - Sous-groupe/canal **`{name_for_creation}`** (basé sur *{current_category_key}*):"
             )
 
             auth_msg = "    - Authentik: "
             if self.authentik_client:
                 try:
-                    if self.authentik_client.create_group(resource_name_prefix):
+                    if self.authentik_client.create_group(name_for_creation):
                         auth_msg += ":white_check_mark: Groupe créé."
                     else:
                         auth_msg += ":warning: Échec création (ou groupe existe déjà)."
                 except Exception as e:
                     logging.error(
-                        f"Error creating Authentik group for {resource_name_prefix} ({current_category_key}): {e}",
+                        f"Error creating Authentik group for {name_for_creation} ({current_category_key}): {e}",
                         exc_info=True,
                     )
                     auth_msg += f":x: Erreur interne ({e})."
@@ -175,7 +187,7 @@ class MartyBot:
             outline_msg = "    - Outline: "
             if self.outline_client:
                 try:
-                    status = self.outline_client.create_group(resource_name_prefix)
+                    status = self.outline_client.create_group(name_for_creation)
                     if status == "CREATED":
                         outline_msg += ":white_check_mark: Collection créée."
                     elif status == "EXISTS":
@@ -184,7 +196,7 @@ class MartyBot:
                         outline_msg += ":warning: Échec création/vérification."
                 except Exception as e:
                     logging.error(
-                        f"Error creating Outline collection for {resource_name_prefix} ({current_category_key}): {e}",
+                        f"Error creating Outline collection for {name_for_creation} ({current_category_key}): {e}",
                         exc_info=True,
                     )
                     outline_msg += f":x: Erreur interne ({e})."
@@ -196,11 +208,10 @@ class MartyBot:
             mm_channel_type = mm_settings.get("channel_type", "O")
             mm_msg = "    - Mattermost: "
             if self.mattermost_api_client:
-                created_mm_channel_id = None  # To store the ID of the created channel
+                created_mm_channel_id = None
                 try:
-                    # create_channel now returns the channel_id if successful, or None
                     channel_creation_result = self.mattermost_api_client.create_channel(
-                        resource_name_prefix, channel_type=mm_channel_type
+                        name_for_creation, channel_type=mm_channel_type
                     )
                     if (
                         channel_creation_result
@@ -211,28 +222,25 @@ class MartyBot:
                         mm_msg += f":white_check_mark: Canal ({'Public' if mm_channel_type == 'O' else 'Privé'}) créé (ID: {created_mm_channel_id})."
                         if requesting_user_id and created_mm_channel_id:
                             logging.info(
-                                f"Attempting to add user {requesting_user_id} to new channel {created_mm_channel_id}"
+                                f"Attempting to add user {requesting_user_id} to new channel {created_mm_channel_id} ({name_for_creation})"
                             )
                             if self.mattermost_api_client.add_user_to_channel(
                                 created_mm_channel_id, requesting_user_id
                             ):
                                 mm_msg += " Utilisateur demandeur ajouté au canal."
                                 logging.info(
-                                    f"Successfully added user {requesting_user_id} to channel {created_mm_channel_id}"
+                                    f"Successfully added user {requesting_user_id} to channel {created_mm_channel_id} ({name_for_creation})"
                                 )
                             else:
                                 mm_msg += " Échec de l'ajout de l'utilisateur demandeur au canal."
                                 logging.warning(
-                                    f"Failed to add user {requesting_user_id} to channel {created_mm_channel_id}"
+                                    f"Failed to add user {requesting_user_id} to channel {created_mm_channel_id} ({name_for_creation})"
                                 )
-                    # Fallback for older mock that returned boolean is removed as create_channel now returns dict or None
                     else:
-                        # This 'else' handles cases where channel_creation_result is None (error from client)
-                        # or not a dict with an 'id' (unexpected valid return that's not None).
-                        mm_msg += f":warning: Échec création ({'Public' if mm_channel_type == 'O' else 'Privé'}) (ou existe déjà)."  # noqa: E501
+                        mm_msg += f":warning: Échec création ({'Public' if mm_channel_type == 'O' else 'Privé'}) (ou existe déjà)."
                 except Exception as e:
                     logging.error(
-                        f"Error creating Mattermost channel for {resource_name_prefix} ({current_category_key}): {e}",
+                        f"Error creating Mattermost channel for {name_for_creation} ({current_category_key}): {e}",
                         exc_info=True,
                     )
                     mm_msg += f":x: Erreur interne ({e})."
