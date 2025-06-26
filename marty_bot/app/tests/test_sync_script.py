@@ -150,14 +150,14 @@ class TestSyncLogic(unittest.TestCase):
 
         outline_result = next(r for r in results if r["service"] == "OUTLINE")
         self.assertEqual(outline_result["status"], "SUCCESS")
-        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT")
+        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT")
         self.assertEqual(outline_result["mm_username"], "dev1")
 
         self.mock_outline_client_instance.get_user_by_email.assert_called_once_with(user_email)
         self.mock_outline_client_instance.get_collection_by_name.assert_called_once_with(auth_group["name"])
         self.mock_outline_client_instance.get_collection_members.assert_called_once_with(outline_collection_id)
         self.mock_outline_client_instance.add_user_to_collection.assert_called_once_with(
-            outline_collection_id, outline_user_id
+            outline_collection_id, outline_user_id, permission="read"  # Added permission
         )
         self.mock_outline_client_instance.get_collection_details.assert_called_once_with(outline_collection_id)
         self.mock_mm_client_instance.send_dm.assert_called_once()

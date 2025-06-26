@@ -258,7 +258,8 @@ class TestGroupSyncServices(unittest.TestCase):
 
         self.assertEqual(len(results), 2)  # 1 for Authentik, 1 for Outline
         outline_result = next(r for r in results if r["service"] == "OUTLINE")
-        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT")
+        # "DM Test Group" will default to "read" permission
+        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT")
         self.mock_mattermost_client.send_dm.assert_called_once()
         call_args = self.mock_mattermost_client.send_dm.call_args[0]
         self.assertEqual(call_args[0], mm_user_for_dm["id"])  # mm_user_id
@@ -296,7 +297,8 @@ class TestGroupSyncServices(unittest.TestCase):
             email_to_authentik_user_pk_map={"dmuserfail@example.com": "auth_user_pk_dm_fail"},
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE")
-        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_DM_FAILED")
+        # "DM Fail Group" will default to "read" permission
+        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_FAILED")
         self.mock_mattermost_client.send_dm.assert_called_once()
 
     @patch("libraries.group_sync_services.config")
@@ -331,6 +333,111 @@ class TestGroupSyncServices(unittest.TestCase):
         self.assertEqual(outline_result["action"], "USER_ALREADY_IN_OUTLINE_COLLECTION")
         self.mock_outline_client.add_user_to_collection.assert_not_called()
         self.mock_mattermost_client.send_dm.assert_not_called()
+
+    @patch("libraries.group_sync_services.config")  # To mock config.PERMISSIONS_MATRIX
+    def test_sync_single_group_outline_permissions(self, mock_config_module):
+        # 1. Setup mock_config_module.PERMISSIONS_MATRIX
+        mock_config_module.PERMISSIONS_MATRIX = {
+            "PROJET": {"outline": {"access": "read"}, "mattermost": {"channel_type": "O"}},
+            "PROJET_ADMIN": {"outline": {"access": "rw"}, "mattermost": {"channel_type": "P"}},
+            "ANTENNE": {"outline": {"access": "read"}, "mattermost": {"channel_type": "O"}},
+            "ANTENNE_ADMIN": {"outline": {"access": "rw"}, "mattermost": {"channel_type": "P"}},
+            "POLES": {"outline": {"access": "read"}, "mattermost": {"channel_type": "O"}},
+            "POLES_ADMIN": {"outline": {"access": "rw"}, "mattermost": {"channel_type": "P"}},
+            # For testing defaults with problematic matrix entries
+            "PROJET_NO_OUTLINE_KEY": {"mattermost": {"channel_type": "O"}},
+            "PROJET_NO_ACCESS_KEY": {"outline": {}, "mattermost": {"channel_type": "O"}},
+            "PROJET_INVALID_ACCESS_VAL": {"outline": {"access": "super"}, "mattermost": {"channel_type": "O"}},
+        }
+        mock_config_module.EXCLUDED_USERS = set()  # No exclusions
+        mock_config_module.OUTLINE_URL = "http://fake-outline.com"
+
+        # (auth_group_name, mm_channel_type, expected_permission_value, expected_action_string_suffix_part)
+        # expected_action_string_suffix_part will be like "READ_ACCESS_AND_DM_SENT"
+        test_cases = [
+            # Standard cases where DM is expected to be sent
+            ("projet_test_public", "O", "read", "READ_ACCESS_AND_DM_SENT"),
+            ("projet_test_private", "P", "read_write", "READ_WRITE_ACCESS_AND_DM_SENT"),
+            ("antenne_test_public", "O", "read", "READ_ACCESS_AND_DM_SENT"),
+            ("antenne_test_private", "P", "read_write", "READ_WRITE_ACCESS_AND_DM_SENT"),
+            ("pole_test_public", "O", "read", "READ_ACCESS_AND_DM_SENT"),
+            ("pôle_test_public_accent", "O", "read", "READ_ACCESS_AND_DM_SENT"), # Test with accent
+            ("pole_test_private", "P", "read_write", "READ_WRITE_ACCESS_AND_DM_SENT"),
+            ("pôle_test_private_accent", "P", "read_write", "READ_WRITE_ACCESS_AND_DM_SENT"),
+            ("unknownprefix_test", "O", "read", "READ_ACCESS_AND_DM_SENT"),  # Default for unknown prefix
+            ("projet_no_outline_setup", "O", "read", "READ_ACCESS_AND_DM_SENT"), # Default for category with no outline.access
+            ("projet_no_access_val", "O", "read", "READ_ACCESS_AND_DM_SENT"), # Default for invalid outline.access
+            ("projet_invalid_access_val", "O", "read", "READ_ACCESS_AND_DM_SENT"), # Default for invalid outline.access
+            ("nonexistentcatprefix_test", "O", "read", "READ_ACCESS_AND_DM_SENT"), # Default for category not in matrix
+        ]
+
+        mm_user_fixture = {"username": "perm_user", "email": "permuser@example.com", "id": "mm_user_id_perm"}
+        outline_user_data = {"id": "outline_user_id_perm"}
+        email_to_pk_map = {mm_user_fixture["email"]: "auth_user_pk_perm"}
+
+        original_matrix = mock_config_module.PERMISSIONS_MATRIX.copy() # Store original mock
+
+        for auth_group_name, mm_channel_type, expected_permission_value, expected_action_string_suffix_part in test_cases:
+            with self.subTest(auth_group_name=auth_group_name, mm_channel_type=mm_channel_type):
+                self.mock_authentik_client.reset_mock()
+                self.mock_mattermost_client.reset_mock()
+                self.mock_outline_client.reset_mock()
+
+                # Restore and then manipulate matrix for specific test cases if needed
+                mock_config_module.PERMISSIONS_MATRIX = original_matrix.copy()
+                # This part of the test setup was for manipulating the matrix for specific sub-tests,
+                # but the _determine_outline_permission function handles these defaults internally now.
+                # So, direct manipulation of mock_config_module.PERMISSIONS_MATRIX for these specific default cases
+                # is not strictly needed here if _determine_outline_permission's logging and defaults are trusted.
+                # However, keeping the structure if more granular matrix tests are needed later.
+                # For now, the test cases rely on _determine_outline_permission correctly interpreting
+                # the pre-defined mock_config_module.PERMISSIONS_MATRIX and its defaults.
+
+                current_auth_group = {"name": auth_group_name, "pk": "auth_pk_perm", "users": []}
+                current_mm_channel = {
+                    "id": "mm_channel_id_perm",
+                    "display_name": auth_group_name, # display_name often matches group name
+                    "name": slugify(auth_group_name), # Actual channel name/slug
+                    "type": mm_channel_type,
+                }
+
+                self.mock_mattermost_client.get_channel_by_name.return_value = current_mm_channel
+                self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user_fixture]
+                self.mock_authentik_client.add_user_to_group.return_value = True
+                self.mock_outline_client.get_user_by_email.return_value = outline_user_data
+                self.mock_outline_client.get_collection_by_name.return_value = \
+                    {"id": "outline_coll_id_perm", "name": auth_group_name}
+                self.mock_outline_client.get_collection_members.return_value = []
+                self.mock_outline_client.add_user_to_collection.return_value = True
+                self.mock_outline_client.get_collection_details.return_value = \
+                    {"id": "outline_coll_id_perm", "name": auth_group_name} # For DM
+
+                results = sync_single_group_to_services(
+                    authentik_client=self.mock_authentik_client,
+                    mattermost_client=self.mock_mattermost_client,
+                    outline_client=self.mock_outline_client,
+                    mm_team_id=self.mm_team_id,
+                    authentik_group=current_auth_group,
+                    email_to_authentik_user_pk_map=email_to_pk_map,
+                )
+
+                # Ensure add_user_to_collection was called (it should be, as user is not a member)
+                self.mock_outline_client.add_user_to_collection.assert_called_once()
+
+                # Get the actual call arguments
+                call_args = self.mock_outline_client.add_user_to_collection.call_args
+                # Permission is passed as a keyword argument in the actual call
+                called_with_permission = call_args.kwargs.get('permission')
+
+                self.assertEqual(called_with_permission, expected_permission_value)
+
+                # Check the action string in results
+                outline_result = next((r for r in results if r["service"] == "OUTLINE"), None)
+                self.assertIsNotNone(outline_result)
+                if outline_result: # Should always be true given the assertIsNotNone
+                    # expected_action_string_suffix_part now includes _AND_DM_SENT (or other variations if DMs fail/not attempted)
+                    expected_action_val = f"USER_ADDED_TO_OUTLINE_COLLECTION_WITH_{expected_action_string_suffix_part}"
+                    self.assertEqual(outline_result.get("action"), expected_action_val)
 
 
 if __name__ == "__main__":
