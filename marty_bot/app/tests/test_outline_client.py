@@ -44,7 +44,7 @@ class TestOutlineClient(unittest.TestCase):
 
         project_name = "new_project"
         result = self.client.create_group(project_name)
-        self.assertEqual(result, "CREATED") # Expect "CREATED" status
+        self.assertEqual(result, "CREATED")  # Expect "CREATED" status
 
         self.assertEqual(mock_post_request.call_count, 2)
 
@@ -53,7 +53,7 @@ class TestOutlineClient(unittest.TestCase):
 
         create_call_args = mock_post_request.call_args_list[1]
         self.assertEqual(create_call_args[0][0], f"{self.mock_url}/api/collections.create")
-        self.assertEqual(create_call_args[1]['json'], {"name": project_name})
+        self.assertEqual(create_call_args[1]["json"], {"name": project_name})
 
     @patch("requests.post")
     def test_create_group_success_collection_already_exists(self, mock_post_request):
@@ -62,12 +62,12 @@ class TestOutlineClient(unittest.TestCase):
         mock_list_response.status_code = 200
         mock_list_response.json.return_value = {
             "data": [{"id": "existing_id_456", "name": project_name}],
-            "pagination": {"offset": 0, "limit": 25}
+            "pagination": {"offset": 0, "limit": 25},
         }
         mock_post_request.return_value = mock_list_response
 
         result = self.client.create_group(project_name)
-        self.assertEqual(result, "EXISTS") # Expect "EXISTS" status
+        self.assertEqual(result, "EXISTS")  # Expect "EXISTS" status
 
         mock_post_request.assert_called_once()
         list_call_args = mock_post_request.call_args_list[0]
@@ -79,14 +79,8 @@ class TestOutlineClient(unittest.TestCase):
 
         project_name = "project_list_fail"
         result = self.client.create_group(project_name)
-        self.assertEqual(result, "FAILED") # Expect "FAILED" status
-        # get_collection_by_name itself logs the error and returns None,
-        # but create_group catches the RequestException from the call to get_collection_by_name
-        # if get_collection_by_name re-raises or if the try-except in create_group is structured to catch it.
-        # Based on the new create_group, it catches RequestException from get_collection_by_name,
-        # then proceeds to attempt creation, which will also fail due to persistent side_effect.
+        self.assertEqual(result, "FAILED")  # Expect "FAILED" status
         self.assertEqual(mock_post_request.call_count, 2)
-
 
     @patch("requests.post")
     def test_create_group_failure_during_actual_creation(self, mock_post_request):
@@ -102,7 +96,7 @@ class TestOutlineClient(unittest.TestCase):
 
         project_name = "project_create_fail"
         result = self.client.create_group(project_name)
-        self.assertEqual(result, "FAILED") # Expect "FAILED" status
+        self.assertEqual(result, "FAILED")  # Expect "FAILED" status
         self.assertEqual(mock_post_request.call_count, 2)
 
     @patch("requests.post")
@@ -119,10 +113,9 @@ class TestOutlineClient(unittest.TestCase):
 
         project_name = "test_project_malformed_success_create"
         result = self.client.create_group(project_name)
-        self.assertEqual(result, "FAILED") # Expect "FAILED"
+        self.assertEqual(result, "FAILED")  # Expect "FAILED"
         self.assertEqual(mock_post_request.call_count, 2)
 
-    # --- Test for get_collection_by_name (used by create_group) ---
     @patch("requests.post")
     def test_get_collection_by_name_found(self, mock_post_request):
         project_name = "find_me"
@@ -148,11 +141,8 @@ class TestOutlineClient(unittest.TestCase):
     @patch("requests.post")
     def test_get_collection_by_name_request_exception(self, mock_post_request):
         mock_post_request.side_effect = requests.exceptions.RequestException("Network error")
-        # Ensure the method handles the exception and returns None as per its design
         self.assertIsNone(self.client.get_collection_by_name("any_project"))
 
-
-    # --- Other existing tests, ensure they are still valid or remove/update ---
     def test_constructor_url_trailing_slash(self):
         client_with_slash = OutlineClient(base_url="http://fake-outline-url.com/", token=self.mock_token)
         self.assertEqual(client_with_slash.base_url, "http://fake-outline-url.com")
@@ -173,9 +163,6 @@ class TestOutlineClient(unittest.TestCase):
         expected_payload = {"id": collection_id}
         mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
 
-    # ... (Keep other existing tests for get_user_by_email, get_collection_members, add_user_to_collection, etc. as they are)
-    # Ensure they are not affected or update them if necessary.
-    # For brevity, I'm omitting the rest of the old tests if they don't directly interact with create_group's return status.
 
 if __name__ == "__main__":
     unittest.main()

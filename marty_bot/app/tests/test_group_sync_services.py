@@ -2,17 +2,21 @@ import unittest
 from unittest.mock import patch, MagicMock, mock_open
 
 from libraries.group_sync_services import sync_single_group_to_services, orchestrate_group_synchronization
+
 # Assuming your config is accessible and can be patched, or you can patch its usage directly
 # For example, if group_sync_services imports 'from app import config'
 # you can patch 'libraries.group_sync_services.config'
-from app import config as app_config # Import the actual config to potentially reload/reset it
-import dotenv # Required for wraps=dotenv.main.load_dotenv
-from clients.mattermost_client import slugify # For test URL construction
+from app import config as app_config  # Import the actual config to potentially reload/reset it
+
+# Removed: import dotenv
+from clients.mattermost_client import slugify  # For test URL construction
+
 
 # Helper to reset parts of the config if necessary between tests,
 # especially if it's loaded at import time.
 def reload_config_module():
     import importlib
+
     importlib.reload(app_config)
 
 
@@ -32,7 +36,7 @@ class TestGroupSyncServices(unittest.TestCase):
         self.authentik_group_fixture = {
             "name": self.auth_group_name,
             "pk": self.auth_group_pk,
-            "users": [], # Initially empty
+            "users": [],  # Initially empty
         }
         self.email_to_authentik_user_pk_map_fixture = {
             "user1@example.com": "auth_user_pk_1",
@@ -43,7 +47,7 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mm_channel_fixture = {
             "id": "mm_channel_id_123",
             "display_name": "Test Group Channel",
-            "name": "test-group-channel" # slug
+            "name": "test-group-channel",  # slug
         }
         self.mm_users_fixture = [
             {"username": "user1", "email": "user1@example.com", "id": "mm_user_id_1"},
@@ -52,7 +56,7 @@ class TestGroupSyncServices(unittest.TestCase):
             {"username": "marty", "email": "marty@example.com", "id": "mm_user_id_marty"},
         ]
 
-    @patch('libraries.group_sync_services.config')
+    @patch("libraries.group_sync_services.config")
     def test_sync_single_group_user_exclusion(self, mock_config):
         # Setup: Define an excluded user in the mocked config
         mock_config.EXCLUDED_USERS = {"excluded_user", "marty"}
@@ -60,18 +64,17 @@ class TestGroupSyncServices(unittest.TestCase):
         # Mock client responses
         self.mock_mattermost_client.get_channel_by_name.return_value = self.mm_channel_fixture
         self.mock_mattermost_client.get_users_in_channel.return_value = self.mm_users_fixture
-        self.mock_authentik_client.add_user_to_group.return_value = True # Assume success for non-excluded
+        self.mock_authentik_client.add_user_to_group.return_value = True  # Assume success for non-excluded
 
         # Mock Outline client methods to avoid None errors if called
         self.mock_outline_client.get_user_by_email.return_value = {"id": "outline_user_id_1"}
         self.mock_outline_client.get_collection_by_name.return_value = {"id": "outline_collection_id_1"}
         self.mock_outline_client.add_user_to_collection.return_value = True
 
-
         results = sync_single_group_to_services(
             authentik_client=self.mock_authentik_client,
             mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client, # Pass mock Outline client
+            outline_client=self.mock_outline_client,  # Pass mock Outline client
             mm_team_id=self.mm_team_id,
             authentik_group=self.authentik_group_fixture,
             email_to_authentik_user_pk_map=self.email_to_authentik_user_pk_map_fixture,
@@ -93,9 +96,9 @@ class TestGroupSyncServices(unittest.TestCase):
             self.assertNotEqual(r.get("action"), "SKIPPED_USER_EXCLUDED")
 
             if r.get("service") == "AUTHENTIK" and r.get("status") == "SUCCESS":
-                 processed_usernames_authentik.add(r["mm_username"])
+                processed_usernames_authentik.add(r["mm_username"])
             elif r.get("service") == "OUTLINE" and r.get("status") == "SUCCESS":
-                 processed_usernames_outline.add(r["mm_username"])
+                processed_usernames_outline.add(r["mm_username"])
 
         self.assertNotIn("excluded_user", processed_usernames_authentik)
         self.assertNotIn("marty", processed_usernames_authentik)
@@ -121,10 +124,9 @@ class TestGroupSyncServices(unittest.TestCase):
         # Verify Outline add_user_to_collection calls
         self.assertEqual(self.mock_outline_client.add_user_to_collection.call_count, 2)
 
-
-    @patch('libraries.group_sync_services.config')
-    @patch('libraries.group_sync_services.get_all_authentik_groups_and_user_map')
-    @patch('libraries.group_sync_services.sync_single_group_to_services') # Mock the single group sync
+    @patch("libraries.group_sync_services.config")
+    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
+    @patch("libraries.group_sync_services.sync_single_group_to_services")  # Mock the single group sync
     def test_orchestrate_group_synchronization_respects_exclusion_via_single_sync(
         self, mock_sync_single, mock_get_groups, mock_config
     ):
@@ -138,7 +140,6 @@ class TestGroupSyncServices(unittest.TestCase):
         original_excluded_users = app_config.EXCLUDED_USERS
         app_config.EXCLUDED_USERS = {"marty"}
 
-
         mock_get_groups.return_value = ([self.authentik_group_fixture], self.email_to_authentik_user_pk_map_fixture)
 
         # Define a side effect for sync_single_group_to_services to simulate its behavior
@@ -146,19 +147,29 @@ class TestGroupSyncServices(unittest.TestCase):
         def sync_single_side_effect(*args, **kwargs):
             # Simulate that 'marty' would be completely skipped by sync_single_group_to_services
             # and thus generate no result entry.
-            mm_users_for_this_group = self.mm_users_fixture # Contains marty, user1, user2, excluded_user
+            mm_users_for_this_group = self.mm_users_fixture  # Contains marty, user1, user2, excluded_user
             results_for_group = []
             for user in mm_users_for_this_group:
-                if user["username"] in app_config.EXCLUDED_USERS: # In this test, EXCLUDED_USERS is {"marty"}
-                    continue # Silently skip, add no result
+                if user["username"] in app_config.EXCLUDED_USERS:  # In this test, EXCLUDED_USERS is {"marty"}
+                    continue  # Silently skip, add no result
                 else:
                     # Simulate successful sync for non-excluded users for both services
-                    results_for_group.append({
-                        "mm_username": user["username"], "action": "USER_ADDED_TO_AUTHENTIK_GROUP", "service": "AUTHENTIK", "status": "SUCCESS"
-                    })
-                    results_for_group.append({
-                        "mm_username": user["username"], "action": "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION", "service": "OUTLINE", "status": "SUCCESS"
-                    })
+                    results_for_group.append(
+                        {
+                            "mm_username": user["username"],
+                            "action": "USER_ADDED_TO_AUTHENTIK_GROUP",
+                            "service": "AUTHENTIK",
+                            "status": "SUCCESS",
+                        }
+                    )
+                    results_for_group.append(
+                        {
+                            "mm_username": user["username"],
+                            "action": "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION",
+                            "service": "OUTLINE",
+                            "status": "SUCCESS",
+                        }
+                    )
             return results_for_group
 
         mock_sync_single.side_effect = sync_single_side_effect
@@ -171,12 +182,10 @@ class TestGroupSyncServices(unittest.TestCase):
         )
 
         self.assertTrue(success)
-        mock_sync_single.assert_called_once() # Ensure it was called for the one group
+        mock_sync_single.assert_called_once()  # Ensure it was called for the one group
 
         # Check that no results for "marty" are present in the detailed_results
-        found_marty_in_results = any(
-            r.get("mm_username") == "marty" for r in detailed_results
-        )
+        found_marty_in_results = any(r.get("mm_username") == "marty" for r in detailed_results)
         self.assertFalse(found_marty_in_results, "Marty should not have any entry in the detailed_results.")
 
         # Verify that other users (user1, user2, excluded_user - who is not excluded in *this specific test's* config) are present
@@ -188,36 +197,36 @@ class TestGroupSyncServices(unittest.TestCase):
         # Restore original config
         app_config.EXCLUDED_USERS = original_excluded_users
 
-    @patch('app.config.EXCLUDED_USERS_FILE_PATH', "dummy_path/non_existent_file.txt")
-    @patch('os.path.exists', return_value=False)
-    @patch('dotenv.main.find_dotenv', return_value=None) # Prevent find_dotenv erroring during reload
+    @patch("app.config.EXCLUDED_USERS_FILE_PATH", "dummy_path/non_existent_file.txt")
+    @patch("os.path.exists", return_value=False)
+    @patch("dotenv.main.find_dotenv", return_value=None)  # Prevent find_dotenv erroring during reload
     def test_config_loading_file_not_found(self, mock_find_dotenv, mock_exists):
         # Test that if the file doesn't exist, EXCLUDED_USERS is empty
         # Need to reload config for it to re-evaluate the file path logic
         reload_config_module()
         self.assertEqual(app_config.EXCLUDED_USERS, set())
 
-    @patch('app.config.EXCLUDED_USERS_FILE_PATH', "dummy_path/existent_empty_file.txt")
-    @patch('os.path.exists', return_value=True)
-    @patch('builtins.open', new_callable=mock_open, read_data="")
-    @patch('dotenv.main.find_dotenv', return_value=None) # Prevent find_dotenv erroring
+    @patch("app.config.EXCLUDED_USERS_FILE_PATH", "dummy_path/existent_empty_file.txt")
+    @patch("os.path.exists", return_value=True)
+    @patch("builtins.open", new_callable=mock_open, read_data="")
+    @patch("dotenv.main.find_dotenv", return_value=None)  # Prevent find_dotenv erroring
     def test_config_loading_empty_file(self, mock_find_dotenv, mock_file_open, mock_exists):
         # Test that if the file is empty, EXCLUDED_USERS is empty
         reload_config_module()
         self.assertEqual(app_config.EXCLUDED_USERS, set())
 
-    @patch('app.config.EXCLUDED_USERS_FILE_PATH', "dummy_path/existent_file.txt")
-    @patch('os.path.exists', return_value=True)
-    @patch('builtins.open', new_callable=mock_open, read_data="userA\nuserB\n\nuserC  \n")
-    @patch('dotenv.main.find_dotenv', return_value=None) # Prevent find_dotenv erroring
+    @patch("app.config.EXCLUDED_USERS_FILE_PATH", "dummy_path/existent_file.txt")
+    @patch("os.path.exists", return_value=True)
+    @patch("builtins.open", new_callable=mock_open, read_data="userA\nuserB\n\nuserC  \n")
+    @patch("dotenv.main.find_dotenv", return_value=None)  # Prevent find_dotenv erroring
     def test_config_loading_success(self, mock_find_dotenv, mock_file_open, mock_exists):
         # Test successful loading and parsing of the file
         reload_config_module()
         self.assertEqual(app_config.EXCLUDED_USERS, {"userA", "userB", "userC"})
 
-    @patch('libraries.group_sync_services.config') # To mock config.OUTLINE_URL
+    @patch("libraries.group_sync_services.config")  # To mock config.OUTLINE_URL
     def test_sync_single_group_outline_dm_on_new_add(self, mock_config):
-        mock_config.EXCLUDED_USERS = set() # No exclusions for this test
+        mock_config.EXCLUDED_USERS = set()  # No exclusions for this test
         mock_config.OUTLINE_URL = "http://fake-outline.com"
 
         mm_user_for_dm = {"username": "dm_user", "email": "dmuser@example.com", "id": "mm_user_id_dm"}
@@ -229,14 +238,14 @@ class TestGroupSyncServices(unittest.TestCase):
 
         self.mock_mattermost_client.get_channel_by_name.return_value = self.mm_channel_fixture
         self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user_for_dm]
-        self.mock_authentik_client.add_user_to_group.return_value = True # Authentik part is not focus here
+        self.mock_authentik_client.add_user_to_group.return_value = True  # Authentik part is not focus here
 
         self.mock_outline_client.get_user_by_email.return_value = outline_user_data
         self.mock_outline_client.get_collection_by_name.return_value = outline_collection_data
-        self.mock_outline_client.get_collection_members.return_value = [] # User is NOT already a member
-        self.mock_outline_client.add_user_to_collection.return_value = True # Adding is successful
+        self.mock_outline_client.get_collection_members.return_value = []  # User is NOT already a member
+        self.mock_outline_client.add_user_to_collection.return_value = True  # Adding is successful
         self.mock_outline_client.get_collection_details.return_value = outline_collection_data
-        self.mock_mattermost_client.send_dm.return_value = True # DM sending is successful
+        self.mock_mattermost_client.send_dm.return_value = True  # DM sending is successful
 
         results = sync_single_group_to_services(
             authentik_client=self.mock_authentik_client,
@@ -247,17 +256,21 @@ class TestGroupSyncServices(unittest.TestCase):
             email_to_authentik_user_pk_map=email_map_for_dm,
         )
 
-        self.assertEqual(len(results), 2) # 1 for Authentik, 1 for Outline
+        self.assertEqual(len(results), 2)  # 1 for Authentik, 1 for Outline
         outline_result = next(r for r in results if r["service"] == "OUTLINE")
-        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT")
+        # "DM Test Group" will default to "read" permission
+        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT")
         self.mock_mattermost_client.send_dm.assert_called_once()
         call_args = self.mock_mattermost_client.send_dm.call_args[0]
-        self.assertEqual(call_args[0], mm_user_for_dm["id"]) # mm_user_id
-        expected_url = f"{mock_config.OUTLINE_URL}/collection/{slugify(outline_collection_data['name'])}-{outline_collection_data['id']}"
-        self.assertIn(expected_url, call_args[1]) # message content
-        self.assertIn(outline_collection_data['name'], call_args[1])
+        self.assertEqual(call_args[0], mm_user_for_dm["id"])  # mm_user_id
+        expected_url = (
+            f"{mock_config.OUTLINE_URL}/collection/"
+            f"{slugify(outline_collection_data['name'])}-{outline_collection_data['id']}"
+        )  # noqa: E501
+        self.assertIn(expected_url, call_args[1])  # message content
+        self.assertIn(outline_collection_data["name"], call_args[1])
 
-    @patch('libraries.group_sync_services.config')
+    @patch("libraries.group_sync_services.config")
     def test_sync_single_group_outline_dm_fails(self, mock_config):
         mock_config.EXCLUDED_USERS = set()
         mock_config.OUTLINE_URL = "http://fake-outline.com"
@@ -273,7 +286,7 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mock_outline_client.get_collection_members.return_value = []
         self.mock_outline_client.add_user_to_collection.return_value = True
         self.mock_outline_client.get_collection_details.return_value = outline_collection_data
-        self.mock_mattermost_client.send_dm.return_value = False # DM sending FAILS
+        self.mock_mattermost_client.send_dm.return_value = False  # DM sending FAILS
 
         results = sync_single_group_to_services(
             authentik_client=self.mock_authentik_client,
@@ -284,13 +297,18 @@ class TestGroupSyncServices(unittest.TestCase):
             email_to_authentik_user_pk_map={"dmuserfail@example.com": "auth_user_pk_dm_fail"},
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE")
-        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_DM_FAILED")
+        # "DM Fail Group" will default to "read" permission
+        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_FAILED")
         self.mock_mattermost_client.send_dm.assert_called_once()
 
-    @patch('libraries.group_sync_services.config')
+    @patch("libraries.group_sync_services.config")
     def test_sync_single_group_outline_user_already_member_no_dm(self, mock_config):
         mock_config.EXCLUDED_USERS = set()
-        mm_user_already_member = {"username": "already_member", "email": "already@example.com", "id": "mm_user_id_already"}
+        mm_user_already_member = {
+            "username": "already_member",
+            "email": "already@example.com",
+            "id": "mm_user_id_already",
+        }
         outline_user_data = {"id": "outline_user_id_already", "email": "already@example.com"}
         outline_collection_data = {"id": "outline_coll_id_already", "name": "Already Member Group"}
 
@@ -299,7 +317,9 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mock_authentik_client.add_user_to_group.return_value = True
         self.mock_outline_client.get_user_by_email.return_value = outline_user_data
         self.mock_outline_client.get_collection_by_name.return_value = outline_collection_data
-        self.mock_outline_client.get_collection_members.return_value = [outline_user_data["id"]] # User IS already a member
+        self.mock_outline_client.get_collection_members.return_value = [
+            outline_user_data["id"]
+        ]  # User IS already a member
 
         results = sync_single_group_to_services(
             authentik_client=self.mock_authentik_client,
@@ -313,6 +333,111 @@ class TestGroupSyncServices(unittest.TestCase):
         self.assertEqual(outline_result["action"], "USER_ALREADY_IN_OUTLINE_COLLECTION")
         self.mock_outline_client.add_user_to_collection.assert_not_called()
         self.mock_mattermost_client.send_dm.assert_not_called()
+
+    @patch("libraries.group_sync_services.config")  # To mock config.PERMISSIONS_MATRIX
+    def test_sync_single_group_outline_permissions(self, mock_config_module):
+        # 1. Setup mock_config_module.PERMISSIONS_MATRIX
+        mock_config_module.PERMISSIONS_MATRIX = {
+            "PROJET": {"outline": {"access": "read"}, "mattermost": {"channel_type": "O"}},
+            "PROJET_ADMIN": {"outline": {"access": "rw"}, "mattermost": {"channel_type": "P"}},
+            "ANTENNE": {"outline": {"access": "read"}, "mattermost": {"channel_type": "O"}},
+            "ANTENNE_ADMIN": {"outline": {"access": "rw"}, "mattermost": {"channel_type": "P"}},
+            "POLES": {"outline": {"access": "read"}, "mattermost": {"channel_type": "O"}},
+            "POLES_ADMIN": {"outline": {"access": "rw"}, "mattermost": {"channel_type": "P"}},
+            # For testing defaults with problematic matrix entries
+            "PROJET_NO_OUTLINE_KEY": {"mattermost": {"channel_type": "O"}},
+            "PROJET_NO_ACCESS_KEY": {"outline": {}, "mattermost": {"channel_type": "O"}},
+            "PROJET_INVALID_ACCESS_VAL": {"outline": {"access": "super"}, "mattermost": {"channel_type": "O"}},
+        }
+        mock_config_module.EXCLUDED_USERS = set()  # No exclusions
+        mock_config_module.OUTLINE_URL = "http://fake-outline.com"
+
+        # (auth_group_name, mm_channel_type, expected_permission_value, expected_action_string_suffix_part)
+        # expected_action_string_suffix_part will be like "READ_ACCESS_AND_DM_SENT"
+        test_cases = [
+            # Standard cases where DM is expected to be sent
+            ("projet_test_public", "O", "read", "READ_ACCESS_AND_DM_SENT"),
+            ("projet_test_private", "P", "read_write", "READ_WRITE_ACCESS_AND_DM_SENT"),
+            ("antenne_test_public", "O", "read", "READ_ACCESS_AND_DM_SENT"),
+            ("antenne_test_private", "P", "read_write", "READ_WRITE_ACCESS_AND_DM_SENT"),
+            ("pole_test_public", "O", "read", "READ_ACCESS_AND_DM_SENT"),
+            ("pôle_test_public_accent", "O", "read", "READ_ACCESS_AND_DM_SENT"), # Test with accent
+            ("pole_test_private", "P", "read_write", "READ_WRITE_ACCESS_AND_DM_SENT"),
+            ("pôle_test_private_accent", "P", "read_write", "READ_WRITE_ACCESS_AND_DM_SENT"),
+            ("unknownprefix_test", "O", "read", "READ_ACCESS_AND_DM_SENT"),  # Default for unknown prefix
+            ("projet_no_outline_setup", "O", "read", "READ_ACCESS_AND_DM_SENT"), # Default for category with no outline.access
+            ("projet_no_access_val", "O", "read", "READ_ACCESS_AND_DM_SENT"), # Default for invalid outline.access
+            ("projet_invalid_access_val", "O", "read", "READ_ACCESS_AND_DM_SENT"), # Default for invalid outline.access
+            ("nonexistentcatprefix_test", "O", "read", "READ_ACCESS_AND_DM_SENT"), # Default for category not in matrix
+        ]
+
+        mm_user_fixture = {"username": "perm_user", "email": "permuser@example.com", "id": "mm_user_id_perm"}
+        outline_user_data = {"id": "outline_user_id_perm"}
+        email_to_pk_map = {mm_user_fixture["email"]: "auth_user_pk_perm"}
+
+        original_matrix = mock_config_module.PERMISSIONS_MATRIX.copy() # Store original mock
+
+        for auth_group_name, mm_channel_type, expected_permission_value, expected_action_string_suffix_part in test_cases:
+            with self.subTest(auth_group_name=auth_group_name, mm_channel_type=mm_channel_type):
+                self.mock_authentik_client.reset_mock()
+                self.mock_mattermost_client.reset_mock()
+                self.mock_outline_client.reset_mock()
+
+                # Restore and then manipulate matrix for specific test cases if needed
+                mock_config_module.PERMISSIONS_MATRIX = original_matrix.copy()
+                # This part of the test setup was for manipulating the matrix for specific sub-tests,
+                # but the _determine_outline_permission function handles these defaults internally now.
+                # So, direct manipulation of mock_config_module.PERMISSIONS_MATRIX for these specific default cases
+                # is not strictly needed here if _determine_outline_permission's logging and defaults are trusted.
+                # However, keeping the structure if more granular matrix tests are needed later.
+                # For now, the test cases rely on _determine_outline_permission correctly interpreting
+                # the pre-defined mock_config_module.PERMISSIONS_MATRIX and its defaults.
+
+                current_auth_group = {"name": auth_group_name, "pk": "auth_pk_perm", "users": []}
+                current_mm_channel = {
+                    "id": "mm_channel_id_perm",
+                    "display_name": auth_group_name, # display_name often matches group name
+                    "name": slugify(auth_group_name), # Actual channel name/slug
+                    "type": mm_channel_type,
+                }
+
+                self.mock_mattermost_client.get_channel_by_name.return_value = current_mm_channel
+                self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user_fixture]
+                self.mock_authentik_client.add_user_to_group.return_value = True
+                self.mock_outline_client.get_user_by_email.return_value = outline_user_data
+                self.mock_outline_client.get_collection_by_name.return_value = \
+                    {"id": "outline_coll_id_perm", "name": auth_group_name}
+                self.mock_outline_client.get_collection_members.return_value = []
+                self.mock_outline_client.add_user_to_collection.return_value = True
+                self.mock_outline_client.get_collection_details.return_value = \
+                    {"id": "outline_coll_id_perm", "name": auth_group_name} # For DM
+
+                results = sync_single_group_to_services(
+                    authentik_client=self.mock_authentik_client,
+                    mattermost_client=self.mock_mattermost_client,
+                    outline_client=self.mock_outline_client,
+                    mm_team_id=self.mm_team_id,
+                    authentik_group=current_auth_group,
+                    email_to_authentik_user_pk_map=email_to_pk_map,
+                )
+
+                # Ensure add_user_to_collection was called (it should be, as user is not a member)
+                self.mock_outline_client.add_user_to_collection.assert_called_once()
+
+                # Get the actual call arguments
+                call_args = self.mock_outline_client.add_user_to_collection.call_args
+                # Permission is passed as a keyword argument in the actual call
+                called_with_permission = call_args.kwargs.get('permission')
+
+                self.assertEqual(called_with_permission, expected_permission_value)
+
+                # Check the action string in results
+                outline_result = next((r for r in results if r["service"] == "OUTLINE"), None)
+                self.assertIsNotNone(outline_result)
+                if outline_result: # Should always be true given the assertIsNotNone
+                    # expected_action_string_suffix_part now includes _AND_DM_SENT (or other variations if DMs fail/not attempted)
+                    expected_action_val = f"USER_ADDED_TO_OUTLINE_COLLECTION_WITH_{expected_action_string_suffix_part}"
+                    self.assertEqual(outline_result.get("action"), expected_action_val)
 
 
 if __name__ == "__main__":

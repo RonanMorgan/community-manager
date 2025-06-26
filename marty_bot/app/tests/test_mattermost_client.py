@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch, Mock
 import requests
+import json  # Added import for json
 
 from clients.mattermost_client import MattermostClient, slugify
 
@@ -8,8 +9,8 @@ from clients.mattermost_client import MattermostClient, slugify
 class TestMattermostClient(unittest.TestCase):
 
     # Patch requests.get at the class level to affect setUp
-    @patch('requests.get')
-    def setUp(self, mock_requests_get_for_setup: Mock): # Renamed arg
+    @patch("requests.get")
+    def setUp(self, mock_requests_get_for_setup: Mock):  # Renamed arg
         self.mock_url = "http://fake-mattermost-url.com"
         self.mock_token = "fake_mm_admin_token"
         self.mock_team_id = "fake_team_id"
@@ -32,7 +33,6 @@ class TestMattermostClient(unittest.TestCase):
         )
         # Reset for other tests that might patch requests.get themselves or want a fresh mock
         mock_requests_get_for_setup.reset_mock()
-
 
     def test_constructor_success(self):
         self.assertEqual(self.client.base_url, self.mock_url)
@@ -76,37 +76,59 @@ class TestMattermostClient(unittest.TestCase):
             "header": f"Project {project_name}",
         }
         mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
-        self.assertTrue(result)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], "channel_id_123")
 
     @patch("requests.post")
     def test_create_channel_success_override_team_id(self, mock_post_request):
+        mock_response_data = {"id": "channel_id_456", "name": "another-project"}
         mock_response = Mock(status_code=201)
-        mock_response.json.return_value = {"id": "channel_id_456"}
+        mock_response.json.return_value = mock_response_data
         mock_post_request.return_value = mock_response
         project_name = "Another Project"
         override_team_id = "override_fake_team_id"
         result = self.client.create_channel(project_name, team_id=override_team_id)
-        self.assertTrue(result)
+        self.assertEqual(result, mock_response_data)
         _, kwargs = mock_post_request.call_args
         self.assertEqual(kwargs["json"]["team_id"], override_team_id)
 
     @patch("requests.post")
-    def test_create_channel_failure_http_error(self, mock_post_request):  # Renamed from api_error
-        mock_response = Mock(status_code=400)
-        mock_response.json.return_value = {
+    @patch.object(MattermostClient, "get_channel_by_name")  # Mock get_channel_by_name for exists case
+    def test_create_channel_failure_http_error_exists(self, mock_get_channel_by_name, mock_post_request):
+        project_name = "Existing Project"
+        channel_name_slug = slugify(project_name)
+        mock_error_response = Mock(status_code=400)  # Typically 400 for "exists" if not handled as 200/201
+        mock_error_details = {
             "id": "store.sql_channel.save_channel.exists.app_error",
             "message": "Channel exists",
         }
+        mock_error_response.json.return_value = mock_error_details
+        mock_error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_error_response)
+        mock_post_request.return_value = mock_error_response
+
+        # Simulate get_channel_by_name returning the existing channel
+        existing_channel_data = {"id": "existing_channel_id", "name": channel_name_slug, "display_name": project_name}
+        mock_get_channel_by_name.return_value = existing_channel_data
+
+        result = self.client.create_channel(project_name)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], "existing_channel_id")
+        mock_get_channel_by_name.assert_called_once_with(self.mock_team_id, channel_name_slug)
+
+    @patch("requests.post")
+    def test_create_channel_failure_http_error_other(self, mock_post_request):
+        mock_response = Mock(status_code=500)  # Some other server error
+        mock_response.json.return_value = {"id": "internal.server.error", "message": "Server blew up"}
         mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
         mock_post_request.return_value = mock_response
-        result = self.client.create_channel("Test Project Fail")
-        self.assertFalse(result)
+        result = self.client.create_channel("Test Project Fail Other")
+        self.assertIsNone(result)
 
     @patch("requests.post")
     def test_create_channel_failure_request_exception(self, mock_post_request):
         mock_post_request.side_effect = requests.exceptions.RequestException("Connection timeout")
         result = self.client.create_channel("Test Project Exception")
-        self.assertFalse(result)
+        self.assertIsNone(result)
 
     # Tests for get_channel_by_name
     @patch("requests.get")
@@ -241,26 +263,27 @@ class TestMattermostClient(unittest.TestCase):
         mock_http_error_response.text = "Client error: Unauthorized"
 
         mock_response = Mock(status_code=401, response=mock_http_error_response)
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("Unauthorized", response=mock_http_error_response)
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "Unauthorized", response=mock_http_error_response
+        )
         mock_get_request.return_value = mock_response
 
         # Re-initialize client; _initialize_bot_user_id should handle failure gracefully
         client = MattermostClient(base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id)
-        self.assertIsNone(client.bot_user_id) # Bot ID should be None after failed fetch
+        self.assertIsNone(client.bot_user_id)  # Bot ID should be None after failed fetch
 
         # Direct call should also fail
         details = client.get_me()
         self.assertIsNone(details)
-        self.assertEqual(mock_get_request.call_count, 2) # Once in init, once direct
-
+        self.assertEqual(mock_get_request.call_count, 2)  # Once in init, once direct
 
     @patch("requests.post")
     def test_create_direct_channel_success(self, mock_post_request):
         # Ensure bot_user_id is set on the existing client for this test
         # In real usage, it's set during __init__
-        with patch.object(self.client, 'get_me', return_value={'id': 'bot_id_for_test', 'username': 'testbot'}):
-            self.client._initialize_bot_user_id() # Manually call to set bot_user_id based on new mock
-        self.assertEqual(self.client.bot_user_id, 'bot_id_for_test')
+        with patch.object(self.client, "get_me", return_value={"id": "bot_id_for_test", "username": "testbot"}):
+            self.client._initialize_bot_user_id()  # Manually call to set bot_user_id based on new mock
+        self.assertEqual(self.client.bot_user_id, "bot_id_for_test")
 
         mock_response = Mock(status_code=201)
         expected_dm_channel = {"id": "dm_channel_id_456", "type": "D"}
@@ -277,15 +300,15 @@ class TestMattermostClient(unittest.TestCase):
 
     def test_create_direct_channel_fail_no_bot_id(self):
         original_bot_id = self.client.bot_user_id
-        self.client.bot_user_id = None # Simulate bot_id not initialized
-        with patch('requests.post') as mock_post: # ensure no API call is made
+        self.client.bot_user_id = None  # Simulate bot_id not initialized
+        with patch("requests.post") as mock_post:  # ensure no API call is made
             dm_channel_id = self.client.create_direct_channel("other_user_id_789")
             self.assertIsNone(dm_channel_id)
             mock_post.assert_not_called()
-        self.client.bot_user_id = original_bot_id # Restore
+        self.client.bot_user_id = original_bot_id  # Restore
 
-    @patch('clients.mattermost_client.MattermostClient.post_message')
-    @patch('clients.mattermost_client.MattermostClient.create_direct_channel')
+    @patch("clients.mattermost_client.MattermostClient.post_message")
+    @patch("clients.mattermost_client.MattermostClient.create_direct_channel")
     def test_send_dm_success(self, mock_create_direct_channel_class, mock_post_message_class):
         self.client.bot_user_id = "bot_for_dm_test"
 
@@ -302,22 +325,22 @@ class TestMattermostClient(unittest.TestCase):
         mock_create_direct_channel_class.assert_called_once_with(target_user_id)
         mock_post_message_class.assert_called_once_with(channel_id=mock_dm_channel_id, message=dm_message)
 
-    @patch('clients.mattermost_client.MattermostClient.post_message')
-    @patch('clients.mattermost_client.MattermostClient.create_direct_channel')
+    @patch("clients.mattermost_client.MattermostClient.post_message")
+    @patch("clients.mattermost_client.MattermostClient.create_direct_channel")
     def test_send_dm_fail_channel_creation(self, mock_create_direct_channel_class, mock_post_message_class):
         self.client.bot_user_id = "bot_for_dm_test"
 
         target_user_id = "target_user_2"
         dm_message = "Test DM"
-        mock_create_direct_channel_class.return_value = None # Simulate DM channel creation failure
+        mock_create_direct_channel_class.return_value = None  # Simulate DM channel creation failure
 
         success = self.client.send_dm(target_user_id, dm_message)
         self.assertFalse(success)
         mock_create_direct_channel_class.assert_called_once_with(target_user_id)
         mock_post_message_class.assert_not_called()
 
-    @patch('clients.mattermost_client.MattermostClient.post_message')
-    @patch('clients.mattermost_client.MattermostClient.create_direct_channel')
+    @patch("clients.mattermost_client.MattermostClient.post_message")
+    @patch("clients.mattermost_client.MattermostClient.create_direct_channel")
     def test_send_dm_fail_post_message(self, mock_create_direct_channel_class, mock_post_message_class):
         self.client.bot_user_id = "bot_for_dm_test"
 
@@ -326,13 +349,85 @@ class TestMattermostClient(unittest.TestCase):
         mock_dm_channel_id = "dm_channel_for_target_3"
 
         mock_create_direct_channel_class.return_value = mock_dm_channel_id
-        mock_post_message_class.return_value = False # Simulate post_message failure
+        mock_post_message_class.return_value = False  # Simulate post_message failure
 
         success = self.client.send_dm(target_user_id, dm_message)
 
         self.assertFalse(success)
         mock_create_direct_channel_class.assert_called_once_with(target_user_id)
         mock_post_message_class.assert_called_once_with(channel_id=mock_dm_channel_id, message=dm_message)
+
+    # Tests for add_user_to_channel
+    @patch("requests.post")
+    def test_add_user_to_channel_success(self, mock_post_request):
+        channel_id = "channel_id_for_add"
+        user_id = "user_id_to_add"
+        mock_response = Mock(status_code=201)  # 201 Created is success
+        mock_response.json.return_value = {"channel_id": channel_id, "user_id": user_id}
+        mock_post_request.return_value = mock_response
+
+        result = self.client.add_user_to_channel(channel_id, user_id)
+        self.assertTrue(result)
+        expected_api_url = f"{self.mock_url}/api/v4/channels/{channel_id}/members"
+        expected_payload = {"user_id": user_id}
+        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
+
+    @patch("requests.post")
+    def test_add_user_to_channel_already_member(self, mock_post_request):
+        channel_id = "channel_id_for_add"
+        user_id = "user_id_already_member"
+
+        mock_error_response_content = {
+            "id": "api.channel.add_user.already_member.app_error",
+            "message": f"User {user_id} is already a member of channel {channel_id}",
+            "status_code": 500,  # Mattermost sometimes returns 500 for this
+        }
+        mock_http_error_response = Mock(status_code=500)  # Or 400, depending on MM version / specific case
+        mock_http_error_response.json.return_value = mock_error_response_content
+        mock_http_error_response.text = json.dumps(mock_error_response_content)
+
+        mock_post_request.return_value = mock_http_error_response  # Simulate the response object directly
+        # Simulate raise_for_status for this specific error
+        mock_post_request.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_http_error_response
+        )
+
+        result = self.client.add_user_to_channel(channel_id, user_id)
+        self.assertTrue(result)  # Should be considered success
+        expected_api_url = f"{self.mock_url}/api/v4/channels/{channel_id}/members"
+        expected_payload = {"user_id": user_id}
+        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
+
+    @patch("requests.post")
+    def test_add_user_to_channel_failure_other_http_error(self, mock_post_request):
+        channel_id = "channel_id_for_add"
+        user_id = "user_id_http_fail"
+
+        mock_error_response_content = {"id": "api.some.other.error", "message": "Another error"}
+        mock_http_error_response = Mock(status_code=403)  # e.g. Forbidden
+        mock_http_error_response.json.return_value = mock_error_response_content
+        mock_http_error_response.text = json.dumps(mock_error_response_content)
+
+        mock_post_request.return_value = mock_http_error_response
+        mock_post_request.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_http_error_response
+        )
+
+        result = self.client.add_user_to_channel(channel_id, user_id)
+        self.assertFalse(result)
+
+    @patch("requests.post")
+    def test_add_user_to_channel_failure_request_exception(self, mock_post_request):
+        channel_id = "channel_id_for_add"
+        user_id = "user_id_req_ex"
+        mock_post_request.side_effect = requests.exceptions.RequestException("Network issue")
+        result = self.client.add_user_to_channel(channel_id, user_id)
+        self.assertFalse(result)
+
+    def test_add_user_to_channel_missing_ids(self):
+        self.assertFalse(self.client.add_user_to_channel("", "user_id"))
+        self.assertFalse(self.client.add_user_to_channel("channel_id", ""))
+        self.assertFalse(self.client.add_user_to_channel("", ""))
 
 
 if __name__ == "__main__":

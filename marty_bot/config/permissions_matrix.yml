@@ -1,0 +1,44 @@
+# marty_bot/config/permissions_matrix.yml
+permissions:
+  - category: PROJET
+    mattermost:
+      channel_type: "O" # Open
+    outline:
+      access: "read"
+    nocodb:
+      access: "No"
+  - category: PROJET_ADMIN
+    mattermost:
+      channel_type: "P" # Private
+    outline:
+      access: "rw"
+    nocodb:
+      access: "No"
+  - category: ANTENNE
+    mattermost:
+      channel_type: "O" # Open
+    outline:
+      access: "read"
+    nocodb:
+      access: "read"
+  - category: ANTENNE_ADMIN
+    mattermost:
+      channel_type: "P" # Private
+    outline:
+      access: "rw"
+    nocodb:
+      access: "rw"
+  - category: POLES
+    mattermost:
+      channel_type: "P" # Private
+    outline:
+      access: "read"
+    nocodb:
+      access: "read"
+  - category: POLES_ADMIN
+    mattermost:
+      channel_type: "P" # Private
+    outline:
+      access: "rw"
+    nocodb:
+      access: "rw"

@@ -8,12 +8,62 @@ from typing import TYPE_CHECKING, Optional  # Added Optional
 from app import config  # Import config to access EXCLUDED_USERS
 
 # Import client-specific utilities and classes for type hinting
-from clients.mattermost_client import slugify # For URL construction
+from clients.mattermost_client import slugify  # For URL construction
 
 if TYPE_CHECKING:
     from clients.authentik_client import AuthentikClient
     from clients.mattermost_client import MattermostClient
     from clients.outline_client import OutlineClient
+
+
+# Helper function to determine Outline permission
+def _determine_outline_permission(auth_group_name: str, mm_channel_type: str) -> str:
+    """
+    Determines the Outline permission ('read' or 'read_write') based on
+    the Authentik group name prefix and Mattermost channel type.
+    Defaults to 'read' if specific conditions aren't met or errors occur.
+    """
+    permission_category_key = None
+    # Use the original auth_group_name for prefix checking, assuming it follows the convention
+    # (e.g., "projet_My Project" or "pole_My Pole")
+    # Slugification for channel lookup is separate from this logic.
+    # Normalizing to lower for robust prefix checking.
+    normalized_group_name = auth_group_name.lower()
+
+    if normalized_group_name.startswith("projet_"):
+        permission_category_key = "PROJET_ADMIN" if mm_channel_type == "P" else "PROJET"
+    elif normalized_group_name.startswith("antenne_"):
+        permission_category_key = "ANTENNE_ADMIN" if mm_channel_type == "P" else "ANTENNE"
+    elif normalized_group_name.startswith("pole_") or normalized_group_name.startswith("pôle_"):
+        permission_category_key = "POLES_ADMIN" if mm_channel_type == "P" else "POLES"
+    else:
+        logging.warning(
+            f"Outline Permission: Could not determine category for group '{auth_group_name}' "
+            f"based on known prefixes (projet_, antenne_, pole_). Defaulting to 'read'."
+        )
+        return "read"
+
+    if permission_category_key:
+        # config.PERMISSIONS_MATRIX is loaded as a dict keyed by category string
+        category_config = config.PERMISSIONS_MATRIX.get(permission_category_key)
+        if category_config:
+            outline_access = category_config.get("outline", {}).get("access")
+            if outline_access == "rw":
+                return "read_write"
+            elif outline_access == "read":
+                return "read"
+            else:
+                logging.warning(
+                    f"Outline Permission: Access value '{outline_access}' for category "
+                    f"'{permission_category_key}' is invalid. Defaulting to 'read'."
+                )
+        else:
+            logging.warning(
+                f"Outline Permission: Category '{permission_category_key}' not found in "
+                f"PERMISSIONS_MATRIX. Defaulting to 'read'."
+            )
+
+    return "read" # Fallback default
 
 
 def get_all_authentik_groups_and_user_map(authentik_client: "AuthentikClient"):
@@ -98,6 +148,14 @@ def sync_single_group_to_services(
 
     logging.info(f"Found {len(mm_users_in_channel)} users in Mattermost channel " f"'{mm_channel_display_name}'.")
 
+    # Determine Outline permission for this group/channel once
+    # This permission will apply to all users being added to this collection in this run
+    outline_permission_for_collection = "read" # Default
+    if outline_client and mm_channel: # Ensure outline_client and mm_channel exist
+        mm_channel_type = mm_channel.get("type", "")
+        # Helper function to determine permission will be defined below or imported
+        outline_permission_for_collection = _determine_outline_permission(auth_group_name, mm_channel_type)
+
     for mm_user in mm_users_in_channel:
         mm_user_email = mm_user.get("email")
         mm_username = mm_user.get("username", "UnknownUser")
@@ -109,7 +167,7 @@ def sync_single_group_to_services(
             )
             # No result is added to the 'results' list for this user.
             # This ensures they are not mentioned in any summary/report generated from these results.
-            continue # Move to the next user in the Mattermost channel
+            continue  # Move to the next user in the Mattermost channel
 
         base_user_info = {
             "mm_username": mm_username,
@@ -175,7 +233,7 @@ def sync_single_group_to_services(
                 outline_user_result["error_message"] = f"User email '{mm_user_email}' not found in Outline."
             else:
                 outline_user_id = outline_user.get("id")
-                mm_user_id = mm_user.get("id") # Mattermost user ID for DM
+                mm_user_id = mm_user.get("id")  # Mattermost user ID for DM
 
                 # Convention: Outline collection name is the same as Authentik group name
                 # First, get the collection by name to find its ID
@@ -192,46 +250,46 @@ def sync_single_group_to_services(
                     # Check if user is already a member
                     collection_members = outline_client.get_collection_members(outline_collection_id)
                     is_already_member = False
-                    if collection_members is not None: # If None, API call failed, proceed to add tentatively
+                    if collection_members is not None:  # If None, API call failed, proceed to add tentatively
                         is_already_member = outline_user_id in collection_members
 
                     if is_already_member:
                         outline_user_result["status"] = "SUCCESS"
                         outline_user_result["action"] = "USER_ALREADY_IN_OUTLINE_COLLECTION"
                     else:
-                        # Attempt to add the user
-                        if outline_client.add_user_to_collection(outline_collection_id, outline_user_id):
+                        # Attempt to add the user, now passing the determined permission
+                        if outline_client.add_user_to_collection(
+                            outline_collection_id,
+                            outline_user_id,
+                            permission=outline_permission_for_collection # Pass determined permission
+                        ):
                             outline_user_result["status"] = "SUCCESS"
-                            outline_user_result["action"] = "USER_ADDED_TO_OUTLINE_COLLECTION"
+                            base_action_string = f"USER_ADDED_TO_OUTLINE_COLLECTION_WITH_{outline_permission_for_collection.upper()}_ACCESS"
+                            outline_user_result["action"] = base_action_string # Set base action
 
                             # User was newly added, try to send DM
                             collection_details = outline_client.get_collection_details(outline_collection_id)
                             if collection_details and collection_details.get("name") and mm_user_id:
                                 coll_name = collection_details.get("name")
-                                # Construct URL: OUTLINE_URL/collection/collection_name-collection_id
-                                # The API returns an 'id' (UUID) and a 'urlId' (short human-readable).
-                                # The example URL format `OUTLINE_URL/collection/collection_name-collection_id` seems to imply
-                                # using the name and the main UUID. Let's try that.
-                                # A safer bet might be `OUTLINE_URL/c/{collection_id}` or using `urlId` if it's the public one.
-                                # Given the user's example: collection_name-collection_id
-                                # Let's assume collection_id is the UUID.
-                                collection_url_slug_part = slugify(coll_name) # slugify the name part
+                                collection_url_slug_part = slugify(coll_name)
                                 collection_url = f"{config.OUTLINE_URL}/collection/{collection_url_slug_part}-{outline_collection_id}"
-
                                 dm_message = (
                                     f"Bonjour @{mm_username}, vous avez été ajouté(e) à la collection Outline **{coll_name}**.\n"
                                     f"Vous pouvez y accéder ici : {collection_url}"
                                 )
                                 if mattermost_client.send_dm(mm_user_id, dm_message):
-                                    outline_user_result["action"] = "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT"
+                                    outline_user_result["action"] = f"{base_action_string}_AND_DM_SENT"
                                     logging.info(f"Sent DM to {mm_username} for Outline collection {coll_name}.")
                                 else:
-                                    outline_user_result["action"] = "USER_ADDED_TO_OUTLINE_COLLECTION_DM_FAILED"
-                                    logging.warning(f"User added to Outline collection {coll_name}, but failed to send DM to {mm_username}.")
+                                    outline_user_result["action"] = f"{base_action_string}_DM_FAILED"
+                                    logging.warning(
+                                        f"User added to Outline collection {coll_name} (permission: {outline_permission_for_collection}), but failed to send DM to {mm_username}."
+                                    )
                             else:
+                                # If DM can't be attempted, action remains base_action_string
                                 logging.warning(
-                                    f"User added to Outline collection {auth_group_name} (ID: {outline_collection_id}), "
-                                    "but could not get collection details or MM user ID to send DM."
+                                    f"User added to Outline collection {auth_group_name} (ID: {outline_collection_id}, permission: {outline_permission_for_collection}), "
+                                    "but could not get collection details or MM user ID to send DM. Action: {base_action_string}"
                                 )
                         else:
                             # add_user_to_collection failed

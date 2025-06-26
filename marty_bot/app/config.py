@@ -1,7 +1,15 @@
 import os
+import yaml  # Added for permissions matrix
+import logging  # Added for logging matrix loading status
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Initialize basic logging for config loading phase
+# This allows seeing messages about config files being loaded/not found
+# It might be overridden by the bot's main logging setup later.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - CONFIG - %(message)s")
+
 
 MATTERMOST_URL = os.getenv("MATTERMOST_URL")
 # MATTERMOST_TOKEN = os.getenv("MATTERMOST_TOKEN") # Admin/API token for operations like channel creation - REMOVED
@@ -19,27 +27,68 @@ OUTLINE_TOKEN = os.getenv("OUTLINE_TOKEN")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # User Exclusion Configuration
-# Defines the path to the file containing a list of usernames to exclude from sync operations.
-# Each username should be on a new line.
 EXCLUDED_USERS_FILE_PATH = os.getenv("EXCLUDED_USERS_FILE_PATH", "config/excluded_users.txt")
 EXCLUDED_USERS: set[str] = set()
 
-# Attempt to load the excluded users list
-if EXCLUDED_USERS_FILE_PATH and os.path.exists(EXCLUDED_USERS_FILE_PATH):
-    try:
-        with open(EXCLUDED_USERS_FILE_PATH, "r") as f:
-            # Read lines, strip whitespace, and add non-empty lines to the set
-            EXCLUDED_USERS = {line.strip() for line in f if line.strip()}
-        if EXCLUDED_USERS:
-            print(f"Successfully loaded {len(EXCLUDED_USERS)} excluded users from {EXCLUDED_USERS_FILE_PATH}.") # noqa: T201
-        else:
-            print(f"Excluded users file found at {EXCLUDED_USERS_FILE_PATH}, but it is empty. No users will be excluded based on this file.") # noqa: T201
-    except IOError as e:
-        # Using print for simple config-time feedback. A logger might not be configured yet.
-        print(f"Warning: Error reading excluded users file at {EXCLUDED_USERS_FILE_PATH}: {e}. No users will be excluded based on this file.") # noqa: T201
-elif EXCLUDED_USERS_FILE_PATH:
-    print(f"Warning: Excluded users file not found at {EXCLUDED_USERS_FILE_PATH} (as specified by EXCLUDED_USERS_FILE_PATH). No users will be excluded.") # noqa: T201
+if EXCLUDED_USERS_FILE_PATH:  # Only try to load if path is provided
+    if os.path.exists(EXCLUDED_USERS_FILE_PATH):
+        try:
+            with open(EXCLUDED_USERS_FILE_PATH, "r") as f:
+                EXCLUDED_USERS = {line.strip() for line in f if line.strip()}
+            if EXCLUDED_USERS:
+                logging.info(
+                    f"Successfully loaded {len(EXCLUDED_USERS)} excluded users from {EXCLUDED_USERS_FILE_PATH}."
+                )
+            else:
+                logging.info(f"Excluded users file found at {EXCLUDED_USERS_FILE_PATH}, but it is empty.")
+        except IOError as e:
+            logging.warning(f"Error reading excluded users file at {EXCLUDED_USERS_FILE_PATH}: {e}.")
+    else:
+        logging.warning(f"Excluded users file not found at {EXCLUDED_USERS_FILE_PATH}.")
 else:
-    # This case means EXCLUDED_USERS_FILE_PATH was not set and the default path also wasn't used/found.
-    # This is less of a "warning" and more of an informational note if the feature is optional.
-    print(f"Info: EXCLUDED_USERS_FILE_PATH not set. No users will be explicitly excluded.") # noqa: T201
+    logging.info("EXCLUDED_USERS_FILE_PATH not set. No users will be explicitly excluded.")
+
+
+# Permissions Matrix Configuration
+PERMISSIONS_MATRIX_FILE_PATH = os.getenv("PERMISSIONS_MATRIX_FILE_PATH", "config/permissions_matrix.yml")
+PERMISSIONS_MATRIX: dict = {}
+
+if PERMISSIONS_MATRIX_FILE_PATH:
+    if os.path.exists(PERMISSIONS_MATRIX_FILE_PATH):
+        try:
+            with open(PERMISSIONS_MATRIX_FILE_PATH, "r") as f:
+                loaded_matrix = yaml.safe_load(f)
+                if loaded_matrix and "permissions" in loaded_matrix:
+                    # Transform list into a dict keyed by category for easier access
+                    for item in loaded_matrix["permissions"]:
+                        if "category" in item:
+                            PERMISSIONS_MATRIX[item["category"]] = item
+                        else:
+                            logging.warning(f"Item in permissions_matrix.yml missing 'category': {item}")
+                    if PERMISSIONS_MATRIX:
+                        logging.info(
+                            f"Successfully loaded {len(PERMISSIONS_MATRIX)} permission categories from {PERMISSIONS_MATRIX_FILE_PATH}."  # noqa: E501
+                        )
+                    else:
+                        logging.warning(
+                            f"Permissions matrix file {PERMISSIONS_MATRIX_FILE_PATH} loaded, but no valid categories found or 'permissions' list was empty."  # noqa: E501
+                        )
+                else:
+                    logging.warning(
+                        f"Permissions matrix file {PERMISSIONS_MATRIX_FILE_PATH} is empty or not structured correctly (missing 'permissions' key)."  # noqa: E501
+                    )
+        except yaml.YAMLError as e:
+            logging.error(f"Error parsing YAML from permissions matrix file at {PERMISSIONS_MATRIX_FILE_PATH}: {e}.")
+        except IOError as e:
+            logging.error(f"Error reading permissions matrix file at {PERMISSIONS_MATRIX_FILE_PATH}: {e}.")
+    else:
+        logging.warning(f"Permissions matrix file not found at {PERMISSIONS_MATRIX_FILE_PATH}.")
+else:
+    logging.info("PERMISSIONS_MATRIX_FILE_PATH not set. Permissions matrix features will be disabled.")
+
+# Example of how to access a specific permission setting:
+# projet_mattermost_type = PERMISSIONS_MATRIX.get("PROJET", {}).get("mattermost", {}).get("channel_type")
+# if projet_mattermost_type:
+#     logging.info(f"PROJET Mattermost channel type: {projet_mattermost_type}")
+# else:
+#     logging.info("PROJET settings or Mattermost channel type not found in matrix.")

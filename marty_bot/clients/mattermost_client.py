@@ -54,7 +54,7 @@ class MattermostClient:
             "Accept": "application/json",
             "Authorization": f"Bearer {self.token}",
         }
-        self.bot_user_id: str | None = None # Will store the bot's own user ID
+        self.bot_user_id: str | None = None  # Will store the bot's own user ID
         self._initialize_bot_user_id()
 
     def _initialize_bot_user_id(self) -> None:
@@ -68,7 +68,7 @@ class MattermostClient:
             self.bot_user_id = user_details["id"]
             logging.info(f"MattermostClient: Bot User ID initialized to {self.bot_user_id}")
         else:
-            self.bot_user_id = None # Ensure it's None if fetching failed
+            self.bot_user_id = None  # Ensure it's None if fetching failed
             logging.error(
                 "MattermostClient: FAILED to fetch Bot User ID. Direct messaging functionality will be impaired."
             )
@@ -89,9 +89,7 @@ class MattermostClient:
             logging.info(f"Successfully fetched bot's user details. Bot User ID: {user_data.get('id')}")
             return user_data
         except requests.exceptions.HTTPError as e:
-            logging.error(
-                f"HTTP error fetching bot user details: {e.response.status_code} - {e.response.text}"
-            )
+            logging.error(f"HTTP error fetching bot user details: {e.response.status_code} - {e.response.text}")
             return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Request exception fetching bot user details: {e}")
@@ -108,7 +106,7 @@ class MattermostClient:
         :param message: The message string to post.
         :return: True if successful, False otherwise.
         """
-        if not channel_id or message is None: # message can be an empty string
+        if not channel_id or message is None:  # message can be an empty string
             logging.error("Channel ID and message must be provided to post a message.")
             return False
 
@@ -131,21 +129,26 @@ class MattermostClient:
         except requests.exceptions.RequestException as e:
             logging.error(f"Request exception during Mattermost post to channel {channel_id}: {e}")
             return False
-        except json.JSONDecodeError as e: # Should not happen on success, but good practice
+        except json.JSONDecodeError as e:  # Should not happen on success, but good practice
             logging.error(f"Error decoding JSON from post message response to channel {channel_id}: {e}")
             return False
 
-    def create_channel(self, project_name: str, team_id: str = None) -> bool:
+    def create_channel(self, project_name: str, channel_type: str = "O", team_id: str = None) -> dict | None:
         """
-        Creates a new public channel in Mattermost.
+        Creates a new channel in Mattermost.
         :param project_name: The display name for the new channel. Will be slugified for the URL-safe name.
+        :param channel_type: Type of the channel. 'O' for public, 'P' for private. Defaults to 'O'.
         :param team_id: Optional. If provided, overrides the default team_id set during client initialization.
-        :return: True if successful, False otherwise.
+        :return: The created channel data as a dictionary if successful, None otherwise.
         """
         current_team_id = team_id or self.team_id
         if not current_team_id:
             logging.error("Mattermost Team ID is not available for channel creation.")
-            return False
+            return None
+
+        if channel_type not in ["O", "P"]:
+            logging.error(f"Invalid channel_type '{channel_type}'. Must be 'O' (public) or 'P' (private).")
+            return None
 
         api_url = f"{self.base_url}/api/v4/channels"
         channel_name_slug = slugify(project_name)
@@ -153,7 +156,7 @@ class MattermostClient:
             "team_id": current_team_id,
             "name": channel_name_slug,
             "display_name": project_name,
-            "type": "O",
+            "type": channel_type,
             "purpose": f"Channel for project {project_name}",
             "header": f"Project {project_name}",
         }
@@ -164,34 +167,44 @@ class MattermostClient:
             created_channel = response.json()
             log_msg = (
                 f"Mattermost channel '{created_channel.get('display_name')}' "
-                f"(name: {created_channel.get('name')}) created successfully on team "
+                f"(name: {created_channel.get('name')}, type: {created_channel.get('type')}) created successfully on team "
                 f"{current_team_id}. Channel ID: {created_channel.get('id')}"
             )
             logging.info(log_msg)
-            return True
+            return created_channel  # Return the channel data
         except requests.exceptions.HTTPError as e:
             error_message = (
-                f"HTTP error creating Mattermost channel '{project_name}' (slug: {channel_name_slug}) "
+                f"HTTP error creating Mattermost channel '{project_name}' (slug: {channel_name_slug}, type: {channel_type}) "
                 f"on team {current_team_id}: {e.response.status_code} - {e.response.text}"
             )
             try:
                 error_details = e.response.json()
                 if error_details.get("id") == "store.sql_channel.save_channel.exists.app_error":
+                    logging.warning(
+                        f"Channel '{project_name}' (slug: {channel_name_slug}) already exists on team {current_team_id}."
+                    )  # Log as warning
+                    # Attempt to fetch the existing channel by name if it exists
+                    existing_channel = self.get_channel_by_name(current_team_id, channel_name_slug)
+                    if existing_channel:
+                        logging.info(
+                            f"Returning existing channel data for '{channel_name_slug}'. ID: {existing_channel.get('id')}"
+                        )
+                        return existing_channel  # Return existing channel data
                     error_message += " (Hint: Channel with this name/display name might already exist.)"
                 elif error_details.get("id") == "api.channel.create_channel.invalid_name.app_error":
                     error_message += f" (Hint: The generated channel name '{channel_name_slug}' is invalid.)"
             except json.JSONDecodeError:
                 pass  # No JSON in error response
             logging.error(error_message)
-            return False
+            return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Request exception during Mattermost channel creation for '{project_name}': {e}")
-            return False
+            return None
         except json.JSONDecodeError as e:  # In case response.json() fails on success (unlikely for 201)
             logging.error(f"Error decoding JSON from Mattermost channel creation response for '{project_name}': {e}")
-            return False
+            return None
 
-    def get_channel_by_name(self, team_id: str, channel_name: str):
+    def get_channel_by_name(self, team_id: str, channel_name: str) -> dict | None:
         """Fetches a Mattermost channel by its URL-safe name (slug) within a given team_id."""
         if not self.base_url or not self.token:
             logging.error("Mattermost client not configured (URL or Token missing).")
@@ -297,17 +310,23 @@ class MattermostClient:
         # Payload is a list of two user IDs: [bot_id, other_user_id]
         payload = [self.bot_user_id, other_user_id]
 
-        logging.debug(f"Mattermost API >> Creating direct channel with user '{other_user_id}'. Payload: {json.dumps(payload)}")
+        logging.debug(
+            f"Mattermost API >> Creating direct channel with user '{other_user_id}'. Payload: {json.dumps(payload)}"
+        )
         try:
             response = requests.post(api_url, headers=self.headers, json=payload)
             response.raise_for_status()
             channel_data = response.json()
             dm_channel_id = channel_data.get("id")
             if dm_channel_id:
-                logging.info(f"Successfully created/retrieved direct channel with user '{other_user_id}'. Channel ID: {dm_channel_id}")
+                logging.info(
+                    f"Successfully created/retrieved direct channel with user '{other_user_id}'. Channel ID: {dm_channel_id}"
+                )
                 return dm_channel_id
             else:
-                logging.error(f"Failed to create/retrieve direct channel with user '{other_user_id}'. 'id' missing in response: {channel_data}")
+                logging.error(
+                    f"Failed to create/retrieve direct channel with user '{other_user_id}'. 'id' missing in response: {channel_data}"
+                )
                 return None
         except requests.exceptions.HTTPError as e:
             # Mattermost often returns 200 or 201 even if channel exists.
@@ -345,6 +364,50 @@ class MattermostClient:
         # 2. Post the message to the DM channel
         logging.info(f"Sending DM to user '{user_id}' (channel ID: {dm_channel_id}).")
         return self.post_message(channel_id=dm_channel_id, message=message)
+
+    def add_user_to_channel(self, channel_id: str, user_id: str) -> bool:
+        """
+        Adds a user to a specific channel.
+        Corresponds to Mattermost API: POST /api/v4/channels/{channel_id}/members
+        :param channel_id: The ID of the channel to add the user to.
+        :param user_id: The ID of the user to add.
+        :return: True if successful, False otherwise.
+        """
+        if not channel_id or not user_id:
+            logging.error("Channel ID and User ID must be provided to add user to channel.")
+            return False
+
+        api_url = f"{self.base_url}/api/v4/channels/{channel_id}/members"
+        payload = {"user_id": user_id}
+
+        logging.debug(f"Mattermost API >> Adding user {user_id} to channel {channel_id}: {json.dumps(payload)}")
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()  # Check for HTTP errors (201 Created is success)
+            logging.info(f"User {user_id} successfully added to channel {channel_id}.")
+            return True
+        except requests.exceptions.HTTPError as e:
+            # Handle cases like user already in channel (often a 500 error with specific message)
+            # or other permission/not found errors.
+            error_message = (
+                f"HTTP error adding user {user_id} to channel {channel_id}: "
+                f"{e.response.status_code} - {e.response.text}"
+            )
+            try:
+                error_details = e.response.json()
+                if error_details.get("id") == "api.channel.add_user.already_member.app_error":
+                    logging.info(f"User {user_id} is already a member of channel {channel_id}. Considered success.")
+                    return True  # Or a more specific status if needed
+            except json.JSONDecodeError:
+                pass  # No JSON in error response
+            logging.error(error_message)
+            return False
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception adding user {user_id} to channel {channel_id}: {e}")
+            return False
+        except json.JSONDecodeError as e:  # Should not happen on success, but good practice
+            logging.error(f"Error decoding JSON from add user to channel response for channel {channel_id}: {e}")
+            return False
 
 
 if __name__ == "__main__":

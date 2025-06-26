@@ -33,40 +33,41 @@ class OutlineClient:
             existing_collection = self.get_collection_by_name(project_name)
             if existing_collection:
                 collection_id = existing_collection.get("id")
-                logging.info(
-                    f"Outline collection '{project_name}' (ID: {collection_id}) already exists."
-                )
+                logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) already exists.")
                 return "EXISTS"
         except requests.exceptions.RequestException as e:
             # This exception would come from get_collection_by_name if requests.post fails there
-            logging.error(f"Outline API >> Error during existence check for collection '{project_name}': {e}")
-            return "FAILED" # If we can't check, we can't safely determine existence or create
+            logging.error(
+                f"Outline API >> Error during existence check for collection '{project_name}': {e}"
+            )  # noqa: E501
+            return "FAILED"  # If we can't check, we can't safely determine existence or create
 
         # 2. If not found (and no error during check), try to create it
         create_api_url = f"{self.base_url}/api/collections.create"
         payload = {"name": project_name}
 
-        logging.debug(f"Outline API >> Collection '{project_name}' not found. Attempting to create with payload: {json.dumps(payload)}")
+        logging.debug(
+            f"Outline API >> Collection '{project_name}' not found. "
+            f"Attempting to create with payload: {json.dumps(payload)}"
+        )
 
         try:
             response = requests.post(create_api_url, headers=self.headers, json=payload)
 
-            if response.status_code == 200: # Outline typically returns 200 for successful creation
+            if response.status_code == 200:  # Outline typically returns 200 for successful creation
                 response_data = response.json()
                 data_content = response_data.get("data")
                 if isinstance(data_content, dict) and data_content.get("id"):
                     collection_id = data_content.get("id")
-                    logging.info(
-                        f"Outline collection '{project_name}' (ID: {collection_id}) created successfully."
-                    )
+                    logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) created successfully.")
                     return "CREATED"
                 else:
                     # Success status but unexpected data format
                     logging.warning(
                         f"Outline collection '{project_name}' creation reported success (200), "
-                        f"but 'id' could not be retrieved from response data: {response.text}"
+                        f"but 'id' could not be retrieved from response data: {response.text}"  # noqa: E501
                     )
-                    return "FAILED" # Treat as failure if data is not as expected
+                    return "FAILED"  # Treat as failure if data is not as expected
             else:
                 # Handle non-200 responses for collections.create
                 error_details_msg = ""
@@ -77,7 +78,7 @@ class OutlineClient:
                     error_details_msg = " (Could not parse JSON error response)"
 
                 logging.error(
-                    f"Error creating Outline collection '{project_name}': {response.status_code} - {response.text}{error_details_msg}"
+                    f"Error creating Outline collection '{project_name}': {response.status_code} - {response.text}{error_details_msg}"  # noqa: E501
                 )
                 return "FAILED"
         except requests.exceptions.RequestException as e:
@@ -114,7 +115,7 @@ class OutlineClient:
         except requests.exceptions.HTTPError as e:
             # Log specific HTTP errors, e.g. if the API endpoint itself is wrong or auth fails
             logging.error(
-                f"HTTP error fetching Outline user by email '{email}': {e.response.status_code} - {e.response.text}"
+                f"HTTP error fetching Outline user by email '{email}': {e.response.status_code} - {e.response.text}"  # noqa: E501
             )
             return None
         except requests.exceptions.RequestException as e:
@@ -132,9 +133,7 @@ class OutlineClient:
         :return: A dictionary containing the collection data if found, None otherwise.
         """
         api_url = f"{self.base_url}/api/collections.list"
-        # No direct name filter, so we list and filter. Consider pagination if many collections.
-        # For now, assuming a reasonable number of collections that fit in one page or a few.
-        limit = 100  # Adjust as needed, or implement pagination
+        limit = 100
         offset = 0
 
         logging.debug(f"Outline API >> Attempting to find collection by name '{name}'. Listing collections...")
@@ -151,15 +150,15 @@ class OutlineClient:
                         logging.info(f"Found Outline collection '{name}' (ID: {collection.get('id')}).")
                         return collection
 
-                if not collections or len(collections) < limit:  # Last page or no collections
+                if not collections or len(collections) < limit:
                     break
-                offset += limit  # Move to next page
+                offset += limit
 
             logging.info(f"Outline collection named '{name}' not found after checking all collections.")
             return None
         except requests.exceptions.HTTPError as e:
             logging.error(
-                f"HTTP error fetching Outline collections to find '{name}': {e.response.status_code} - {e.response.text}"
+                f"HTTP error fetching Outline collections to find '{name}': {e.response.status_code} - {e.response.text}"  # noqa: E501
             )
             return None
         except requests.exceptions.RequestException as e:
@@ -167,7 +166,7 @@ class OutlineClient:
             return None
         except json.JSONDecodeError as e:
             logging.error(
-                f"Error decoding JSON from Outline collections.list response when searching for '{name}': {e}"
+                f"Error decoding JSON from Outline collections.list response when searching for '{name}': {e}"  # noqa: E501
             )
             return None
 
@@ -192,53 +191,56 @@ class OutlineClient:
         try:
             while True:
                 page_count += 1
-                payload = {"id": collection_id, "offset": offset, "limit": min(limit, 100)} # Ensure limit doesn't exceed API max
-                logging.debug(f"Outline API >> Fetching page {page_count} for collection members (offset: {offset}, limit: {payload['limit']})")
+                payload = {
+                    "id": collection_id,
+                    "offset": offset,
+                    "limit": min(limit, 100),
+                }
+                logging.debug(
+                    f"Outline API >> Fetching page {page_count} for collection members "
+                    f"(offset: {offset}, limit: {payload['limit']})"
+                )
                 response = requests.post(api_url, headers=self.headers, json=payload)
                 response.raise_for_status()
                 response_data = response.json()
 
                 data_block = response_data.get("data", {})
-                memberships = data_block.get("memberships", []) # Based on API doc, user IDs are in 'memberships' list
+                memberships = data_block.get("memberships", [])
 
-                if not memberships and not data_block.get("users"): # If both are empty, probably an issue or empty collection
-                    if offset == 0: # First page and no members
+                if not memberships and not data_block.get("users"):
+                    if offset == 0:
                         logging.info(f"No members found for Outline collection ID '{collection_id}'.")
-                    break # Exit loop if no memberships returned on this page
+                    break
 
                 for membership in memberships:
                     user_id = membership.get("userId")
                     if user_id:
                         member_user_ids.append(user_id)
 
-                # Check pagination from response directly
                 pagination_info = response_data.get("pagination", {})
-                response_limit = pagination_info.get("limit", payload["limit"]) # Use actual limit from response if available
-                response_offset = pagination_info.get("offset", offset)
+                response_limit = pagination_info.get("limit", payload["limit"])
 
-                # Determine if there are more pages
-                # If number of returned memberships is less than the limit, it's the last page
                 if len(memberships) < response_limit:
                     break
 
-                # If total is available and we've fetched enough, break (optional, relies on 'total' field)
-                # total_members = pagination_info.get("total")
-                # if total_members is not None and len(member_user_ids) >= total_members:
-                #    break
-
-                offset += len(memberships) # More robust: advance offset by number of items actually returned
-                if offset >= 10000: # Safety break for very large collections or unexpected loops
-                    logging.warning(f"Safety break after fetching {len(member_user_ids)} members for collection {collection_id}. Reached offset {offset}.")
+                offset += len(memberships)
+                if offset >= 10000:
+                    logging.warning(
+                        f"Safety break after fetching {len(member_user_ids)} members for "
+                        f"collection {collection_id}. Reached offset {offset}."
+                    )
                     break
 
-
-            logging.info(f"Successfully fetched {len(member_user_ids)} member IDs for Outline collection ID '{collection_id}' over {page_count} pages.")
+            logging.info(  # noqa: E501
+                f"Successfully fetched {len(member_user_ids)} member IDs for Outline collection ID "
+                f"'{collection_id}' over {page_count} pages."
+            )
             return member_user_ids
 
         except requests.exceptions.HTTPError as e:
             logging.error(
                 f"HTTP error fetching members for Outline collection ID '{collection_id}': "
-                f"{e.response.status_code} - {e.response.text}"
+                f"{e.response.status_code} - {e.response.text}"  # noqa: E501
             )
             return None
         except requests.exceptions.RequestException as e:
@@ -246,7 +248,7 @@ class OutlineClient:
             return None
         except json.JSONDecodeError as e:
             logging.error(
-                f"Error decoding JSON from Outline collections.memberships response for collection ID '{collection_id}': {e}"
+                f"Error decoding JSON from Outline collections.memberships response for collection ID '{collection_id}': {e}"  # noqa: E501
             )
             return None
 
@@ -266,54 +268,40 @@ class OutlineClient:
         }
         logging.debug(
             f"Outline API >> Adding user ID '{user_id}' to collection ID '{collection_id}' "
-            f"with permission '{permission}'. Payload: {json.dumps(payload)}"
+            f"with permission '{permission}'. Payload: {json.dumps(payload)}"  # noqa: E501
         )
         try:
             response = requests.post(api_url, headers=self.headers, json=payload)
-            response.raise_for_status()  # Check for HTTP errors
+            response.raise_for_status()
 
-            # According to example, a successful response contains 'data' with 'users' and 'memberships'.
-            # The API might return success even if the user is already a member.
-            # We'll consider it a success if the API doesn't error out and returns a 200.
             response_data = response.json()
-            if response_data and "data" in response_data:  # Check if 'data' key exists
+            if response_data and "data" in response_data:
                 logging.info(
-                    f"Successfully processed add_user_to_collection for user ID '{user_id}' to collection ID '{collection_id}'."
+                    f"Successfully processed add_user_to_collection for user ID '{user_id}' to collection ID '{collection_id}'."  # noqa: E501
                 )
                 return True
             else:
                 logging.warning(
                     f"Outline collections.add_user for user ID '{user_id}' to collection ID '{collection_id}' "
-                    f"returned 200 but 'data' key was missing or response was unexpected: {response.text}"
+                    f"returned 200 but 'data' key was missing or response was unexpected: {response.text}"  # noqa: E501
                 )
                 return False
 
         except requests.exceptions.HTTPError as e:
-            # Log specific HTTP errors
-            # Example: 403 if user already member with higher permission, or if collection/user not found.
-            # Outline's API might return 403 if "User is already a member of the collection"
-            # or if trying to add with a permission that's already effectively there.
-            # For simplicity, we'll log the error and return False.
-            # More sophisticated error handling could inspect e.response.json().get("message")
             logging.error(
                 f"HTTP error adding user ID '{user_id}' to Outline collection ID '{collection_id}': "
-                f"{e.response.status_code} - {e.response.text}"
+                f"{e.response.status_code} - {e.response.text}"  # noqa: E501
             )
-            # Check if user was already a member - this might not be a true "failure" for our sync logic
-            # For now, if API call fails for any HTTP reason, we report False.
-            # if "already a member" in e.response.text.lower():
-            #     logging.info(f"User {user_id} already a member of collection {collection_id}.")
-            #     return True # Or a specific status indicating "already_exists"
             return False
         except requests.exceptions.RequestException as e:
             logging.error(
-                f"Request failed while adding user ID '{user_id}' to Outline collection ID '{collection_id}': {e}"
+                f"Request failed while adding user ID '{user_id}' to Outline collection ID '{collection_id}': {e}"  # noqa: E501
             )
             return False
-        except json.JSONDecodeError as e:  # Should be caught by HTTPError if status is not 2xx
+        except json.JSONDecodeError as e:
             logging.error(
                 f"Error decoding JSON from Outline collections.add_user response for user '{user_id}' "
-                f"in collection '{collection_id}': {e}"
+                f"in collection '{collection_id}': {e}"  # noqa: E501
             )
             return False
 
@@ -333,7 +321,7 @@ class OutlineClient:
 
         try:
             response = requests.post(api_url, headers=self.headers, json=payload)
-            response.raise_for_status()  # Check for HTTP errors
+            response.raise_for_status()
 
             response_data = response.json()
             collection_data = response_data.get("data")
@@ -344,13 +332,13 @@ class OutlineClient:
             else:
                 logging.warning(
                     f"Outline collection.info for ID '{collection_id}' returned successfully "
-                    f"but 'data' key was missing or response was unexpected: {response.text}"
+                    f"but 'data' key was missing or response was unexpected: {response.text}"  # noqa: E501
                 )
                 return None
         except requests.exceptions.HTTPError as e:
             logging.error(
                 f"HTTP error fetching details for Outline collection ID '{collection_id}': "
-                f"{e.response.status_code} - {e.response.text}"
+                f"{e.response.status_code} - {e.response.text}"  # noqa: E501
             )
             return None
         except requests.exceptions.RequestException as e:
@@ -358,7 +346,7 @@ class OutlineClient:
             return None
         except json.JSONDecodeError as e:
             logging.error(
-                f"Error decoding JSON from Outline collections.info response for collection ID '{collection_id}': {e}"
+                f"Error decoding JSON from Outline collections.info response for collection ID '{collection_id}': {e}"  # noqa: E501
             )
             return None
 
