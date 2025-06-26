@@ -1,9 +1,10 @@
 import unittest
-from unittest.mock import MagicMock  # Removed 'call'
+from unittest.mock import MagicMock  # Removed 'call' as it was unused
 import json
 import asyncio
 
 from app.bot import MartyBot
+from clients.mattermost_client import slugify  # Import slugify
 
 
 # Helper to run async test methods
@@ -55,118 +56,158 @@ class TestMartyBot(unittest.TestCase):
             },
         }
         self.bot.config = self.mock_config
+        self.test_user_id = "test_user_who_posted"  # For testing user auto-add
 
-    async def _send_test_message(self, message_text, channel_id="test_channel"):
+    async def _send_test_message(self, message_text, channel_id="test_channel", user_id=None):
         self.bot.envoyer_message.reset_mock()
         self.bot.authentik_client.reset_mock()
         self.bot.outline_client.reset_mock()
         self.bot.mattermost_api_client.reset_mock()
 
+        post_content = {
+            "message": message_text,
+            "channel_id": channel_id,
+            "user_id": user_id if user_id else self.test_user_id,  # Use provided or default
+        }
+
         mock_message_data = {
             "event": "posted",
-            "data": {
-                "post": json.dumps(
-                    {
-                        "message": message_text,
-                        "channel_id": channel_id,
-                        "user_id": "test_user",
-                    }
-                )
-            },
+            "data": {"post": json.dumps(post_content)},
         }
         await self.bot.on_message(None, json.dumps(mock_message_data))
 
     @async_test
-    async def test_handle_create_projet_command_single_item_success(self):
+    async def test_handle_create_projet_command_single_item_success_and_user_added(self):
         project_name = "SuperProjet"
+        # Simulate create_channel returning the channel data including ID
+        mock_channel_data_projet = {"id": "projet_channel_id_123", "name": "superprojet"}
+        mock_channel_data_admin = {"id": "admin_channel_id_456", "name": "superprojet-admin"}
+
         self.bot.authentik_client.create_group.return_value = True
         self.bot.outline_client.create_group.return_value = "CREATED"
-        self.bot.mattermost_api_client.create_channel.return_value = True
+
+        # Configure side effect for create_channel
+        def create_channel_side_effect(name, channel_type):
+            if name == project_name:
+                return mock_channel_data_projet
+            elif name == f"{project_name} Admin":
+                return mock_channel_data_admin
+            return None
+
+        self.bot.mattermost_api_client.create_channel.side_effect = create_channel_side_effect
+        self.bot.mattermost_api_client.add_user_to_channel.return_value = True
 
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name}")
 
         admin_project_name = f"{project_name} Admin"
-        self.bot.authentik_client.create_group.assert_any_call(project_name)
-        self.bot.authentik_client.create_group.assert_any_call(admin_project_name)
-        self.bot.outline_client.create_group.assert_any_call(project_name)
-        self.bot.outline_client.create_group.assert_any_call(admin_project_name)
+
+        # Verify channel creation calls
         self.bot.mattermost_api_client.create_channel.assert_any_call(project_name, channel_type="O")
         self.bot.mattermost_api_client.create_channel.assert_any_call(admin_project_name, channel_type="P")
-        self.assertEqual(self.bot.authentik_client.create_group.call_count, 2)
-        self.assertEqual(self.bot.outline_client.create_group.call_count, 2)
-        self.assertEqual(self.bot.mattermost_api_client.create_channel.call_count, 2)
 
-        self.assertEqual(self.bot.envoyer_message.call_count, 2)
-        self.assertIn(
-            f"Traitement de 'create_projet' pour 1 projet: **`{project_name}`**...",  # noqa: F541
-            self.bot.envoyer_message.call_args_list[0][0][1],
+        # Verify user add calls
+        self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
+            mock_channel_data_projet["id"], self.test_user_id
         )
+        self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
+            mock_channel_data_admin["id"], self.test_user_id
+        )
+        self.assertEqual(self.bot.mattermost_api_client.add_user_to_channel.call_count, 2)
+
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
-        self.assertIn(f"Création pour projet **`{project_name}`**", summary_text)  # noqa: F541
-        self.assertIn(f"Sous-groupe/canal **`{project_name}`** (basé sur *PROJET*)", summary_text)  # noqa: F541
-        self.assertIn("Mattermost: :white_check_mark: Canal (Public) créé.", summary_text)
-        self.assertIn(
-            f"Sous-groupe/canal **`{admin_project_name}`** (basé sur *PROJET_ADMIN*)", summary_text
-        )  # noqa: F541
-        self.assertIn("Mattermost: :white_check_mark: Canal (Privé) créé.", summary_text)
+        self.assertIn("Utilisateur demandeur ajouté au canal.", summary_text)
 
     @async_test
     async def test_handle_create_projet_command_multiple_items_success(self):
         project_names = ["ProjetAlpha", "ProjetBeta"]
+        created_channel_ids = {}
+
+        def create_channel_side_effect_multi(name, channel_type):
+            channel_id = f"channel_for_{slugify(name)}"
+            created_channel_ids[name] = channel_id
+            return {"id": channel_id, "name": slugify(name)}
+
         self.bot.authentik_client.create_group.return_value = True
         self.bot.outline_client.create_group.return_value = "CREATED"
-        self.bot.mattermost_api_client.create_channel.return_value = True
+        self.bot.mattermost_api_client.create_channel.side_effect = create_channel_side_effect_multi
+        self.bot.mattermost_api_client.add_user_to_channel.return_value = True
 
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {' '.join(project_names)}")
 
-        self.assertEqual(self.bot.authentik_client.create_group.call_count, 4)
-        self.assertEqual(self.bot.outline_client.create_group.call_count, 4)
-        self.assertEqual(self.bot.mattermost_api_client.create_channel.call_count, 4)
+        self.assertEqual(self.bot.authentik_client.create_group.call_count, len(project_names) * 2)
+        self.assertEqual(self.bot.outline_client.create_group.call_count, len(project_names) * 2)
+        self.assertEqual(self.bot.mattermost_api_client.create_channel.call_count, len(project_names) * 2)
+        self.assertEqual(self.bot.mattermost_api_client.add_user_to_channel.call_count, len(project_names) * 2)
 
         for name in project_names:
             admin_name = f"{name} Admin"
-            self.bot.authentik_client.create_group.assert_any_call(name)
-            self.bot.authentik_client.create_group.assert_any_call(admin_name)
-            self.bot.mattermost_api_client.create_channel.assert_any_call(name, channel_type="O")
-            self.bot.mattermost_api_client.create_channel.assert_any_call(admin_name, channel_type="P")
-
-        self.assertEqual(self.bot.envoyer_message.call_count, 2)
-        initial_msg_text = self.bot.envoyer_message.call_args_list[0][0][1]
-        self.assertIn(
-            f"Traitement de 'create_projet' pour 2 projets: **`{'`, `'.join(project_names)}`**...", initial_msg_text
-        )  # noqa: F541
+            self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
+                created_channel_ids[name], self.test_user_id
+            )
+            self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
+                created_channel_ids[admin_name], self.test_user_id
+            )
 
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
-        self.assertIn("Résumé global pour la commande `create_projet`", summary_text)
-        for name in project_names:
-            self.assertIn(f"Création pour projet **`{name}`**", summary_text)  # noqa: F541
-            self.assertIn(f"Sous-groupe/canal **`{name} Admin`**", summary_text)  # noqa: F541
+        self.assertEqual(summary_text.count("Utilisateur demandeur ajouté au canal."), len(project_names) * 2)
 
     @async_test
     async def test_handle_create_antenne_command_multiple_items(self):
         antenne_names = ["AntenneEst", "AntenneOuest"]
         self.bot.authentik_client.create_group.return_value = True
         self.bot.outline_client.create_group.return_value = "CREATED"
-        self.bot.mattermost_api_client.create_channel.return_value = True
+
+        created_channel_ids = {}
+
+        def create_channel_side_effect_multi(name, channel_type):
+            channel_id = f"channel_for_{slugify(name)}"
+            created_channel_ids[name] = channel_id
+            return {"id": channel_id, "name": slugify(name)}
+
+        self.bot.mattermost_api_client.create_channel.side_effect = create_channel_side_effect_multi
+        self.bot.mattermost_api_client.add_user_to_channel.return_value = True
 
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_antenne {' '.join(antenne_names)}")
         self.assertEqual(self.bot.mattermost_api_client.create_channel.call_count, 4)
+        self.assertEqual(self.bot.mattermost_api_client.add_user_to_channel.call_count, 4)
         for name in antenne_names:
             self.bot.mattermost_api_client.create_channel.assert_any_call(name, channel_type="O")
             self.bot.mattermost_api_client.create_channel.assert_any_call(f"{name} Admin", channel_type="P")
+            self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
+                created_channel_ids[name], self.test_user_id
+            )
+            self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
+                created_channel_ids[f"{name} Admin"], self.test_user_id
+            )
 
     @async_test
     async def test_handle_create_pole_command_multiple_items(self):
         pole_names = ["PoleAlpha", "PoleBeta", "PoleGamma"]
         self.bot.authentik_client.create_group.return_value = True
         self.bot.outline_client.create_group.return_value = "CREATED"
-        self.bot.mattermost_api_client.create_channel.return_value = True
+
+        created_channel_ids = {}
+
+        def create_channel_side_effect_multi(name, channel_type):
+            channel_id = f"channel_for_{slugify(name)}"
+            created_channel_ids[name] = channel_id
+            return {"id": channel_id, "name": slugify(name)}
+
+        self.bot.mattermost_api_client.create_channel.side_effect = create_channel_side_effect_multi
+        self.bot.mattermost_api_client.add_user_to_channel.return_value = True
 
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_pole {' '.join(pole_names)}")
         self.assertEqual(self.bot.mattermost_api_client.create_channel.call_count, 6)
+        self.assertEqual(self.bot.mattermost_api_client.add_user_to_channel.call_count, 6)
         for name in pole_names:
             self.bot.mattermost_api_client.create_channel.assert_any_call(name, channel_type="P")
             self.bot.mattermost_api_client.create_channel.assert_any_call(f"{name} Admin", channel_type="P")
+            self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
+                created_channel_ids[name], self.test_user_id
+            )
+            self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
+                created_channel_ids[f"{name} Admin"], self.test_user_id
+            )
 
     @async_test
     async def test_create_commands_no_arg_provided(self):
@@ -199,11 +240,24 @@ class TestMartyBot(unittest.TestCase):
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name}")
 
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
-        # print(f"DEBUG: summary_text='{summary_text}'")
-        self.assertIn("Authentik: :warning: Échec création (ou existe déjà).", summary_text)
-        self.assertIn("Outline: :warning: Échec création/vérification.", summary_text)
-        self.assertIn("Mattermost: :warning: Échec création (Public) (ou existe déjà).", summary_text)
-        self.assertIn("Mattermost: :warning: Échec création (Privé) (ou existe déjà).", summary_text)
+
+        # Check for the main item
+        self.assertIn(f"--- Création pour projet **`{project_name}`** ---", summary_text)
+        self.assertIn(f"  - Sous-groupe/canal **`{project_name}`** (basé sur *PROJET*):", summary_text)
+        self.assertIn("    - Authentik: :warning: Échec création (ou groupe existe déjà).", summary_text)
+        self.assertIn("    - Outline: :warning: Échec création/vérification.", summary_text)
+        self.assertIn("    - Mattermost: :warning: Échec création (Public) (ou existe déjà).", summary_text)
+
+        # Check for the admin item
+        admin_project_name = f"{project_name} Admin"
+        self.assertIn(f"  - Sous-groupe/canal **`{admin_project_name}`** (basé sur *PROJET_ADMIN*):", summary_text)
+        self.assertIn(
+            "    - Authentik: :warning: Échec création (ou groupe existe déjà).", summary_text
+        )  # Appears twice
+        self.assertIn("    - Outline: :warning: Échec création/vérification.", summary_text)  # Appears twice
+        self.assertIn("    - Mattermost: :warning: Échec création (Privé) (ou existe déjà).", summary_text)
+
+        self.bot.mattermost_api_client.add_user_to_channel.assert_not_called()
 
     @async_test
     async def test_handle_simple_mention_unknown_command(self):

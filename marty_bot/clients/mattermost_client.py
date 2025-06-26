@@ -355,6 +355,50 @@ class MattermostClient:
         logging.info(f"Sending DM to user '{user_id}' (channel ID: {dm_channel_id}).")
         return self.post_message(channel_id=dm_channel_id, message=message)
 
+    def add_user_to_channel(self, channel_id: str, user_id: str) -> bool:
+        """
+        Adds a user to a specific channel.
+        Corresponds to Mattermost API: POST /api/v4/channels/{channel_id}/members
+        :param channel_id: The ID of the channel to add the user to.
+        :param user_id: The ID of the user to add.
+        :return: True if successful, False otherwise.
+        """
+        if not channel_id or not user_id:
+            logging.error("Channel ID and User ID must be provided to add user to channel.")
+            return False
+
+        api_url = f"{self.base_url}/api/v4/channels/{channel_id}/members"
+        payload = {"user_id": user_id}
+
+        logging.debug(f"Mattermost API >> Adding user {user_id} to channel {channel_id}: {json.dumps(payload)}")
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()  # Check for HTTP errors (201 Created is success)
+            logging.info(f"User {user_id} successfully added to channel {channel_id}.")
+            return True
+        except requests.exceptions.HTTPError as e:
+            # Handle cases like user already in channel (often a 500 error with specific message)
+            # or other permission/not found errors.
+            error_message = (
+                f"HTTP error adding user {user_id} to channel {channel_id}: "
+                f"{e.response.status_code} - {e.response.text}"
+            )
+            try:
+                error_details = e.response.json()
+                if error_details.get("id") == "api.channel.add_user.already_member.app_error":
+                    logging.info(f"User {user_id} is already a member of channel {channel_id}. Considered success.")
+                    return True  # Or a more specific status if needed
+            except json.JSONDecodeError:
+                pass  # No JSON in error response
+            logging.error(error_message)
+            return False
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception adding user {user_id} to channel {channel_id}: {e}")
+            return False
+        except json.JSONDecodeError as e:  # Should not happen on success, but good practice
+            logging.error(f"Error decoding JSON from add user to channel response for channel {channel_id}: {e}")
+            return False
+
 
 if __name__ == "__main__":
     from dotenv import load_dotenv

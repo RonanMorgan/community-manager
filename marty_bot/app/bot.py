@@ -124,8 +124,9 @@ class MartyBot:
         base_name: str,
         category_key: str,
         admin_category_key: str | None,
-        channel_id: str,
+        # channel_id: str, # No longer used for sending message here
         item_type_display: str,
+        requesting_user_id: str | None,  # Added user_id
     ):
         """
         Helper function to create resources based on permission matrix categories.
@@ -133,7 +134,6 @@ class MartyBot:
         Returns a list of log messages for this specific base_name.
         """
         item_results_log = []
-        # overall_success_for_item = True # This can be tracked if needed per item
 
         categories_to_process = [(category_key, base_name)]
         if admin_category_key:
@@ -149,7 +149,6 @@ class MartyBot:
                 msg = f":x: Configuration error: No permissions found for category '{current_category_key}' in the matrix for '{resource_name_prefix}'."
                 logging.error(msg)
                 item_results_log.append(msg)
-                # overall_success_for_item = False
                 continue
 
             item_results_log.append(
@@ -162,15 +161,13 @@ class MartyBot:
                     if self.authentik_client.create_group(resource_name_prefix):
                         auth_msg += ":white_check_mark: Groupe créé."
                     else:
-                        auth_msg += ":warning: Échec création (ou existe déjà)."
-                        # overall_success_for_item = False
+                        auth_msg += ":warning: Échec création (ou groupe existe déjà)."
                 except Exception as e:
                     logging.error(
                         f"Error creating Authentik group for {resource_name_prefix} ({current_category_key}): {e}",
                         exc_info=True,
                     )
                     auth_msg += f":x: Erreur interne ({e})."
-                    # overall_success_for_item = False
             else:
                 auth_msg += ":information_source: Client non configuré."
             item_results_log.append(auth_msg)
@@ -185,14 +182,12 @@ class MartyBot:
                         outline_msg += ":information_source: Collection existait déjà."
                     else:  # FAILED
                         outline_msg += ":warning: Échec création/vérification."
-                        # overall_success_for_item = False
                 except Exception as e:
                     logging.error(
                         f"Error creating Outline collection for {resource_name_prefix} ({current_category_key}): {e}",
                         exc_info=True,
                     )
                     outline_msg += f":x: Erreur interne ({e})."
-                    # overall_success_for_item = False
             else:
                 outline_msg += ":information_source: Client non configuré."
             item_results_log.append(outline_msg)
@@ -201,19 +196,46 @@ class MartyBot:
             mm_channel_type = mm_settings.get("channel_type", "O")
             mm_msg = "    - Mattermost: "
             if self.mattermost_api_client:
+                created_mm_channel_id = None  # To store the ID of the created channel
                 try:
-                    if self.mattermost_api_client.create_channel(resource_name_prefix, channel_type=mm_channel_type):
+                    # create_channel now returns the channel_id if successful, or None
+                    channel_creation_result = self.mattermost_api_client.create_channel(
+                        resource_name_prefix, channel_type=mm_channel_type
+                    )
+                    if (
+                        channel_creation_result
+                        and isinstance(channel_creation_result, dict)
+                        and channel_creation_result.get("id")
+                    ):
+                        created_mm_channel_id = channel_creation_result["id"]
+                        mm_msg += f":white_check_mark: Canal ({'Public' if mm_channel_type == 'O' else 'Privé'}) créé (ID: {created_mm_channel_id})."
+                        if requesting_user_id and created_mm_channel_id:
+                            logging.info(
+                                f"Attempting to add user {requesting_user_id} to new channel {created_mm_channel_id}"
+                            )
+                            if self.mattermost_api_client.add_user_to_channel(
+                                created_mm_channel_id, requesting_user_id
+                            ):
+                                mm_msg += " Utilisateur demandeur ajouté au canal."
+                                logging.info(
+                                    f"Successfully added user {requesting_user_id} to channel {created_mm_channel_id}"
+                                )
+                            else:
+                                mm_msg += " Échec de l'ajout de l'utilisateur demandeur au canal."
+                                logging.warning(
+                                    f"Failed to add user {requesting_user_id} to channel {created_mm_channel_id}"
+                                )
+                    elif channel_creation_result is True:  # Fallback for older mock that returned boolean
                         mm_msg += f":white_check_mark: Canal ({'Public' if mm_channel_type == 'O' else 'Privé'}) créé."
+                        logging.warning("create_channel returned True instead of channel data, cannot add user.")
                     else:
                         mm_msg += f":warning: Échec création ({'Public' if mm_channel_type == 'O' else 'Privé'}) (ou existe déjà)."  # noqa: E501
-                        # overall_success_for_item = False
                 except Exception as e:
                     logging.error(
                         f"Error creating Mattermost channel for {resource_name_prefix} ({current_category_key}): {e}",
                         exc_info=True,
                     )
                     mm_msg += f":x: Erreur interne ({e})."
-                    # overall_success_for_item = False
             else:
                 mm_msg += ":information_source: Client non configuré."
             item_results_log.append(mm_msg)
@@ -228,6 +250,7 @@ class MartyBot:
         category_key: str,
         admin_category_key: str | None,
         command_name: str,
+        requesting_user_id: str | None,  # Added user_id
     ):
         """Generic handler for create commands supporting multiple arguments."""
         if not arg_string:
@@ -259,37 +282,41 @@ class MartyBot:
         overall_log_parts = [f"### Résumé global pour la commande `{command_name}`"]
 
         for base_name in base_names:
-            logging.info(f"'{command_name}' command processing for: {base_name}")
+            logging.info(f"'{command_name}' command processing for: {base_name} by user {requesting_user_id}")
             item_log = await self._create_resources_for_category(
                 base_name=base_name,
                 category_key=category_key,
                 admin_category_key=admin_category_key,
-                channel_id=channel_id,  # Not used by _create_resources_for_category for sending messages anymore
                 item_type_display=item_type_display,
+                requesting_user_id=requesting_user_id,  # Pass it down
             )
             overall_log_parts.extend(item_log)
-            overall_log_parts.append("---")  # Separator between items
+            overall_log_parts.append("---")
 
         final_summary_message = "\n".join(overall_log_parts)
         await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message)
 
-    async def _handle_create_projet_command(self, channel_id, arg_string):
+    async def _handle_create_projet_command(self, channel_id, arg_string, user_id_who_posted=None):  # Added user_id
         """Crée les ressources pour un ou plusieurs projets (standard et admin). Usage: create_projet <NomProjet1> [NomProjet2 ...]"""
         await self._execute_batch_create_command(
-            channel_id, arg_string, "projet", "PROJET", "PROJET_ADMIN", "create_projet"
+            channel_id, arg_string, "projet", "PROJET", "PROJET_ADMIN", "create_projet", user_id_who_posted
         )
 
-    async def _handle_create_antenne_command(self, channel_id, arg_string):
+    async def _handle_create_antenne_command(self, channel_id, arg_string, user_id_who_posted=None):  # Added user_id
         """Crée les ressources pour une ou plusieurs antennes (standard et admin). Usage: create_antenne <NomAntenne1> [NomAntenne2 ...]"""
         await self._execute_batch_create_command(
-            channel_id, arg_string, "antenne", "ANTENNE", "ANTENNE_ADMIN", "create_antenne"
+            channel_id, arg_string, "antenne", "ANTENNE", "ANTENNE_ADMIN", "create_antenne", user_id_who_posted
         )
 
-    async def _handle_create_pole_command(self, channel_id, arg_string):
+    async def _handle_create_pole_command(self, channel_id, arg_string, user_id_who_posted=None):  # Added user_id
         """Crée les ressources pour un ou plusieurs pôles (standard et admin). Usage: create_pole <NomPole1> [NomPole2 ...]"""
-        await self._execute_batch_create_command(channel_id, arg_string, "pôle", "POLES", "POLES_ADMIN", "create_pole")
+        await self._execute_batch_create_command(
+            channel_id, arg_string, "pôle", "POLES", "POLES_ADMIN", "create_pole", user_id_who_posted
+        )
 
-    async def _handle_sync_user_channels_command(self, channel_id, arg_string=None):
+    async def _handle_sync_user_channels_command(
+        self, channel_id, arg_string=None
+    ):  # arg_string and user_id not used here
         """Triggers the synchronization of Mattermost channel users to Authentik groups."""
         logging.info(f"'{self.bot_name_mention} sync_user_channels' command received in channel {channel_id}.")
 
@@ -464,7 +491,7 @@ class MartyBot:
         arg_string = parts[1] if len(parts) > 1 else None
         return command_verb, arg_string
 
-    async def _send_help_message(self, channel_id, arg_string=None):
+    async def _send_help_message(self, channel_id, arg_string=None):  # Added user_id, but not used by help
         """Displays this help message listing all available commands."""
         help_lines = ["### Commandes disponibles pour MartyBot", "---"]
         if not self.commands:
@@ -497,6 +524,7 @@ class MartyBot:
         post_data = json.loads(post_info)
         message_text = post_data.get("message", "")
         channel_id = post_data.get("channel_id")
+        user_id_who_posted = post_data.get("user_id")  # Get user_id here
 
         escaped_mention = re.escape(self.bot_name_mention)
         mention_match = re.search(rf"(?i)(?:^|\s){escaped_mention}(?:\s+(.*)|$)", message_text)
@@ -509,7 +537,15 @@ class MartyBot:
         if command_verb:
             handler_method = self.commands.get(command_verb)
             if handler_method:
-                await handler_method(channel_id, arg_string)
+                # Pass user_id_who_posted to command handlers that need it
+                if command_verb in ["create_projet", "create_antenne", "create_pole"]:
+                    await handler_method(channel_id, arg_string, user_id_who_posted=user_id_who_posted)
+                elif (
+                    command_verb == "sync_user_channels"
+                ):  # This command doesn't need user_id_who_posted for its core logic
+                    await handler_method(channel_id, arg_string)
+                else:  # For help or other commands that might not need it
+                    await handler_method(channel_id, arg_string)
             else:
                 message = f":question: Commande inconnue : **`{command_verb}`**. Essayez `{self.bot_name_mention} help` pour une liste des commandes disponibles."
                 await asyncio.to_thread(self.envoyer_message, channel_id, message)

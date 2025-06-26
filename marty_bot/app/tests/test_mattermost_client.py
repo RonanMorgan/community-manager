@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch, Mock
 import requests
+import json  # Added import for json
 
 from clients.mattermost_client import MattermostClient, slugify
 
@@ -333,6 +334,78 @@ class TestMattermostClient(unittest.TestCase):
         self.assertFalse(success)
         mock_create_direct_channel_class.assert_called_once_with(target_user_id)
         mock_post_message_class.assert_called_once_with(channel_id=mock_dm_channel_id, message=dm_message)
+
+    # Tests for add_user_to_channel
+    @patch("requests.post")
+    def test_add_user_to_channel_success(self, mock_post_request):
+        channel_id = "channel_id_for_add"
+        user_id = "user_id_to_add"
+        mock_response = Mock(status_code=201)  # 201 Created is success
+        mock_response.json.return_value = {"channel_id": channel_id, "user_id": user_id}
+        mock_post_request.return_value = mock_response
+
+        result = self.client.add_user_to_channel(channel_id, user_id)
+        self.assertTrue(result)
+        expected_api_url = f"{self.mock_url}/api/v4/channels/{channel_id}/members"
+        expected_payload = {"user_id": user_id}
+        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
+
+    @patch("requests.post")
+    def test_add_user_to_channel_already_member(self, mock_post_request):
+        channel_id = "channel_id_for_add"
+        user_id = "user_id_already_member"
+
+        mock_error_response_content = {
+            "id": "api.channel.add_user.already_member.app_error",
+            "message": f"User {user_id} is already a member of channel {channel_id}",
+            "status_code": 500,  # Mattermost sometimes returns 500 for this
+        }
+        mock_http_error_response = Mock(status_code=500)  # Or 400, depending on MM version / specific case
+        mock_http_error_response.json.return_value = mock_error_response_content
+        mock_http_error_response.text = json.dumps(mock_error_response_content)
+
+        mock_post_request.return_value = mock_http_error_response  # Simulate the response object directly
+        # Simulate raise_for_status for this specific error
+        mock_post_request.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_http_error_response
+        )
+
+        result = self.client.add_user_to_channel(channel_id, user_id)
+        self.assertTrue(result)  # Should be considered success
+        expected_api_url = f"{self.mock_url}/api/v4/channels/{channel_id}/members"
+        expected_payload = {"user_id": user_id}
+        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
+
+    @patch("requests.post")
+    def test_add_user_to_channel_failure_other_http_error(self, mock_post_request):
+        channel_id = "channel_id_for_add"
+        user_id = "user_id_http_fail"
+
+        mock_error_response_content = {"id": "api.some.other.error", "message": "Another error"}
+        mock_http_error_response = Mock(status_code=403)  # e.g. Forbidden
+        mock_http_error_response.json.return_value = mock_error_response_content
+        mock_http_error_response.text = json.dumps(mock_error_response_content)
+
+        mock_post_request.return_value = mock_http_error_response
+        mock_post_request.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_http_error_response
+        )
+
+        result = self.client.add_user_to_channel(channel_id, user_id)
+        self.assertFalse(result)
+
+    @patch("requests.post")
+    def test_add_user_to_channel_failure_request_exception(self, mock_post_request):
+        channel_id = "channel_id_for_add"
+        user_id = "user_id_req_ex"
+        mock_post_request.side_effect = requests.exceptions.RequestException("Network issue")
+        result = self.client.add_user_to_channel(channel_id, user_id)
+        self.assertFalse(result)
+
+    def test_add_user_to_channel_missing_ids(self):
+        self.assertFalse(self.client.add_user_to_channel("", "user_id"))
+        self.assertFalse(self.client.add_user_to_channel("channel_id", ""))
+        self.assertFalse(self.client.add_user_to_channel("", ""))
 
 
 if __name__ == "__main__":
