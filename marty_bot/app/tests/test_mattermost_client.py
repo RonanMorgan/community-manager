@@ -76,37 +76,59 @@ class TestMattermostClient(unittest.TestCase):
             "header": f"Project {project_name}",
         }
         mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
-        self.assertTrue(result)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], "channel_id_123")
 
     @patch("requests.post")
     def test_create_channel_success_override_team_id(self, mock_post_request):
+        mock_response_data = {"id": "channel_id_456", "name": "another-project"}
         mock_response = Mock(status_code=201)
-        mock_response.json.return_value = {"id": "channel_id_456"}
+        mock_response.json.return_value = mock_response_data
         mock_post_request.return_value = mock_response
         project_name = "Another Project"
         override_team_id = "override_fake_team_id"
         result = self.client.create_channel(project_name, team_id=override_team_id)
-        self.assertTrue(result)
+        self.assertEqual(result, mock_response_data)
         _, kwargs = mock_post_request.call_args
         self.assertEqual(kwargs["json"]["team_id"], override_team_id)
 
     @patch("requests.post")
-    def test_create_channel_failure_http_error(self, mock_post_request):  # Renamed from api_error
-        mock_response = Mock(status_code=400)
-        mock_response.json.return_value = {
+    @patch.object(MattermostClient, "get_channel_by_name")  # Mock get_channel_by_name for exists case
+    def test_create_channel_failure_http_error_exists(self, mock_get_channel_by_name, mock_post_request):
+        project_name = "Existing Project"
+        channel_name_slug = slugify(project_name)
+        mock_error_response = Mock(status_code=400)  # Typically 400 for "exists" if not handled as 200/201
+        mock_error_details = {
             "id": "store.sql_channel.save_channel.exists.app_error",
             "message": "Channel exists",
         }
+        mock_error_response.json.return_value = mock_error_details
+        mock_error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_error_response)
+        mock_post_request.return_value = mock_error_response
+
+        # Simulate get_channel_by_name returning the existing channel
+        existing_channel_data = {"id": "existing_channel_id", "name": channel_name_slug, "display_name": project_name}
+        mock_get_channel_by_name.return_value = existing_channel_data
+
+        result = self.client.create_channel(project_name)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], "existing_channel_id")
+        mock_get_channel_by_name.assert_called_once_with(self.mock_team_id, channel_name_slug)
+
+    @patch("requests.post")
+    def test_create_channel_failure_http_error_other(self, mock_post_request):
+        mock_response = Mock(status_code=500)  # Some other server error
+        mock_response.json.return_value = {"id": "internal.server.error", "message": "Server blew up"}
         mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
         mock_post_request.return_value = mock_response
-        result = self.client.create_channel("Test Project Fail")
-        self.assertFalse(result)
+        result = self.client.create_channel("Test Project Fail Other")
+        self.assertIsNone(result)
 
     @patch("requests.post")
     def test_create_channel_failure_request_exception(self, mock_post_request):
         mock_post_request.side_effect = requests.exceptions.RequestException("Connection timeout")
         result = self.client.create_channel("Test Project Exception")
-        self.assertFalse(result)
+        self.assertIsNone(result)
 
     # Tests for get_channel_by_name
     @patch("requests.get")

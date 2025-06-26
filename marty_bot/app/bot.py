@@ -225,10 +225,10 @@ class MartyBot:
                                 logging.warning(
                                     f"Failed to add user {requesting_user_id} to channel {created_mm_channel_id}"
                                 )
-                    elif channel_creation_result is True:  # Fallback for older mock that returned boolean
-                        mm_msg += f":white_check_mark: Canal ({'Public' if mm_channel_type == 'O' else 'Privé'}) créé."
-                        logging.warning("create_channel returned True instead of channel data, cannot add user.")
+                    # Fallback for older mock that returned boolean is removed as create_channel now returns dict or None
                     else:
+                        # This 'else' handles cases where channel_creation_result is None (error from client)
+                        # or not a dict with an 'id' (unexpected valid return that's not None).
                         mm_msg += f":warning: Échec création ({'Public' if mm_channel_type == 'O' else 'Privé'}) (ou existe déjà)."  # noqa: E501
                 except Exception as e:
                     logging.error(

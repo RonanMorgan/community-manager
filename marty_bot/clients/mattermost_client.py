@@ -133,22 +133,22 @@ class MattermostClient:
             logging.error(f"Error decoding JSON from post message response to channel {channel_id}: {e}")
             return False
 
-    def create_channel(self, project_name: str, channel_type: str = "O", team_id: str = None) -> bool:
+    def create_channel(self, project_name: str, channel_type: str = "O", team_id: str = None) -> dict | None:
         """
         Creates a new channel in Mattermost.
         :param project_name: The display name for the new channel. Will be slugified for the URL-safe name.
         :param channel_type: Type of the channel. 'O' for public, 'P' for private. Defaults to 'O'.
         :param team_id: Optional. If provided, overrides the default team_id set during client initialization.
-        :return: True if successful, False otherwise.
+        :return: The created channel data as a dictionary if successful, None otherwise.
         """
         current_team_id = team_id or self.team_id
         if not current_team_id:
             logging.error("Mattermost Team ID is not available for channel creation.")
-            return False
+            return None
 
         if channel_type not in ["O", "P"]:
             logging.error(f"Invalid channel_type '{channel_type}'. Must be 'O' (public) or 'P' (private).")
-            return False
+            return None
 
         api_url = f"{self.base_url}/api/v4/channels"
         channel_name_slug = slugify(project_name)
@@ -167,11 +167,11 @@ class MattermostClient:
             created_channel = response.json()
             log_msg = (
                 f"Mattermost channel '{created_channel.get('display_name')}' "
-                f"(name: {created_channel.get('name')}) created successfully on team "
+                f"(name: {created_channel.get('name')}, type: {created_channel.get('type')}) created successfully on team "
                 f"{current_team_id}. Channel ID: {created_channel.get('id')}"
             )
             logging.info(log_msg)
-            return True
+            return created_channel  # Return the channel data
         except requests.exceptions.HTTPError as e:
             error_message = (
                 f"HTTP error creating Mattermost channel '{project_name}' (slug: {channel_name_slug}, type: {channel_type}) "
@@ -180,21 +180,31 @@ class MattermostClient:
             try:
                 error_details = e.response.json()
                 if error_details.get("id") == "store.sql_channel.save_channel.exists.app_error":
+                    logging.warning(
+                        f"Channel '{project_name}' (slug: {channel_name_slug}) already exists on team {current_team_id}."
+                    )  # Log as warning
+                    # Attempt to fetch the existing channel by name if it exists
+                    existing_channel = self.get_channel_by_name(current_team_id, channel_name_slug)
+                    if existing_channel:
+                        logging.info(
+                            f"Returning existing channel data for '{channel_name_slug}'. ID: {existing_channel.get('id')}"
+                        )
+                        return existing_channel  # Return existing channel data
                     error_message += " (Hint: Channel with this name/display name might already exist.)"
                 elif error_details.get("id") == "api.channel.create_channel.invalid_name.app_error":
                     error_message += f" (Hint: The generated channel name '{channel_name_slug}' is invalid.)"
             except json.JSONDecodeError:
                 pass  # No JSON in error response
             logging.error(error_message)
-            return False
+            return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Request exception during Mattermost channel creation for '{project_name}': {e}")
-            return False
+            return None
         except json.JSONDecodeError as e:  # In case response.json() fails on success (unlikely for 201)
             logging.error(f"Error decoding JSON from Mattermost channel creation response for '{project_name}': {e}")
-            return False
+            return None
 
-    def get_channel_by_name(self, team_id: str, channel_name: str):
+    def get_channel_by_name(self, team_id: str, channel_name: str) -> dict | None:
         """Fetches a Mattermost channel by its URL-safe name (slug) within a given team_id."""
         if not self.base_url or not self.token:
             logging.error("Mattermost client not configured (URL or Token missing).")
