@@ -153,9 +153,23 @@ class TestSyncLogic(unittest.TestCase):
         self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT")
         self.assertEqual(outline_result["mm_username"], "dev1")
 
-        self.mock_outline_client_instance.get_user_by_email.assert_called_once_with(user_email)
-        self.mock_outline_client_instance.get_collection_by_name.assert_called_once_with(auth_group["name"])
-        self.mock_outline_client_instance.get_collection_members.assert_called_once_with(outline_collection_id)
+        # get_user_by_email is called once for the main processing loop,
+        # and potentially again inside the Outline removal logic if that user was already in the collection.
+        # In this specific test, the user is new, so get_collection_members returns [],
+        # meaning the removal logic won't iterate and call get_user_by_email again for this user.
+        # However, the new structure for Outline removal (iterating MM users to build temp_outline_id_to_mm_username)
+        # means it will be called again.
+        self.assertEqual(self.mock_outline_client_instance.get_user_by_email.call_count, 2)
+        self.mock_outline_client_instance.get_user_by_email.assert_any_call(user_email)
+
+        self.assertEqual(
+            self.mock_outline_client_instance.get_collection_by_name.call_count, 2
+        )  # Called in main loop and for removal part
+        self.mock_outline_client_instance.get_collection_by_name.assert_any_call(auth_group["name"])
+        self.assertEqual(
+            self.mock_outline_client_instance.get_collection_members.call_count, 2
+        )  # Called in main loop and for removal part
+        self.mock_outline_client_instance.get_collection_members.assert_any_call(outline_collection_id)
         self.mock_outline_client_instance.add_user_to_collection.assert_called_once_with(
             outline_collection_id, outline_user_id, permission="read"  # Added permission
         )
@@ -246,10 +260,15 @@ class TestSyncLogic(unittest.TestCase):
         self.assertEqual(auth_res["action"], "USER_ALREADY_IN_AUTHENTIK_GROUP")
         outline_res = next(r for r in results if r["service"] == "OUTLINE")
         self.assertEqual(outline_res["status"], "SUCCESS")
-        self.assertEqual(outline_res["action"], "USER_ALREADY_IN_OUTLINE_COLLECTION")
+        self.assertEqual(outline_res["action"], "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED")  # Action
         self.mock_auth_client_instance.add_user_to_group.assert_not_called()
-        self.mock_outline_client_instance.get_collection_members.assert_called_once()
-        self.mock_outline_client_instance.add_user_to_collection.assert_not_called()
+        self.assertEqual(
+            self.mock_outline_client_instance.get_collection_members.call_count, 2
+        )  # Called in main loop and for removal part
+        # add_user_to_collection IS called to ensure permission
+        self.mock_outline_client_instance.add_user_to_collection.assert_called_once_with(
+            "outline_coll_id_1", "outline_user_id_1", permission="read"  # Assuming default permission
+        )
         self.mock_mm_client_instance.send_dm.assert_not_called()
 
         self.mock_auth_client_instance.reset_mock()
@@ -293,7 +312,8 @@ class TestSyncLogic(unittest.TestCase):
         outline_res = next(r for r in results if r["service"] == "OUTLINE")
         self.assertEqual(outline_res["status"], "SKIPPED")
         self.assertEqual(outline_res["action"], "SKIPPED_USER_NOT_IN_OUTLINE")
-        self.mock_outline_client_instance.get_collection_by_name.assert_not_called()
+        # get_collection_by_name IS called once at the group level if outline_client is present
+        self.mock_outline_client_instance.get_collection_by_name.assert_called_once_with(auth_group["name"])
         self.mock_outline_client_instance.add_user_to_collection.assert_not_called()
 
     def test_library_sync_single_group_outline_collection_not_found(self):

@@ -116,8 +116,177 @@ class MartyBot:
             "create_antenne": self._handle_create_antenne_command,
             "create_pole": self._handle_create_pole_command,
             "help": self._send_help_message,
-            "sync_user_channels": self._handle_sync_user_channels_command,
+            "sync_user_channels": self._handle_sync_user_channels_command,  # Maintenir l'ancienne commande pour l'instant
+            "update_user_rights": self._handle_update_user_rights_command,  # Nouvelle commande
         }
+
+    async def _format_and_send_sync_results(
+        self, channel_id: str, initial_post_id: str | None, detailed_results: list[dict]
+    ):
+        """Helper function to format and send detailed synchronization results."""
+        if not detailed_results:
+            final_summary_message = ":information_source: Processus de synchronisation terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
+            await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
+            return
+
+        total_success_ops = 0
+        total_problem_ops = 0
+        action_summary = {}  # Pour compter les types d'actions
+
+        for result in detailed_results:
+            user_mm_name = result.get("mm_username", "Utilisateur inconnu")
+            service_name = result.get("service", "ServiceInconnu").upper()
+            target_resource = result.get("target_resource_name", "RessourceInconnue")
+            action = result.get("action", "AUCUNE_ACTION")
+            status = result.get("status", "ECHEC")
+            error_msg = result.get("error_message")
+
+            action_summary[action] = action_summary.get(action, 0) + 1
+
+            icon = ":white_check_mark:" if status == "SUCCESS" else ":x:"
+            if (
+                status == "SKIPPED" and action != "SKIPPED_NO_MM_EMAIL"
+            ):  # SKIPPED_NO_MM_EMAIL n'est pas un problème en soi
+                icon = ":warning:"
+
+            user_line = f"{icon} **Utilisateur :** `{user_mm_name}`"
+            if result.get("mm_user_email") and result.get("mm_user_email") != "NoEmailProvided":
+                user_line += f" ({result.get('mm_user_email')})"
+
+            service_line = f"**Service :** `{service_name}`"
+            resource_line = f"**Ressource :** `{target_resource}`"
+            action_line = f"**Action :** `{action}`"
+            message_parts = [user_line, service_line, resource_line, action_line]
+
+            if status == "SUCCESS":
+                total_success_ops += 1
+                # Descriptions spécifiques par action
+                if action == "USER_ADDED_TO_AUTHENTIK_GROUP":
+                    message_parts.append("Ajouté avec succès au groupe Authentik.")
+                elif action == "USER_ALREADY_IN_AUTHENTIK_GROUP":
+                    message_parts.append("Déjà membre du groupe Authentik.")
+                elif action == "USER_REMOVED_FROM_AUTHENTIK_GROUP":
+                    message_parts.append("Supprimé avec succès du groupe Authentik.")
+                elif action.startswith("USER_ADDED_TO_OUTLINE_COLLECTION_WITH_") and action.endswith("_AND_DM_SENT"):
+                    permission = action.split("_WITH_")[1].split("_ACCESS")[0]
+                    message_parts.append(
+                        f"Ajouté à la collection Outline (permission {permission.lower()}) et MP envoyé."
+                    )
+                elif action.startswith("USER_ADDED_TO_OUTLINE_COLLECTION_WITH_") and action.endswith("_DM_FAILED"):
+                    permission = action.split("_WITH_")[1].split("_ACCESS")[0]
+                    message_parts.append(
+                        f"Ajouté à la collection Outline (permission {permission.lower()}), mais échec de l'envoi du MP."
+                    )
+                elif action.startswith("USER_ADDED_TO_OUTLINE_COLLECTION_WITH_"):  # No DM part
+                    permission = action.split("_WITH_")[1].split("_ACCESS")[0]
+                    message_parts.append(f"Ajouté à la collection Outline (permission {permission.lower()}).")
+                elif action == "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED":
+                    message_parts.append("Déjà membre de la collection Outline, permission assurée.")
+                elif action == "USER_REMOVED_FROM_OUTLINE_COLLECTION":
+                    message_parts.append("Supprimé avec succès de la collection Outline.")
+                # ... autres actions SUCCESS ...
+            elif status == "SKIPPED":
+                message_parts.append(f"Ignoré. Raison : {error_msg if error_msg else 'Non spécifiée'}")
+                if action != "SKIPPED_NO_MM_EMAIL":  # Ne pas compter comme un problème si juste pas d'email
+                    total_problem_ops += 1
+            else:  # FAILURE
+                total_problem_ops += 1
+                message_parts.append(f"ÉCHEC. Raison : {error_msg if error_msg else 'Non spécifiée'}")
+
+            full_user_report_message = "\n".join(message_parts)
+            await asyncio.to_thread(
+                self.envoyer_message, channel_id, full_user_report_message, thread_id=initial_post_id
+            )
+
+        # Construction du message de résumé final
+        summary_lines = ["### :checkered_flag: Résumé de la synchronisation des droits :"]
+        summary_lines.append(f"- Opérations réussies : {total_success_ops}")
+        if total_problem_ops > 0:
+            summary_lines.append(f"- Problèmes/omissions : {total_problem_ops}")
+
+        summary_lines.append("\n**Détail des actions :**")
+        for act, count in sorted(action_summary.items()):
+            summary_lines.append(f"- `{act}` : {count} fois")
+
+        if total_problem_ops > 0 and total_success_ops > 0:
+            summary_lines.insert(1, ":warning: Synchronisation partiellement terminée.")
+        elif total_problem_ops > 0:
+            summary_lines.insert(1, ":x: Synchronisation terminée avec des problèmes/omissions.")
+        elif total_success_ops > 0:
+            summary_lines.insert(1, ":rocket: Synchronisation terminée avec succès.")
+        else:  # No ops or only skips like NO_MM_EMAIL
+            summary_lines.insert(
+                1, ":information_source: Synchronisation terminée. Peu ou pas d'opérations significatives effectuées."
+            )
+
+        final_summary_message = "\n".join(summary_lines)
+        if final_summary_message:
+            await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
+
+    async def _handle_update_user_rights_command(self, channel_id, arg_string=None):
+        """Met à jour tous les droits utilisateurs et supprime les accès obsolètes."""
+        logging.info(f"'{self.bot_name_mention} update_user_rights' command received in channel {channel_id}.")
+
+        initial_message_text = (
+            ":hourglass_flowing_sand: Démarrage de la mise à jour des droits utilisateurs... "
+            "Ceci inclut la synchronisation des groupes Authentik et des collections Outline, "
+            "ainsi que la suppression des accès obsolètes. Cela peut prendre un moment."
+        )
+        initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
+
+        if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
+            error_msg = (
+                ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la synchronisation. "
+                "Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. "
+                "Veuillez vérifier les logs du serveur."
+            )
+            logging.error(
+                "Bot is not properly configured for rights update (core components): Missing Authentik client, "
+                "Mattermost API client, or Mattermost Team ID."
+            )
+            await asyncio.to_thread(self.envoyer_message, channel_id, error_msg, thread_id=initial_post_id)
+            return
+
+        if not self.outline_client:
+            logging.info(
+                "Outline client not configured on this bot instance. Outline synchronization will be skipped."
+            )
+
+        try:
+            logging.info("Dispatching group synchronization task (for rights update) to a thread...")
+            # On réutilise orchestrate_group_synchronization car elle fait maintenant la synchro complète
+            orchestration_success, detailed_results = await asyncio.to_thread(
+                orchestrate_group_synchronization,
+                self.authentik_client,
+                self.mattermost_api_client,
+                self.outline_client,  # Peut être None, géré par l'orchestrateur
+                self.config.MATTERMOST_TEAM_ID,
+            )
+
+            if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
+                logging.warning(
+                    "Group synchronization task (for rights update) reported critical failure during orchestration."
+                )
+                summary_msg = (
+                    ":x: La mise à jour des droits a échoué de manière critique durant l'orchestration. "
+                    "Veuillez consulter les logs du serveur pour plus de détails."
+                )
+                await asyncio.to_thread(self.envoyer_message, channel_id, summary_msg, thread_id=initial_post_id)
+            else:
+                logging.info(
+                    f"Group synchronization task (for rights update) orchestration completed. Detailed results count: {len(detailed_results)}"
+                )
+                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results)
+
+        except Exception as e:
+            logging.error(
+                f"An unexpected error occurred while dispatching or running the rights update task: {e}", exc_info=True
+            )
+            error_response_msg = (
+                ":boom: Une erreur serveur inattendue s'est produite lors de la tentative "
+                "d'exécution de la mise à jour des droits. Veuillez consulter les logs du serveur."
+            )
+            await asyncio.to_thread(self.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id)
 
     async def _create_resources_for_category(
         self,
@@ -151,7 +320,9 @@ class MartyBot:
             admin_resource_name = f"{prefixed_base_name} Admin"
             categories_to_process.append((admin_category_key, admin_resource_name))
 
-        item_results_log.append(f"--- Création pour {item_type_display} **`{base_name}`** (préfixé en `{prefix_str}`) ---")
+        item_results_log.append(
+            f"--- Création pour {item_type_display} **`{base_name}`** (préfixé en `{prefix_str}`) ---"
+        )
 
         # Loop variable 'name_for_creation' now holds the correctly prefixed name
         for current_category_key, name_for_creation in categories_to_process:
@@ -332,9 +503,14 @@ class MartyBot:
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
 
         if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
-            error_msg = ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la synchronisation. Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. Veuillez vérifier les logs du serveur."
+            error_msg = (
+                ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la synchronisation. "
+                "Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. "
+                "Veuillez vérifier les logs du serveur."
+            )
             logging.error(
-                "Bot is not properly configured for sync (core components): Missing Authentik client, Mattermost API client, or Mattermost Team ID."
+                "Bot is not properly configured for sync (core components): Missing Authentik client, "
+                "Mattermost API client, or Mattermost Team ID."
             )
             await asyncio.to_thread(self.envoyer_message, channel_id, error_msg, thread_id=initial_post_id)
             return
@@ -348,86 +524,23 @@ class MartyBot:
                 orchestrate_group_synchronization,
                 self.authentik_client,
                 self.mattermost_api_client,
-                self.outline_client,
+                self.outline_client,  # Peut être None, géré par l'orchestrateur
                 self.config.MATTERMOST_TEAM_ID,
             )
 
-            final_summary_message = ""
-            if not orchestration_success:
+            if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
                 logging.warning("Group synchronization task reported critical failure during orchestration.")
-                final_summary_message = ":x: La synchronisation des groupes a échoué de manière critique durant l'orchestration. Veuillez consulter les logs du serveur pour plus de détails."
+                summary_msg = (
+                    ":x: La synchronisation des groupes a échoué de manière critique durant l'orchestration. "
+                    "Veuillez consulter les logs du serveur pour plus de détails."
+                )
+                await asyncio.to_thread(self.envoyer_message, channel_id, summary_msg, thread_id=initial_post_id)
             else:
                 logging.info(
                     f"Group synchronization task orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
-                if not detailed_results:
-                    final_summary_message = ":information_source: Processus de synchronisation terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
-                else:
-                    total_success_ops = 0
-                    total_problem_ops = 0
-
-                    for result in detailed_results:
-                        user_mm_name = result.get("mm_username", "Utilisateur inconnu")
-                        service_name = result.get("service", "ServiceInconnu").upper()
-                        target_resource = result.get("target_resource_name", "RessourceInconnue")
-                        action = result.get("action", "AUCUNE_ACTION")
-                        status = result.get("status", "ECHEC")
-                        error_msg = result.get("error_message")
-
-                        icon = ":white_check_mark:" if status == "SUCCESS" else ":x:"
-                        if status == "SKIPPED" and action != "SKIPPED_NO_MM_EMAIL":
-                            icon = ":warning:"
-
-                        user_line = f"{icon} **Utilisateur :** `{user_mm_name}`"
-                        if result.get("mm_user_email") and result.get("mm_user_email") != "NoEmailProvided":
-                            user_line += f" ({result.get('mm_user_email')})"
-
-                        service_line = "**Service :** `{}`".format(service_name)
-                        resource_line = "**Ressource :** `{}`".format(target_resource)
-                        action_line = "**Action :** `{}`".format(action)
-
-                        message_parts = [user_line, service_line, resource_line, action_line]
-
-                        if status == "SUCCESS":
-                            total_success_ops += 1
-                            if action == "USER_ADDED_TO_AUTHENTIK_GROUP":
-                                message_parts.append("Ajouté avec succès au groupe Authentik.")
-                            elif action == "USER_ALREADY_IN_AUTHENTIK_GROUP":
-                                message_parts.append("Déjà membre du groupe Authentik.")
-                            elif action == "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT":
-                                message_parts.append("Ajouté à la collection Outline et MP envoyé.")
-                            elif action == "USER_ADDED_TO_OUTLINE_COLLECTION_DM_FAILED":
-                                message_parts.append("Ajouté à la collection Outline, mais échec de l'envoi du MP.")
-                            elif action == "USER_ALREADY_IN_OUTLINE_COLLECTION":
-                                message_parts.append("Déjà membre de la collection Outline.")
-                            elif action == "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION":
-                                message_parts.append("Appartenance assurée à la collection Outline.")
-                        elif status == "SKIPPED":
-                            message_parts.append(f"Ignoré. Raison : {error_msg if error_msg else 'Non spécifiée'}")
-                            if action != "SKIPPED_NO_MM_EMAIL":
-                                total_problem_ops += 1
-                        else:  # FAILURE
-                            total_problem_ops += 1
-                            message_parts.append(f"ÉCHEC. Raison : {error_msg if error_msg else 'Non spécifiée'}")
-
-                        full_user_report_message = "\n".join(message_parts)
-                        await asyncio.to_thread(
-                            self.envoyer_message, channel_id, full_user_report_message, thread_id=initial_post_id
-                        )
-
-                    if total_problem_ops > 0 and total_success_ops > 0:
-                        final_summary_message = f":warning: Synchronisation partiellement terminée. {total_success_ops} opérations réussies, {total_problem_ops} problèmes/omissions nécessitant attention. Voir détails ci-dessus."
-                    elif total_problem_ops > 0:
-                        final_summary_message = f":x: Synchronisation terminée avec {total_problem_ops} problèmes/omissions nécessitant attention. Voir détails ci-dessus."
-                    elif total_success_ops > 0:
-                        final_summary_message = f":rocket: Synchronisation terminée avec succès avec {total_success_ops} opérations. Voir détails ci-dessus."
-                    else:
-                        final_summary_message = ":white_check_mark: Processus de synchronisation terminé. Aucune nouvelle appartenance créée ou problème critique détecté. Vérifiez les détails pour les omissions ou appartenances existantes."
-
-            if final_summary_message:
-                await asyncio.to_thread(
-                    self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id
-                )
+                # Utiliser la méthode factorisée pour envoyer les résultats
+                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results)
 
         except Exception as e:
             logging.error(
@@ -518,7 +631,8 @@ class MartyBot:
         help_lines.append(f"* `{self.bot_name_mention} create_antenne AntenneRegionale`")
         help_lines.append(f"* `{self.bot_name_mention} create_pole PoleTechnique AutrePole`")
         help_lines.append(
-            f"\n**Note :** La commande `{self.bot_name_mention} sync_user_channels` peut prendre un certain temps pour s'exécuter."
+            f"\n**Note :** Les commandes `{self.bot_name_mention} sync_user_channels` et `{self.bot_name_mention} update_user_rights` "
+            "peuvent prendre un certain temps pour s'exécuter."
         )
         help_lines.append(f"\nMentionnez-moi avec une commande, comme `{self.bot_name_mention} help`.")
         help_text = "\n".join(help_lines)

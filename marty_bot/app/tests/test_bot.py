@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock  # Removed 'call' as it was unused
+from unittest.mock import MagicMock, patch  # Added patch
 import json
 import asyncio
 
@@ -60,9 +60,12 @@ class TestMartyBot(unittest.TestCase):
 
     async def _send_test_message(self, message_text, channel_id="test_channel", user_id=None):
         self.bot.envoyer_message.reset_mock()
-        self.bot.authentik_client.reset_mock()
-        self.bot.outline_client.reset_mock()
-        self.bot.mattermost_api_client.reset_mock()
+        if self.bot.authentik_client:
+            self.bot.authentik_client.reset_mock()
+        if self.bot.outline_client:
+            self.bot.outline_client.reset_mock()
+        if self.bot.mattermost_api_client:
+            self.bot.mattermost_api_client.reset_mock()
 
         post_content = {
             "message": message_text,
@@ -121,19 +124,18 @@ class TestMartyBot(unittest.TestCase):
         )
         self.assertEqual(self.bot.mattermost_api_client.add_user_to_channel.call_count, 2)
 
-        summary_text = self.bot.envoyer_message.call_args_list[1][0][1] # Second message is summary
+        summary_text = self.bot.envoyer_message.call_args_list[1][0][1]  # Second message is summary
         self.assertIn(f"Création pour projet **`{project_name}`** (préfixé en `projet_`)", summary_text)
         self.assertIn(f"Sous-groupe/canal **`{prefixed_project_name}`**", summary_text)
         self.assertIn(f"Sous-groupe/canal **`{prefixed_admin_project_name}`**", summary_text)
         self.assertIn("Utilisateur demandeur ajouté au canal.", summary_text)
 
-
     @async_test
     async def test_handle_create_projet_command_multiple_items_success(self):
-        project_names_input = ["ProjetAlpha", "ProjetBeta"] # User input
+        project_names_input = ["ProjetAlpha", "ProjetBeta"]  # User input
         created_channel_ids = {}
 
-        def create_channel_side_effect_multi(name, channel_type): # name here is already prefixed
+        def create_channel_side_effect_multi(name, channel_type):  # name here is already prefixed
             channel_id = f"channel_for_{slugify(name)}"
             created_channel_ids[name] = channel_id
             return {"id": channel_id, "name": slugify(name)}
@@ -171,7 +173,7 @@ class TestMartyBot(unittest.TestCase):
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         self.assertEqual(summary_text.count("Utilisateur demandeur ajouté au canal."), len(project_names_input) * 2)
         for name_input in project_names_input:
-             self.assertIn(f"Création pour projet **`{name_input}`** (préfixé en `projet_`)", summary_text)
+            self.assertIn(f"Création pour projet **`{name_input}`** (préfixé en `projet_`)", summary_text)
 
     @async_test
     async def test_handle_create_antenne_command_multiple_items(self):
@@ -180,7 +182,7 @@ class TestMartyBot(unittest.TestCase):
         self.bot.outline_client.create_group.return_value = "CREATED"
         created_channel_ids = {}
 
-        def create_channel_side_effect_multi(name, channel_type): # name is already prefixed
+        def create_channel_side_effect_multi(name, channel_type):  # name is already prefixed
             channel_id = f"channel_for_{slugify(name)}"
             created_channel_ids[name] = channel_id
             return {"id": channel_id, "name": slugify(name)}
@@ -213,7 +215,7 @@ class TestMartyBot(unittest.TestCase):
         self.bot.outline_client.create_group.return_value = "CREATED"
         created_channel_ids = {}
 
-        def create_channel_side_effect_multi(name, channel_type): # name is already prefixed
+        def create_channel_side_effect_multi(name, channel_type):  # name is already prefixed
             channel_id = f"channel_for_{slugify(name)}"
             created_channel_ids[name] = channel_id
             return {"id": channel_id, "name": slugify(name)}
@@ -230,8 +232,12 @@ class TestMartyBot(unittest.TestCase):
         for name_input in pole_names_input:
             prefixed_name = f"pole_{name_input}"
             prefixed_admin_name = f"{prefixed_name} Admin"
-            self.bot.mattermost_api_client.create_channel.assert_any_call(prefixed_name, channel_type="P") # POLES are Private by default
-            self.bot.mattermost_api_client.create_channel.assert_any_call(prefixed_admin_name, channel_type="P") # POLES_ADMIN are Private
+            self.bot.mattermost_api_client.create_channel.assert_any_call(
+                prefixed_name, channel_type="P"
+            )  # POLES are Private by default
+            self.bot.mattermost_api_client.create_channel.assert_any_call(
+                prefixed_admin_name, channel_type="P"
+            )  # POLES_ADMIN are Private
             self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
                 created_channel_ids[prefixed_name], self.test_user_id
             )
@@ -268,7 +274,7 @@ class TestMartyBot(unittest.TestCase):
 
         self.bot.authentik_client.create_group.return_value = False
         self.bot.outline_client.create_group.return_value = "FAILED"
-        self.bot.mattermost_api_client.create_channel.return_value = False # Simulate channel creation failure
+        self.bot.mattermost_api_client.create_channel.return_value = False  # Simulate channel creation failure
 
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name_input}")
 
@@ -282,7 +288,9 @@ class TestMartyBot(unittest.TestCase):
         self.assertIn("    - Mattermost: :warning: Échec création (Public) (ou existe déjà).", summary_text)
 
         # Check for the admin item
-        self.assertIn(f"  - Sous-groupe/canal **`{prefixed_admin_project_name}`** (basé sur *PROJET_ADMIN*):", summary_text)
+        self.assertIn(
+            f"  - Sous-groupe/canal **`{prefixed_admin_project_name}`** (basé sur *PROJET_ADMIN*):", summary_text
+        )
         # Ensure the failure messages for Authentik and Outline are specific to these calls too
         # (create_group is called for each, so counts should reflect that if we checked counts)
         self.assertIn("    - Mattermost: :warning: Échec création (Privé) (ou existe déjà).", summary_text)
@@ -345,6 +353,120 @@ class TestMartyBot(unittest.TestCase):
         self.assertEqual(self.bot._parse_command_from_mention("   anotherCommand"), ("anothercommand", None))
         self.assertEqual(self.bot._parse_command_from_mention(""), (None, None))
         self.assertEqual(self.bot._parse_command_from_mention("   "), (None, None))
+
+    @async_test
+    async def test_handle_generic_sync_command_success(self):
+        """
+        Tests both sync_user_channels and update_user_rights commands for successful execution.
+        """
+        commands_to_test = ["sync_user_channels", "update_user_rights"]
+
+        for command_name in commands_to_test:
+            with self.subTest(command=command_name):
+                self.bot.envoyer_message.reset_mock()  # Reset mock for each subtest
+
+                # Mock the orchestrate_group_synchronization function
+                # It's imported in bot.py as: from libraries.group_sync_services import orchestrate_group_synchronization
+                with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
+                    mock_orchestrate.return_value = (
+                        True,
+                        [
+                            {
+                                "mm_username": "testuser",
+                                "service": "AUTHENTIK",
+                                "action": "USER_ADDED_TO_AUTHENTIK_GROUP",
+                                "status": "SUCCESS",
+                                "target_resource_name": "TestGroup",
+                            }
+                        ],
+                    )
+
+                    await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+
+                    # Check that the initial message was sent
+                    self.bot.envoyer_message.assert_any_call(
+                        "test_channel", unittest.mock.ANY  # The initial message text can be complex to match exactly
+                    )
+
+                    # Check that orchestrate_group_synchronization was called
+                    mock_orchestrate.assert_called_once_with(
+                        self.bot.authentik_client,
+                        self.bot.mattermost_api_client,
+                        self.bot.outline_client,
+                        self.bot.config.MATTERMOST_TEAM_ID,
+                    )
+
+                    # Check that results were formatted and sent (via _format_and_send_sync_results)
+                    # This implies envoyer_message was called multiple times: initial, then for each result, then summary.
+                    # We expect at least 3 calls if there's one result.
+                    self.assertGreaterEqual(self.bot.envoyer_message.call_count, 3)
+
+                    # Check the content of one of the result messages (the one for testuser)
+                    found_user_result_message = False
+                    for call_args in self.bot.envoyer_message.call_args_list:
+                        message_text = call_args[0][1]  # Second argument is the message text
+                        if (
+                            "Utilisateur :** `testuser`" in message_text
+                            and "USER_ADDED_TO_AUTHENTIK_GROUP" in message_text
+                        ):
+                            found_user_result_message = True
+                            break
+                    self.assertTrue(
+                        found_user_result_message,
+                        f"Detailed message for testuser not found for command {command_name}",
+                    )
+
+                    # Check the final summary message
+                    found_summary_message = False
+                    for call_args in self.bot.envoyer_message.call_args_list:
+                        message_text = call_args[0][1]
+                        if (
+                            "Résumé de la synchronisation des droits" in message_text
+                            or "Résumé global" in message_text
+                        ):  # sync_user_channels has a slightly different title from old code
+                            found_summary_message = True
+                            break
+                    self.assertTrue(found_summary_message, f"Summary message not found for command {command_name}")
+
+    @async_test
+    async def test_handle_generic_sync_command_orchestration_failure(self):
+        """
+        Tests sync_user_channels and update_user_rights for orchestration failure.
+        """
+        commands_to_test = ["sync_user_channels", "update_user_rights"]
+        for command_name in commands_to_test:
+            with self.subTest(command=command_name):
+                self.bot.envoyer_message.reset_mock()
+                with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
+                    mock_orchestrate.return_value = (False, [])  # Orchestration failed
+
+                    await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+
+                    # Initial message + error message
+                    self.assertEqual(self.bot.envoyer_message.call_count, 2)
+                    final_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
+                    self.assertIn("échoué de manière critique durant l'orchestration", final_message_text)
+
+    @async_test
+    async def test_handle_generic_sync_command_no_clients_configured(self):
+        """
+        Tests sync_user_channels and update_user_rights when clients are not configured.
+        """
+        commands_to_test = ["sync_user_channels", "update_user_rights"]
+        # Simulate no Authentik client
+        original_auth_client = self.bot.authentik_client
+        self.bot.authentik_client = None
+
+        for command_name in commands_to_test:
+            with self.subTest(command=command_name):
+                self.bot.envoyer_message.reset_mock()
+                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+
+                self.assertEqual(self.bot.envoyer_message.call_count, 2)  # Initial + error
+                error_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
+                self.assertIn("Le bot n'est pas correctement configuré pour la synchronisation", error_message_text)
+
+        self.bot.authentik_client = original_auth_client  # Restore
 
 
 if __name__ == "__main__":

@@ -208,6 +208,54 @@ class TestAuthentikClient(unittest.TestCase):
         self.assertFalse(self.client.add_user_to_group(None, 123))
         self.assertFalse(self.client.add_user_to_group("group_pk_1", None))
 
+    # Tests for remove_user_from_group
+    @patch("requests.post")
+    def test_remove_user_from_group_success(self, mock_post):
+        mock_response = Mock(status_code=204)  # Or 200, typically 204 for successful removal
+        mock_post.return_value = mock_response
+        result = self.client.remove_user_from_group("group_pk_1", 123)
+        self.assertTrue(result)
+        expected_url = f"{self.mock_url}/api/v3/core/groups/group_pk_1/remove_user/"
+        expected_payload = {"pk": 123}
+        mock_post.assert_called_once_with(expected_url, headers=self.client.headers, json=expected_payload)
+
+    @patch("requests.post")
+    def test_remove_user_from_group_user_not_in_group(self, mock_post):
+        # Simulate user not in group error (e.g., Authentik returns 400 or specific error)
+        # For this test, we'll assume the client doesn't specifically handle "not in group" as success
+        # but simply returns False on HTTPError if not caught for a specific "not member" message.
+        # If the client were updated to treat "not in group" as a successful removal, this test would change.
+        mock_err_response = Mock(status_code=400)
+        mock_err_response.text = "User not found in group"  # Example error text
+        mock_err_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_err_response)
+        mock_post.return_value = mock_err_response
+
+        result = self.client.remove_user_from_group("group_pk_1", 123)
+        self.assertFalse(result)  # Default behavior for unhandled HTTPError
+
+    @patch("requests.post")
+    def test_remove_user_from_group_failure_http_error(self, mock_post):
+        mock_err_response = Mock(status_code=500)
+        mock_err_response.text = "Server Error"
+        mock_err_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_err_response)
+        mock_post.return_value = mock_err_response
+        result = self.client.remove_user_from_group("group_pk_1", 123)
+        self.assertFalse(result)
+
+    @patch("requests.post")
+    def test_remove_user_from_group_failure_request_exception(self, mock_post):
+        mock_post.side_effect = requests.exceptions.RequestException("Network error")
+        result = self.client.remove_user_from_group("group_pk_1", 123)
+        self.assertFalse(result)
+
+    def test_remove_user_from_group_missing_pks(self):
+        with patch.object(logging, "error") as mock_log_error:
+            self.assertFalse(self.client.remove_user_from_group(None, 123))
+            mock_log_error.assert_called_with("Group PK and User PK must be provided to remove user from group.")
+        with patch.object(logging, "error") as mock_log_error:
+            self.assertFalse(self.client.remove_user_from_group("group_pk_1", None))
+            mock_log_error.assert_called_with("Group PK and User PK must be provided to remove user from group.")
+
 
 if __name__ == "__main__":
     unittest.main()

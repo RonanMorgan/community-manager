@@ -63,7 +63,7 @@ def _determine_outline_permission(auth_group_name: str, mm_channel_type: str) ->
                 f"PERMISSIONS_MATRIX. Defaulting to 'read'."
             )
 
-    return "read" # Fallback default
+    return "read"  # Fallback default
 
 
 def get_all_authentik_groups_and_user_map(authentik_client: "AuthentikClient"):
@@ -150,74 +150,95 @@ def sync_single_group_to_services(
 
     # Determine Outline permission for this group/channel once
     # This permission will apply to all users being added to this collection in this run
-    outline_permission_for_collection = "read" # Default
-    if outline_client and mm_channel: # Ensure outline_client and mm_channel exist
+    outline_permission_for_collection = "read"  # Default
+    if outline_client and mm_channel:
         mm_channel_type = mm_channel.get("type", "")
-        # Helper function to determine permission will be defined below or imported
         outline_permission_for_collection = _determine_outline_permission(auth_group_name, mm_channel_type)
 
-    for mm_user in mm_users_in_channel:
-        mm_user_email = mm_user.get("email")
-        mm_username = mm_user.get("username", "UnknownUser")
+    # Mattermost users are the source of truth
+    # mm_user_emails_in_channel_set = {user["email"].lower() for user in mm_users_in_channel if user.get("email")} # F841 Unused
+    # mm_email_to_username_map = { # F841 Unused
+    #     user["email"].lower(): user.get("username", "UnknownUser") for user in mm_users_in_channel if user.get("email")
+    # }
 
-        # --- Check for User Exclusion ---
-        if mm_username in config.EXCLUDED_USERS:
-            logging.info(
-                f"User '{mm_username}' is in the exclusion list and will be completely ignored for sync and reporting in channel '{mm_channel_display_name}'."
-            )
-            # No result is added to the 'results' list for this user.
-            # This ensures they are not mentioned in any summary/report generated from these results.
-            continue  # Move to the next user in the Mattermost channel
+    # --- Authentik Synchronization ---
+    # PKs of Authentik users that should be in the group based on Mattermost
+    target_auth_pks_for_group = set()
+
+    # 1. Process users from Mattermost channel (additions/ensuring presence)
+    for mm_user in mm_users_in_channel:
+        mm_user_email_lower = mm_user.get("email", "").lower()
+        mm_username = mm_user.get("username", "UnknownUser")
 
         base_user_info = {
             "mm_username": mm_username,
-            "mm_user_email": mm_user_email or "NoEmailProvided",
+            "mm_user_email": mm_user.get("email") or "NoEmailProvided",
             "mm_channel_display_name": mm_channel_display_name,
-            "target_resource_name": auth_group_name,  # Group/Collection name
+            "target_resource_name": auth_group_name,
         }
 
-        if not mm_user_email:
-            logging.debug(f"MM user {mm_username} in channel {mm_channel_display_name} has no email. Skipping.")
+        if mm_username in config.EXCLUDED_USERS:
+            logging.info(f"User '{mm_username}' is excluded. Skipping for all services.")
+            # If this user (by email) is in Authentik's email_to_authentik_user_pk_map,
+            # ensure their PK is added to target_auth_pks_for_group so they are NOT removed.
+            if mm_user_email_lower and mm_user_email_lower in email_to_authentik_user_pk_map:
+                excluded_auth_pk = email_to_authentik_user_pk_map[mm_user_email_lower]
+                target_auth_pks_for_group.add(excluded_auth_pk)
+            # Similar logic will be needed for Outline if an excluded user should remain in a collection
+            continue
+
+        if not mm_user_email_lower:
             results.append(
                 {
                     **base_user_info,
-                    "service": "ALL_SERVICES",  # Special marker
+                    "service": "ALL_SERVICES",
                     "status": "SKIPPED",
                     "action": "SKIPPED_NO_MM_EMAIL",
-                    "error_message": "Mattermost user has no email address.",
+                    "error_message": "Mattermost user has no email.",
                 }
             )
             continue
 
-        # --- Authentik Synchronization ---
+        # Authentik: Add/verify user
         auth_user_result = {
             **base_user_info,
             "service": "AUTHENTIK",
             "status": "FAILURE",
             "action": "AUTHENTIK_GROUP_UNCHANGED",
-            "error_message": None,
         }
-        auth_pk_to_add = email_to_authentik_user_pk_map.get(mm_user_email.lower())
+        auth_pk_for_mm_user = email_to_authentik_user_pk_map.get(mm_user_email_lower)
 
-        if auth_pk_to_add is None:
-            auth_user_result["status"] = "SKIPPED"
-            auth_user_result["action"] = "SKIPPED_USER_NOT_IN_AUTHENTIK"
-            auth_user_result["error_message"] = f"User email '{mm_user_email}' not found in Authentik."
-        elif auth_pk_to_add not in current_auth_user_pks_in_group:
-            if authentik_client.add_user_to_group(auth_group_pk, auth_pk_to_add):
-                current_auth_user_pks_in_group.add(auth_pk_to_add)
-                auth_user_result["status"] = "SUCCESS"
-                auth_user_result["action"] = "USER_ADDED_TO_AUTHENTIK_GROUP"
-            else:
-                auth_user_result["action"] = "FAILED_TO_ADD_TO_AUTHENTIK_GROUP"
-                auth_user_result["error_message"] = "API call to add user to Authentik group failed."
+        if auth_pk_for_mm_user is None:
+            auth_user_result.update(
+                {
+                    "status": "SKIPPED",
+                    "action": "SKIPPED_USER_NOT_IN_AUTHENTIK",
+                    "error_message": f"User email '{mm_user_email_lower}' not in Authentik.",
+                }
+            )
         else:
-            auth_user_result["status"] = "SUCCESS"
-            auth_user_result["action"] = "USER_ALREADY_IN_AUTHENTIK_GROUP"
+            target_auth_pks_for_group.add(auth_pk_for_mm_user)  # This user should be in the group
+            if auth_pk_for_mm_user not in current_auth_user_pks_in_group:
+                if authentik_client.add_user_to_group(auth_group_pk, auth_pk_for_mm_user):
+                    auth_user_result.update({"status": "SUCCESS", "action": "USER_ADDED_TO_AUTHENTIK_GROUP"})
+                else:
+                    auth_user_result.update(
+                        {
+                            "action": "FAILED_TO_ADD_TO_AUTHENTIK_GROUP",
+                            "error_message": "API call to add user to Authentik group failed.",
+                        }
+                    )
+            else:
+                auth_user_result.update({"status": "SUCCESS", "action": "USER_ALREADY_IN_AUTHENTIK_GROUP"})
         results.append(auth_user_result)
 
-        # --- Outline Synchronization ---
+        # --- Outline Synchronization (Additions/Ensuring Presence) ---
+        # (Outline removal will be handled separately after this loop)
         if outline_client:
+            # ... (Outline add/verify logic - largely similar to existing, but ensure target_outline_ids are collected)
+            # This part will be refined in a subsequent step. For now, focusing on Authentik removal.
+            # For now, we'll keep the existing Outline add/verify logic for users in MM channel.
+            # A more comprehensive Outline sync (including removals) will require careful handling of Outline user IDs.
             outline_user_result = {
                 **base_user_info,
                 "service": "OUTLINE",
@@ -225,63 +246,72 @@ def sync_single_group_to_services(
                 "action": "OUTLINE_COLLECTION_UNCHANGED",
                 "error_message": None,
             }
-            outline_user = outline_client.get_user_by_email(mm_user_email)
+            outline_user = outline_client.get_user_by_email(mm_user_email_lower)
 
             if not outline_user:
                 outline_user_result["status"] = "SKIPPED"
                 outline_user_result["action"] = "SKIPPED_USER_NOT_IN_OUTLINE"
-                outline_user_result["error_message"] = f"User email '{mm_user_email}' not found in Outline."
+                outline_user_result["error_message"] = f"User email '{mm_user_email_lower}' not found in Outline."
             else:
                 outline_user_id = outline_user.get("id")
-                mm_user_id = mm_user.get("id")  # Mattermost user ID for DM
+                mm_user_id_for_dm = mm_user.get("id")
 
-                # Convention: Outline collection name is the same as Authentik group name
-                # First, get the collection by name to find its ID
                 outline_collection_obj = outline_client.get_collection_by_name(auth_group_name)
-
                 if not outline_collection_obj:
-                    outline_user_result["status"] = "SKIPPED"
-                    outline_user_result["action"] = "SKIPPED_OUTLINE_COLLECTION_NOT_FOUND"
-                    error_msg = f"Outline collection named '{auth_group_name}' not found (to get its ID)."
-                    outline_user_result["error_message"] = error_msg
+                    outline_user_result.update(
+                        {
+                            "status": "SKIPPED",
+                            "action": "SKIPPED_OUTLINE_COLLECTION_NOT_FOUND",
+                            "error_message": f"Outline collection '{auth_group_name}' not found.",
+                        }
+                    )
                 else:
                     outline_collection_id = outline_collection_obj.get("id")
-
-                    # Check if user is already a member
                     collection_members = outline_client.get_collection_members(outline_collection_id)
                     is_already_member = False
-                    if collection_members is not None:  # If None, API call failed, proceed to add tentatively
+                    if collection_members is not None:
                         is_already_member = outline_user_id in collection_members
 
-                    if is_already_member:
-                        outline_user_result["status"] = "SUCCESS"
-                        outline_user_result["action"] = "USER_ALREADY_IN_OUTLINE_COLLECTION"
-                    else:
-                        # Attempt to add the user, now passing the determined permission
+                    if is_already_member:  # Assuming permission update is handled by add_user_to_collection if needed
                         if outline_client.add_user_to_collection(
-                            outline_collection_id,
-                            outline_user_id,
-                            permission=outline_permission_for_collection # Pass determined permission
+                            outline_collection_id, outline_user_id, permission=outline_permission_for_collection
+                        ):
+                            outline_user_result.update(
+                                {
+                                    "status": "SUCCESS",
+                                    "action": "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED",
+                                }
+                            )
+                        else:
+                            outline_user_result.update(
+                                {
+                                    "action": "FAILED_TO_UPDATE_OUTLINE_PERMISSION",
+                                    "error_message": "API call to update user permission in Outline collection failed.",
+                                }
+                            )
+                    else:  # User not member, try to add
+                        if outline_client.add_user_to_collection(
+                            outline_collection_id, outline_user_id, permission=outline_permission_for_collection
                         ):
                             outline_user_result["status"] = "SUCCESS"
-                            base_action_string = f"USER_ADDED_TO_OUTLINE_COLLECTION_WITH_{outline_permission_for_collection.upper()}_ACCESS"
-                            outline_user_result["action"] = base_action_string # Set base action
-
+                            base_action_str = f"USER_ADDED_TO_OUTLINE_COLLECTION_WITH_{outline_permission_for_collection.upper()}_ACCESS"
                             # User was newly added, try to send DM
                             collection_details = outline_client.get_collection_details(outline_collection_id)
-                            if collection_details and collection_details.get("name") and mm_user_id:
+                            if collection_details and collection_details.get("name") and mm_user_id_for_dm:
                                 coll_name = collection_details.get("name")
                                 collection_url_slug_part = slugify(coll_name)
-                                collection_url = f"{config.OUTLINE_URL}/collection/{collection_url_slug_part}-{outline_collection_id}"
+                                # Ensure config.OUTLINE_URL is available or handled if None
+                                outline_base_url_for_dm = config.OUTLINE_URL or "http://default-outline-url.com"
+                                collection_url = f"{outline_base_url_for_dm.rstrip('/')}/collection/{collection_url_slug_part}-{outline_collection_id}"
                                 dm_message = (
                                     f"Bonjour @{mm_username}, vous avez été ajouté(e) à la collection Outline **{coll_name}**.\n"
                                     f"Vous pouvez y accéder ici : {collection_url}"
                                 )
-                                if mattermost_client.send_dm(mm_user_id, dm_message):
-                                    outline_user_result["action"] = f"{base_action_string}_AND_DM_SENT"
+                                if mattermost_client.send_dm(mm_user_id_for_dm, dm_message):
+                                    outline_user_result["action"] = f"{base_action_str}_AND_DM_SENT"
                                     logging.info(f"Sent DM to {mm_username} for Outline collection {coll_name}.")
                                 else:
-                                    outline_user_result["action"] = f"{base_action_string}_DM_FAILED"
+                                    outline_user_result["action"] = f"{base_action_str}_DM_FAILED"
                                     logging.warning(
                                         f"User added to Outline collection {coll_name} (permission: {outline_permission_for_collection}), but failed to send DM to {mm_username}."
                                     )
@@ -289,18 +319,146 @@ def sync_single_group_to_services(
                                 # If DM can't be attempted, action remains base_action_string
                                 logging.warning(
                                     f"User added to Outline collection {auth_group_name} (ID: {outline_collection_id}, permission: {outline_permission_for_collection}), "
-                                    "but could not get collection details or MM user ID to send DM. Action: {base_action_string}"
+                                    f"but could not get collection details or MM user ID to send DM. Action was: {base_action_str}"
+                                )
+                                outline_user_result["action"] = (
+                                    base_action_str  # Ensure action is set if DM part is skipped
                                 )
                         else:
-                            # add_user_to_collection failed
-                            outline_user_result["action"] = "FAILED_TO_ADD_TO_OUTLINE_COLLECTION"
-                            error_msg = "API call to add user to Outline collection failed."
-                            outline_user_result["error_message"] = error_msg
+                            outline_user_result.update(
+                                {
+                                    "action": "FAILED_TO_ADD_TO_OUTLINE_COLLECTION",
+                                    "error_message": "API call to add user to Outline collection failed.",
+                                }
+                            )
             results.append(outline_user_result)
+
+    # --- Authentik: Determine users to keep vs remove ---
+    # Preamble: Collect PKs of Authentik users who are in the MM channel and not excluded
+    target_auth_pks_in_group_based_on_mm = set()
+    for mm_user_in_chan in mm_users_in_channel:
+        mm_username = mm_user_in_chan.get("username", "UnknownUser")
+        if mm_username in config.EXCLUDED_USERS:
+            continue  # Skip excluded users for additions or for being a target member
+
+        mm_email_lower = mm_user_in_chan.get("email", "").lower()
+        if not mm_email_lower:
+            continue  # Skip users without email
+
+        auth_pk = email_to_authentik_user_pk_map.get(mm_email_lower)
+        if auth_pk:
+            target_auth_pks_in_group_based_on_mm.add(auth_pk)
+
+    # Authentik: Process removals
+    # users_obj is part of the authentik_group dict from get_groups_with_users
+    auth_pk_to_auth_user_obj_map = {user.get("pk"): user for user in authentik_group.get("users_obj", [])}
+
+    for auth_pk_initially_in_group in list(current_auth_user_pks_in_group):  # Iterate a copy
+        auth_user_details = auth_pk_to_auth_user_obj_map.get(auth_pk_initially_in_group)
+        auth_username_for_check = auth_user_details.get("username") if auth_user_details else None
+        auth_email_for_log = auth_user_details.get("email") if auth_user_details else "N/A"
+
+        if auth_username_for_check and auth_username_for_check in config.EXCLUDED_USERS:
+            logging.info(
+                f"Authentik user '{auth_username_for_check}' (PK: {auth_pk_initially_in_group}) is in EXCLUDED_USERS. Will not be removed from Authentik group '{auth_group_name}'."
+            )
+            # This user will be kept, so no further action for removal.
+            # Add to target_auth_pks_in_group_based_on_mm to ensure they are not caught by the "add" logic if somehow not there.
+            # More accurately, they are already in current_auth_user_pks_in_group, and we just don't remove them.
+            continue
+
+        if auth_pk_initially_in_group not in target_auth_pks_in_group_based_on_mm:
+            # This user is in Authentik group, not excluded, and not in the target set from MM
+            removal_result = {
+                "mm_username": auth_username_for_check or f"AuthUserPK_{auth_pk_initially_in_group}",
+                "mm_user_email": auth_email_for_log,
+                "mm_channel_display_name": mm_channel_display_name,
+                "target_resource_name": auth_group_name,
+                "service": "AUTHENTIK",
+                "status": "FAILURE",
+                "action": "FAILED_TO_REMOVE_FROM_AUTHENTIK_GROUP",
+            }
+            if authentik_client.remove_user_from_group(auth_group_pk, auth_pk_initially_in_group):
+                removal_result.update({"status": "SUCCESS", "action": "USER_REMOVED_FROM_AUTHENTIK_GROUP"})
+            else:
+                removal_result["error_message"] = "API call to remove user from Authentik group failed."
+            results.append(removal_result)
+
+    # --- Outline: Determine users to keep vs remove ---
+    if outline_client:
+        outline_collection_obj = outline_client.get_collection_by_name(auth_group_name)
+        if outline_collection_obj:
+            outline_collection_id = outline_collection_obj.get("id")
+            current_outline_member_ids = set(outline_client.get_collection_members(outline_collection_id) or [])
+
+            target_outline_ids_based_on_mm = set()
+            # We need a map from Outline user ID to their MM username for checking exclusions
+            # This requires fetching details for Outline users if not already available.
+            # Let's assume for now we can get this map.
+            # outline_id_to_mm_username_map = get_outline_id_to_mm_username_map(outline_client, current_outline_member_ids, mm_email_to_username_map)
+            # This helper function would be complex.
+            # Alternative: Iterate MM users, find their Outline ID, and if not excluded, add to target_outline_ids.
+
+            # For users in MM Channel, determine their corresponding Outline ID if they exist in Outline
+            # and should be in the collection (i.e., not excluded).
+            temp_outline_id_to_mm_username = {}  # Used for logging/checking exclusion during removal
+
+            for mm_user_in_chan in mm_users_in_channel:
+                mm_username = mm_user_in_chan.get("username", "UnknownUser")
+                mm_email_lower = mm_user_in_chan.get("email", "").lower()
+
+                if not mm_email_lower:
+                    continue  # Skip if no email
+
+                outline_user_obj = outline_client.get_user_by_email(mm_email_lower)
+                if outline_user_obj:
+                    outline_id = outline_user_obj.get("id")
+                    temp_outline_id_to_mm_username[outline_id] = mm_username
+                    if mm_username not in config.EXCLUDED_USERS:
+                        target_outline_ids_based_on_mm.add(outline_id)
+                    elif mm_username in config.EXCLUDED_USERS and outline_id in current_outline_member_ids:
+                        # If user is excluded BUT already in the Outline collection, we intend to keep them there.
+                        target_outline_ids_based_on_mm.add(outline_id)
+
+            # Outline: Process removals
+            for outline_member_id_initially in list(current_outline_member_ids):
+                member_mm_username = temp_outline_id_to_mm_username.get(outline_member_id_initially)
+                # If member_mm_username is None, it means this Outline member's email wasn't found among MM channel users.
+                # Or they had no email.
+
+                if member_mm_username and member_mm_username in config.EXCLUDED_USERS:
+                    logging.info(
+                        f"Outline user '{member_mm_username}' (ID: {outline_member_id_initially}) is in EXCLUDED_USERS. Will not be removed from Outline collection '{auth_group_name}'."
+                    )
+                    # User is excluded, ensure they are considered "target" to prevent removal
+                    # This is already handled by the logic above that adds excluded users (if in collection) to target_outline_ids_based_on_mm
+                    continue
+
+                if outline_member_id_initially not in target_outline_ids_based_on_mm:
+                    # This user is in Outline collection, not identified as excluded (or username unknown), and not in target set from MM
+                    removal_result = {
+                        "mm_username": member_mm_username or f"OutlineUser_{outline_member_id_initially}",
+                        "mm_user_email": "N/A_for_Outline_direct_member",  # Email not readily available here
+                        "mm_channel_display_name": mm_channel_display_name,
+                        "target_resource_name": auth_group_name,
+                        "service": "OUTLINE",
+                        "status": "FAILURE",
+                        "action": "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION",
+                    }
+                    if outline_client.remove_user_from_collection(outline_collection_id, outline_member_id_initially):
+                        removal_result.update({"status": "SUCCESS", "action": "USER_REMOVED_FROM_OUTLINE_COLLECTION"})
+                    else:
+                        removal_result["error_message"] = "API call to remove user from Outline collection failed."
+                    results.append(removal_result)
+        else:  # Outline collection object not found
+            if current_auth_user_pks_in_group:  # If group had members, but collection doesn't exist
+                logging.warning(
+                    f"Outline collection for group '{auth_group_name}' not found, but Authentik group has members. No Outline removals possible."
+                )
 
     logging.info(
         f"Finished sync for group '{auth_group_name}' (MM channel '{mm_channel_display_name}'). "
-        f"Processed {len(mm_users_in_channel)} MM users for Authentik and Outline (if configured)."
+        f"Processed {len(mm_users_in_channel)} MM users. Total results generated: {len(results)}."
     )
     return results
 
