@@ -112,12 +112,12 @@ class MartyBot:
         self.MAX_RECONNECT_DELAY = 60  # seconds
 
         self.commands = {
-            "create_projet": self._handle_create_projet_command,
-            "create_antenne": self._handle_create_antenne_command,
-            "create_pole": self._handle_create_pole_command,
+            "create_projet": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(c, arg_str, "projet", "PROJET", user_id_who_posted),
+            "create_antenne": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(c, arg_str, "antenne", "ANTENNE", user_id_who_posted),
+            "create_pole": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(c, arg_str, "pôle", "POLES", user_id_who_posted),
             "help": self._send_help_message,
-            "sync_user_channels": self._handle_sync_user_channels_command,  # Maintenir l'ancienne commande pour l'instant
-            "update_user_rights": self._handle_update_user_rights_command,  # Nouvelle commande
+            "sync_user_channels": self._handle_sync_user_channels_command,
+            "update_user_rights": self._handle_update_user_rights_command,
         }
 
     async def _format_and_send_sync_results(
@@ -288,136 +288,143 @@ class MartyBot:
             )
             await asyncio.to_thread(self.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id)
 
-    async def _create_resources_for_category(
+    async def _create_resources_for_entity(
         self,
-        base_name: str,
-        category_key: str,
-        admin_category_key: str | None,
-        # channel_id: str, # No longer used for sending message here
-        item_type_display: str,
-        requesting_user_id: str | None,  # Added user_id
+        base_name: str,  # User-provided name, e.g., "MonProjet"
+        entity_key: str,  # Key from PERMISSIONS_MATRIX, e.g., "PROJET"
+        item_type_display: str,  # e.g., "projet"
+        requesting_user_id: str | None,
     ):
         """
-        Helper function to create resources based on permission matrix categories.
-        It creates resources for a primary category and optionally for an admin category for a single base_name.
-        Returns a list of log messages for this specific base_name.
+        Helper function to create resources for a given entity type (e.g., PROJET)
+        based on the new permissions matrix structure.
         """
         item_results_log = []
+        entity_config = self.config.PERMISSIONS_MATRIX.get(entity_key)
 
-        # Determine the prefix string based on the primary category_key
-        prefix_str = ""
-        if category_key == "PROJET":
-            prefix_str = "projet_"
-        elif category_key == "ANTENNE":
-            prefix_str = "antenne_"
-        elif category_key == "POLES":
-            prefix_str = "pole_"
-
-        prefixed_base_name = f"{prefix_str}{base_name}"
-
-        categories_to_process = [(category_key, prefixed_base_name)]
-        if admin_category_key:
-            admin_resource_name = f"{prefixed_base_name} Admin"
-            categories_to_process.append((admin_category_key, admin_resource_name))
+        if not entity_config:
+            msg = f":x: Configuration error: No permissions found for entity category '{entity_key}' in the matrix."
+            logging.error(msg)
+            item_results_log.append(msg)
+            return item_results_log
 
         item_results_log.append(
-            f"--- Création pour {item_type_display} **`{base_name}`** (préfixé en `{prefix_str}`) ---"
+            f"--- Création pour {item_type_display} **`{base_name}`** (entité: *{entity_key}*) ---"
         )
 
-        # Loop variable 'name_for_creation' now holds the correctly prefixed name
-        for current_category_key, name_for_creation in categories_to_process:
-            category_permissions = self.config.PERMISSIONS_MATRIX.get(current_category_key)
+        # Standard resources
+        standard_config = entity_config.get("standard")
+        if standard_config:
+            std_auth_pattern = standard_config.get("authentik_group_name_pattern", "{base_name}")
+            std_mm_chan_pattern = standard_config.get("mattermost_channel_name_pattern", "{base_name}")
+            std_mm_chan_type = standard_config.get("mattermost_channel_type", "O")
 
-            if not category_permissions:
-                msg = f":x: Configuration error: No permissions found for category '{current_category_key}' in the matrix for '{name_for_creation}'."
-                logging.error(msg)
-                item_results_log.append(msg)
-                continue
+            std_auth_name = std_auth_pattern.format(base_name=base_name)
+            std_mm_chan_name = std_mm_chan_pattern.format(base_name=base_name)
 
-            item_results_log.append(
-                f"  - Sous-groupe/canal **`{name_for_creation}`** (basé sur *{current_category_key}*):"
-            )
-
-            auth_msg = "    - Authentik: "
+            item_results_log.append(f"  - Standard (base: `{base_name}`):")
+            # Authentik Group (Standard)
+            auth_msg_std = f"    - Authentik Groupe `{std_auth_name}`: "
             if self.authentik_client:
                 try:
-                    if self.authentik_client.create_group(name_for_creation):
-                        auth_msg += ":white_check_mark: Groupe créé."
+                    if self.authentik_client.create_group(std_auth_name):
+                        auth_msg_std += ":white_check_mark: Créé."
                     else:
-                        auth_msg += ":warning: Échec création (ou groupe existe déjà)."
+                        auth_msg_std += ":warning: Échec/Existe déjà."
                 except Exception as e:
-                    logging.error(
-                        f"Error creating Authentik group for {name_for_creation} ({current_category_key}): {e}",
-                        exc_info=True,
-                    )
-                    auth_msg += f":x: Erreur interne ({e})."
+                    auth_msg_std += f":x: Erreur ({e})."
             else:
-                auth_msg += ":information_source: Client non configuré."
-            item_results_log.append(auth_msg)
+                auth_msg_std += ":information_source: Client non configuré."
+            item_results_log.append(auth_msg_std)
 
-            outline_msg = "    - Outline: "
+            # Mattermost Channel (Standard)
+            mm_msg_std = f"    - Mattermost Canal `{std_mm_chan_name}` (type: {std_mm_chan_type}): "
+            if self.mattermost_api_client:
+                try:
+                    ch_std = self.mattermost_api_client.create_channel(std_mm_chan_name, channel_type=std_mm_chan_type)
+                    if ch_std and ch_std.get("id"):
+                        mm_msg_std += f":white_check_mark: Créé (ID: {ch_std['id']})."
+                        if requesting_user_id and self.mattermost_api_client.add_user_to_channel(
+                            ch_std["id"], requesting_user_id
+                        ):
+                            mm_msg_std += " Demandeur ajouté."
+                        elif requesting_user_id:
+                            mm_msg_std += " Échec ajout demandeur."
+                    else:
+                        mm_msg_std += ":warning: Échec/Existe déjà."
+                except Exception as e:
+                    mm_msg_std += f":x: Erreur ({e})."
+            else:
+                mm_msg_std += ":information_source: Client non configuré."
+            item_results_log.append(mm_msg_std)
+
+        # Admin resources (if configured)
+        admin_config = entity_config.get("admin")
+        if admin_config:
+            adm_auth_pattern = admin_config.get("authentik_group_name_pattern", "{base_name} Admin")
+            adm_mm_chan_pattern = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin")
+            adm_mm_chan_type = admin_config.get("mattermost_channel_type", "P")
+
+            adm_auth_name = adm_auth_pattern.format(base_name=base_name)
+            adm_mm_chan_name = adm_mm_chan_pattern.format(base_name=base_name)
+
+            item_results_log.append(f"  - Admin (base: `{base_name}`):")
+            # Authentik Group (Admin)
+            auth_msg_adm = f"    - Authentik Groupe `{adm_auth_name}`: "
+            if self.authentik_client:
+                try:
+                    if self.authentik_client.create_group(adm_auth_name):
+                        auth_msg_adm += ":white_check_mark: Créé."
+                    else:
+                        auth_msg_adm += ":warning: Échec/Existe déjà."
+                except Exception as e:
+                    auth_msg_adm += f":x: Erreur ({e})."
+            else:
+                auth_msg_adm += ":information_source: Client non configuré."
+            item_results_log.append(auth_msg_adm)
+
+            # Mattermost Channel (Admin)
+            mm_msg_adm = f"    - Mattermost Canal `{adm_mm_chan_name}` (type: {adm_mm_chan_type}): "
+            if self.mattermost_api_client:
+                try:
+                    ch_adm = self.mattermost_api_client.create_channel(adm_mm_chan_name, channel_type=adm_mm_chan_type)
+                    if ch_adm and ch_adm.get("id"):
+                        mm_msg_adm += f":white_check_mark: Créé (ID: {ch_adm['id']})."
+                        if requesting_user_id and self.mattermost_api_client.add_user_to_channel(
+                            ch_adm["id"], requesting_user_id
+                        ):
+                            mm_msg_adm += " Demandeur ajouté."
+                        elif requesting_user_id:
+                            mm_msg_adm += " Échec ajout demandeur."
+                    else:
+                        mm_msg_adm += ":warning: Échec/Existe déjà."
+                except Exception as e:
+                    mm_msg_adm += f":x: Erreur ({e})."
+            else:
+                mm_msg_adm += ":information_source: Client non configuré."
+            item_results_log.append(mm_msg_adm)
+
+        # Outline Collection (unique per entity)
+        outline_config = entity_config.get("outline")
+        if outline_config:
+            coll_pattern = outline_config.get("collection_name_pattern", "{base_name}")
+            outline_coll_name = coll_pattern.format(base_name=base_name)
+
+            outline_msg = f"  - Outline Collection `{outline_coll_name}`: "
             if self.outline_client:
                 try:
-                    status = self.outline_client.create_group(name_for_creation)
+                    status = self.outline_client.create_group(outline_coll_name)  # create_group ensures existence
                     if status == "CREATED":
-                        outline_msg += ":white_check_mark: Collection créée."
+                        outline_msg += ":white_check_mark: Créée."
                     elif status == "EXISTS":
                         outline_msg += ":information_source: Collection existait déjà."
                     else:  # FAILED
                         outline_msg += ":warning: Échec création/vérification."
                 except Exception as e:
-                    logging.error(
-                        f"Error creating Outline collection for {name_for_creation} ({current_category_key}): {e}",
-                        exc_info=True,
-                    )
-                    outline_msg += f":x: Erreur interne ({e})."
+                    outline_msg += f":x: Erreur ({e})."
             else:
                 outline_msg += ":information_source: Client non configuré."
             item_results_log.append(outline_msg)
-
-            mm_settings = category_permissions.get("mattermost", {})
-            mm_channel_type = mm_settings.get("channel_type", "O")
-            mm_msg = "    - Mattermost: "
-            if self.mattermost_api_client:
-                created_mm_channel_id = None
-                try:
-                    channel_creation_result = self.mattermost_api_client.create_channel(
-                        name_for_creation, channel_type=mm_channel_type
-                    )
-                    if (
-                        channel_creation_result
-                        and isinstance(channel_creation_result, dict)
-                        and channel_creation_result.get("id")
-                    ):
-                        created_mm_channel_id = channel_creation_result["id"]
-                        mm_msg += f":white_check_mark: Canal ({'Public' if mm_channel_type == 'O' else 'Privé'}) créé (ID: {created_mm_channel_id})."
-                        if requesting_user_id and created_mm_channel_id:
-                            logging.info(
-                                f"Attempting to add user {requesting_user_id} to new channel {created_mm_channel_id} ({name_for_creation})"
-                            )
-                            if self.mattermost_api_client.add_user_to_channel(
-                                created_mm_channel_id, requesting_user_id
-                            ):
-                                mm_msg += " Utilisateur demandeur ajouté au canal."
-                                logging.info(
-                                    f"Successfully added user {requesting_user_id} to channel {created_mm_channel_id} ({name_for_creation})"
-                                )
-                            else:
-                                mm_msg += " Échec de l'ajout de l'utilisateur demandeur au canal."
-                                logging.warning(
-                                    f"Failed to add user {requesting_user_id} to channel {created_mm_channel_id} ({name_for_creation})"
-                                )
-                    else:
-                        mm_msg += f":warning: Échec création ({'Public' if mm_channel_type == 'O' else 'Privé'}) (ou existe déjà)."
-                except Exception as e:
-                    logging.error(
-                        f"Error creating Mattermost channel for {name_for_creation} ({current_category_key}): {e}",
-                        exc_info=True,
-                    )
-                    mm_msg += f":x: Erreur interne ({e})."
-            else:
-                mm_msg += ":information_source: Client non configuré."
-            item_results_log.append(mm_msg)
 
         return item_results_log
 
@@ -425,18 +432,17 @@ class MartyBot:
         self,
         channel_id: str,
         arg_string: str | None,
-        item_type_display: str,
-        category_key: str,
-        admin_category_key: str | None,
-        command_name: str,
-        requesting_user_id: str | None,  # Added user_id
+        item_type_display: str,  # e.g. "projet"
+        entity_key: str,  # e.g. "PROJET"
+        requesting_user_id: str | None,
     ):
-        """Generic handler for create commands supporting multiple arguments."""
+        """Generic handler for create commands supporting multiple arguments, using new matrix structure."""
+        command_name = f"create_{item_type_display.lower()}"  # Reconstruct command name for messages
         if not arg_string:
             await asyncio.to_thread(
                 self.envoyer_message,
                 channel_id,
-                f":warning: Au moins un nom de {item_type_display} est requis. Usage: `{self.bot_name_mention} {command_name} <Nom1> [Nom2 ...]`",  # noqa: E501
+                f":warning: Au moins un nom de {item_type_display} est requis. Usage: `{self.bot_name_mention} {command_name} <Nom1> [Nom2 ...]`",
             )
             return
 
@@ -450,24 +456,27 @@ class MartyBot:
         )
         await asyncio.to_thread(self.envoyer_message, channel_id, initial_message)
 
-        if not self.config.PERMISSIONS_MATRIX:
+        entity_config = self.config.PERMISSIONS_MATRIX.get(entity_key)
+        if not entity_config:
             await asyncio.to_thread(
                 self.envoyer_message,
                 channel_id,
-                ":x: Erreur: La matrice des permissions n'est pas chargée. Impossible de continuer.",
+                f":x: Erreur: Configuration pour l'entité '{entity_key}' non trouvée dans la matrice des permissions.",
             )
             return
 
         overall_log_parts = [f"### Résumé global pour la commande `{command_name}`"]
 
         for base_name in base_names:
-            logging.info(f"'{command_name}' command processing for: {base_name} by user {requesting_user_id}")
-            item_log = await self._create_resources_for_category(
+            logging.info(
+                f"'{command_name}' command processing for: {base_name} (entity: {entity_key}) by user {requesting_user_id}"
+            )
+            # Pass the whole entity_config dict for this entity_key
+            item_log = await self._create_resources_for_entity(
                 base_name=base_name,
-                category_key=category_key,
-                admin_category_key=admin_category_key,
+                entity_key=entity_key,
                 item_type_display=item_type_display,
-                requesting_user_id=requesting_user_id,  # Pass it down
+                requesting_user_id=requesting_user_id,
             )
             overall_log_parts.extend(item_log)
             overall_log_parts.append("---")
@@ -475,23 +484,25 @@ class MartyBot:
         final_summary_message = "\n".join(overall_log_parts)
         await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message)
 
-    async def _handle_create_projet_command(self, channel_id, arg_string, user_id_who_posted=None):  # Added user_id
-        """Crée les ressources pour un ou plusieurs projets (standard et admin). Usage: create_projet <NomProjet1> [NomProjet2 ...]"""
-        await self._execute_batch_create_command(
-            channel_id, arg_string, "projet", "PROJET", "PROJET_ADMIN", "create_projet", user_id_who_posted
-        )
-
-    async def _handle_create_antenne_command(self, channel_id, arg_string, user_id_who_posted=None):  # Added user_id
-        """Crée les ressources pour une ou plusieurs antennes (standard et admin). Usage: create_antenne <NomAntenne1> [NomAntenne2 ...]"""
-        await self._execute_batch_create_command(
-            channel_id, arg_string, "antenne", "ANTENNE", "ANTENNE_ADMIN", "create_antenne", user_id_who_posted
-        )
-
-    async def _handle_create_pole_command(self, channel_id, arg_string, user_id_who_posted=None):  # Added user_id
-        """Crée les ressources pour un ou plusieurs pôles (standard et admin). Usage: create_pole <NomPole1> [NomPole2 ...]"""
-        await self._execute_batch_create_command(
-            channel_id, arg_string, "pôle", "POLES", "POLES_ADMIN", "create_pole", user_id_who_posted
-        )
+    # _handle_create_projet_command, _handle_create_antenne_command, _handle_create_pole_command
+    # are now simplified by the lambdas in self.commands, directly calling _execute_batch_create_command.
+    # They can be removed if no other specific logic is needed for them.
+    # For now, I will keep them commented out in case they are needed for more specific logic later.
+    # async def _handle_create_projet_command(self, channel_id, arg_string, user_id_who_posted=None):
+    #     """Crée les ressources pour un ou plusieurs projets. Usage: create_projet <NomProjet1> [NomProjet2 ...]"""
+    #     await self._execute_batch_create_command(
+    #         channel_id, arg_string, "projet", "PROJET", user_id_who_posted
+    #     )
+    # async def _handle_create_antenne_command(self, channel_id, arg_string, user_id_who_posted=None):
+    #     """Crée les ressources pour une ou plusieurs antennes. Usage: create_antenne <NomAntenne1> [NomAntenne2 ...]"""
+    #     await self._execute_batch_create_command(
+    #         channel_id, arg_string, "antenne", "ANTENNE", user_id_who_posted
+    #     )
+    # async def _handle_create_pole_command(self, channel_id, arg_string, user_id_who_posted=None):
+    #     """Crée les ressources pour un ou plusieurs pôles. Usage: create_pole <NomPole1> [NomPole2 ...]"""
+    #     await self._execute_batch_create_command(
+    #         channel_id, arg_string, "pôle", "POLES", user_id_who_posted
+    #     )
 
     async def _handle_sync_user_channels_command(
         self, channel_id, arg_string=None
@@ -660,13 +671,16 @@ class MartyBot:
             handler_method = self.commands.get(command_verb)
             if handler_method:
                 # Pass user_id_who_posted to command handlers that need it
+                # For lambdas, arguments must be positional if not explicitly defined with same name.
                 if command_verb in ["create_projet", "create_antenne", "create_pole"]:
-                    await handler_method(channel_id, arg_string, user_id_who_posted=user_id_who_posted)
-                elif (
-                    command_verb == "sync_user_channels"
-                ):  # This command doesn't need user_id_who_posted for its core logic
+                    # The lambda expects (channel_id, arg_string, user_id_who_posted)
+                    await handler_method(channel_id, arg_string, user_id_who_posted)
+                elif command_verb in ["sync_user_channels", "update_user_rights", "help"]:
+                     # These handlers are defined to accept (self, channel_id, arg_string)
+                     # user_id_who_posted is not passed or needed by their current definition.
                     await handler_method(channel_id, arg_string)
-                else:  # For help or other commands that might not need it
+                else:
+                    # Fallback for any other command type if they were to be added without specific handling
                     await handler_method(channel_id, arg_string)
             else:
                 message = f":question: Commande inconnue : **`{command_verb}`**. Essayez `{self.bot_name_mention} help` pour une liste des commandes disponibles."
