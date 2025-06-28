@@ -112,9 +112,15 @@ class MartyBot:
         self.MAX_RECONNECT_DELAY = 60  # seconds
 
         self.commands = {
-            "create_projet": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(c, arg_str, "projet", "PROJET", user_id_who_posted),
-            "create_antenne": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(c, arg_str, "antenne", "ANTENNE", user_id_who_posted),
-            "create_pole": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(c, arg_str, "pôle", "POLES", user_id_who_posted),
+            "create_projet": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(
+                c, arg_str, "projet", "PROJET", user_id_who_posted
+            ),
+            "create_antenne": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(
+                c, arg_str, "antenne", "ANTENNE", user_id_who_posted
+            ),
+            "create_pole": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(
+                c, arg_str, "pôle", "POLES", user_id_who_posted
+            ),
             "help": self._send_help_message,
             "sync_user_channels": self._handle_sync_user_channels_command,
             "update_user_rights": self._handle_update_user_rights_command,
@@ -676,8 +682,8 @@ class MartyBot:
                     # The lambda expects (channel_id, arg_string, user_id_who_posted)
                     await handler_method(channel_id, arg_string, user_id_who_posted)
                 elif command_verb in ["sync_user_channels", "update_user_rights", "help"]:
-                     # These handlers are defined to accept (self, channel_id, arg_string)
-                     # user_id_who_posted is not passed or needed by their current definition.
+                    # These handlers are defined to accept (self, channel_id, arg_string)
+                    # user_id_who_posted is not passed or needed by their current definition.
                     await handler_method(channel_id, arg_string)
                 else:
                     # Fallback for any other command type if they were to be added without specific handling
