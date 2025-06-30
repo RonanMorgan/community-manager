@@ -395,83 +395,137 @@ class TestMartyBot(unittest.TestCase):
         self.assertEqual(self.bot._parse_command_from_mention("   "), (None, None))
 
     @async_test
-    async def test_handle_generic_sync_command_success(self):
-        commands_to_test = ["sync_user_channels", "update_user_rights"]
-        for command_name in commands_to_test:
-            with self.subTest(command=command_name):
-                self.bot.envoyer_message.reset_mock()
-                with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
-                    mock_orchestrate.return_value = (
-                        True,
-                        [
-                            {
-                                "mm_username": "testuser",
-                                "service": "AUTHENTIK",
-                                "action": "USER_ADDED_TO_AUTHENTIK_GROUP",
-                                "status": "SUCCESS",
-                                "target_resource_name": "TestGroup",
-                            }
-                        ],
-                    )
-                    await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
-                    self.bot.envoyer_message.assert_any_call("test_channel", unittest.mock.ANY)
-                    mock_orchestrate.assert_called_once_with(
-                        self.bot.authentik_client,
-                        self.bot.mattermost_api_client,
-                        self.bot.outline_client,
-                        self.bot.config.MATTERMOST_TEAM_ID,
-                    )
-                    self.assertGreaterEqual(self.bot.envoyer_message.call_count, 3)
-                    found_user_result_message = False
-                    for call_args in self.bot.envoyer_message.call_args_list:
-                        message_text = call_args[0][1]
-                        if (
-                            "Utilisateur :** `testuser`" in message_text
-                            and "USER_ADDED_TO_AUTHENTIK_GROUP" in message_text
-                        ):
-                            found_user_result_message = True
-                            break
-                    self.assertTrue(
-                        found_user_result_message,
-                        f"Detailed message for testuser not found for command {command_name}",
-                    )
-                    found_summary_message = False
-                    for call_args in self.bot.envoyer_message.call_args_list:
-                        message_text = call_args[0][1]
-                        if (
-                            "Résumé de la synchronisation des droits" in message_text
-                            or "Résumé global" in message_text
-                        ):  # sync_user_channels has a slightly different title from old code
-                            found_summary_message = True
-                            break
-                    self.assertTrue(found_summary_message, f"Summary message not found for command {command_name}")
+    async def test_handle_update_user_rights_command_success(self):
+        """Tests update_user_rights (upsert) command success."""
+        command_name = "update_user_rights"
+        self.bot.envoyer_message.reset_mock()
+        with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
+            mock_orchestrate.return_value = (
+                True,
+                [
+                    {
+                        "mm_username": "testuser",
+                        "service": "AUTHENTIK",
+                        "action": "USER_ADDED_TO_AUTHENTIK_GROUP",
+                        "status": "SUCCESS",
+                        "target_resource_name": "TestGroup",
+                    }
+                ],
+            )
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+
+            # Check that initial message is sent
+            self.bot.envoyer_message.assert_any_call("test_channel", unittest.mock.ANY) # Initial message
+
+            mock_orchestrate.assert_called_once_with(
+                self.bot.authentik_client,
+                self.bot.mattermost_api_client,
+                self.bot.outline_client,
+                self.bot.config.MATTERMOST_TEAM_ID,
+                perform_deletions=False, # Key check for update_user_rights
+            )
+            # Initial message + result messages (at least one user result + one summary)
+            self.assertGreaterEqual(self.bot.envoyer_message.call_count, 3)
+
+            found_user_result_message = False
+            for call_args in self.bot.envoyer_message.call_args_list:
+                message_text = call_args[0][1]
+                if (
+                    "Utilisateur :** `testuser`" in message_text
+                    and "USER_ADDED_TO_AUTHENTIK_GROUP" in message_text
+                ):
+                    found_user_result_message = True
+                    break
+            self.assertTrue(
+                found_user_result_message,
+                f"Detailed message for testuser not found for command {command_name}",
+            )
+
+            found_summary_message = False
+            for call_args in self.bot.envoyer_message.call_args_list:
+                message_text = call_args[0][1]
+                if "Résumé de Mise à jour (upsert) des droits" in message_text:
+                    found_summary_message = True
+                    break
+            self.assertTrue(found_summary_message, f"Summary message not found for command {command_name}")
 
     @async_test
-    async def test_handle_generic_sync_command_orchestration_failure(self):
-        commands_to_test = ["sync_user_channels", "update_user_rights"]
-        for command_name in commands_to_test:
+    async def test_handle_remove_user_rights_command_success(self):
+        """Tests remove_user_rights command success."""
+        command_name = "remove_user_rights"
+        self.bot.envoyer_message.reset_mock()
+        with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
+            mock_orchestrate.return_value = (
+                True,
+                [{"mm_username": "testuser", "service": "AUTHENTIK", "action": "USER_REMOVED_FROM_AUTHENTIK_GROUP", "status": "SUCCESS", "target_resource_name": "TestGroupRemove"}]
+            )
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+            self.bot.envoyer_message.assert_any_call("test_channel", unittest.mock.ANY) # Initial message
+            mock_orchestrate.assert_called_once_with(
+                self.bot.authentik_client,
+                self.bot.mattermost_api_client,
+                self.bot.outline_client,
+                self.bot.config.MATTERMOST_TEAM_ID,
+                perform_deletions=True, # Key check for remove_user_rights
+            )
+            self.assertGreaterEqual(self.bot.envoyer_message.call_count, 3)
+            found_user_result_message = False
+            for call_args in self.bot.envoyer_message.call_args_list:
+                message_text = call_args[0][1]
+                if "Utilisateur :** `testuser`" in message_text and "USER_REMOVED_FROM_AUTHENTIK_GROUP" in message_text:
+                    found_user_result_message = True
+                    break
+            self.assertTrue(found_user_result_message, f"Detailed removal message for testuser not found for command {command_name}")
+
+            found_summary_message = False
+            for call_args in self.bot.envoyer_message.call_args_list:
+                message_text = call_args[0][1]
+                if "Résumé de Suppression/synchronisation des droits" in message_text:
+                    found_summary_message = True
+                    break
+            self.assertTrue(found_summary_message, f"Summary message not found for command {command_name}")
+
+
+    @async_test
+    async def test_sync_commands_orchestration_failure(self):
+        commands_to_test = {
+            "update_user_rights": self.bot._handle_update_user_rights_command,
+            "remove_user_rights": self.bot._handle_remove_user_rights_command,
+        }
+        for command_name, handler_method in commands_to_test.items():
             with self.subTest(command=command_name):
                 self.bot.envoyer_message.reset_mock()
                 with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
-                    mock_orchestrate.return_value = (False, [])
-                    await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+                    mock_orchestrate.return_value = (False, []) # Simulate orchestration failure
+
+                    # Directly call the handler instead of via _send_test_message to isolate the handler logic
+                    await handler_method(channel_id="test_channel", arg_string=None)
+
+                    # Initial message + failure message
                     self.assertEqual(self.bot.envoyer_message.call_count, 2)
                     final_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                     self.assertIn("échoué de manière critique durant l'orchestration", final_message_text)
 
     @async_test
-    async def test_handle_generic_sync_command_no_clients_configured(self):
-        commands_to_test = ["sync_user_channels", "update_user_rights"]
+    async def test_sync_commands_no_clients_configured(self):
+        commands_to_test = {
+            "update_user_rights": self.bot._handle_update_user_rights_command,
+            "remove_user_rights": self.bot._handle_remove_user_rights_command,
+        }
         original_auth_client = self.bot.authentik_client
-        self.bot.authentik_client = None
-        for command_name in commands_to_test:
+        self.bot.authentik_client = None # Simulate Authentik client not configured
+
+        for command_name, handler_method in commands_to_test.items():
             with self.subTest(command=command_name):
                 self.bot.envoyer_message.reset_mock()
-                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+                await handler_method(channel_id="test_channel", arg_string=None)
+
+                # Initial message + error message
                 self.assertEqual(self.bot.envoyer_message.call_count, 2)
                 error_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
-                self.assertIn("Le bot n'est pas correctement configuré pour la synchronisation", error_message_text)
-        self.bot.authentik_client = original_auth_client
+                self.assertIn("Le bot n'est pas correctement configuré", error_message_text)
+
+        self.bot.authentik_client = original_auth_client # Restore client
 
 
 if __name__ == "__main__":

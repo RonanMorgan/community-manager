@@ -351,6 +351,45 @@ class OutlineClient:
             )
             return None
 
+    def get_user_by_id(self, user_id: str) -> dict | None:
+        """
+        Retrieves a user from Outline by their ID.
+        Uses /api/users.info endpoint.
+        :param user_id: The ID of the user to find.
+        :return: A dictionary containing the user data if found, None otherwise.
+        """
+        if not user_id:
+            logging.error("User ID must be provided to get user by ID.")
+            return None
+
+        api_url = f"{self.base_url}/api/users.info"
+        payload = {"id": user_id}
+        logging.debug(f"Outline API >> Getting user by ID '{user_id}'")
+
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            response_data = response.json()
+            user_data = response_data.get("data")
+
+            if user_data:
+                logging.info(f"Successfully fetched Outline user (ID: {user_id}, Name: {user_data.get('name')}).")
+                return user_data
+            else:
+                logging.warning(f"Outline user ID '{user_id}' not found or no data returned.")
+                return None
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error fetching Outline user by ID '{user_id}': {e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed while fetching Outline user by ID '{user_id}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from Outline users.info response for ID '{user_id}': {e}")
+            return None
+
     def remove_user_from_collection(self, collection_id: str, user_id: str) -> bool:
         """
         Removes a user from an Outline collection.

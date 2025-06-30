@@ -136,6 +136,7 @@ class TestGroupSyncServices(unittest.TestCase):
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
             email_to_authentik_user_pk_map=self.email_to_authentik_user_pk_map_fixture,
+            perform_deletions=True,
         )
 
         user1_pk = self.email_to_authentik_user_pk_map_fixture["user1@example.com"]
@@ -336,6 +337,7 @@ permissions:
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
             email_to_authentik_user_pk_map=email_map_for_dm,
+            perform_deletions=True,
         )
         self.assertEqual(len([r for r in results if r["status"] == "SUCCESS"]), 2)
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
@@ -408,6 +410,7 @@ permissions:
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
             email_to_authentik_user_pk_map=email_map_for_dm,
+            perform_deletions=True,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
         self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_FAILED")
@@ -467,6 +470,7 @@ permissions:
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
             email_to_authentik_user_pk_map=email_map_already,
+            perform_deletions=True,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
         self.assertEqual(outline_result["action"], "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED")
@@ -521,6 +525,7 @@ permissions:
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
             email_to_authentik_user_pk_map=email_to_pk_map,
+            perform_deletions=True,
         )
         self.mock_authentik_client.remove_user_from_group.assert_called_once_with(
             current_auth_group_pk, auth_user_pk_to_remove
@@ -583,6 +588,7 @@ permissions:
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
             email_to_authentik_user_pk_map=email_to_pk_map,
+            perform_deletions=True,
         )
         self.mock_authentik_client.remove_user_from_group.assert_not_called()
         self.mock_authentik_client.add_user_to_group.assert_not_called()
@@ -632,6 +638,8 @@ permissions:
             return None
 
         self.mock_outline_client.get_user_by_email.side_effect = mock_get_user_by_email_side_effect
+        # Mock get_user_by_id for the user to be removed
+        self.mock_outline_client.get_user_by_id.return_value = {"id": outline_user_id_to_remove, "name": f"OutlineUserName_{outline_user_id_to_remove}", "email": "removed@example.com"}
         self.mock_outline_client.remove_user_from_collection.return_value = True
         self.mock_outline_client.add_user_to_collection.return_value = True
         mock_entity_config = {
@@ -655,6 +663,7 @@ permissions:
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
             email_to_authentik_user_pk_map=email_to_pk_map,
+            perform_deletions=True,
         )
         self.mock_outline_client.remove_user_from_collection.assert_called_once_with(
             "outline_coll_1", outline_user_id_to_remove
@@ -664,7 +673,8 @@ permissions:
         )
         removal_action = next((r for r in results if r.get("action") == "USER_REMOVED_FROM_OUTLINE_COLLECTION"), None)
         self.assertIsNotNone(removal_action)
-        self.assertEqual(removal_action["mm_username"], f"OutlineUser_{outline_user_id_to_remove}")
+        # This should match the "name" field from the mocked get_user_by_id if the user is not in MM channels
+        self.assertEqual(removal_action["mm_username"], f"OutlineUserName_{outline_user_id_to_remove}")
         kept_action = next(
             (r for r in results if r.get("action") == "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED"), None
         )
@@ -730,6 +740,7 @@ permissions:
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
             email_to_authentik_user_pk_map=email_to_pk_map,
+            perform_deletions=True,
         )
         self.mock_outline_client.remove_user_from_collection.assert_not_called()
         self.mock_outline_client.add_user_to_collection.assert_not_called()
@@ -868,6 +879,7 @@ permissions:
                     entity_config=mock_entity_config,
                     all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
                     email_to_authentik_user_pk_map=email_to_pk_map,
+            perform_deletions=True,
                 )
 
                 self.mock_outline_client.add_user_to_collection.assert_called_once()
