@@ -173,7 +173,7 @@ class TestOutlineClient(unittest.TestCase):
         result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")
         self.assertTrue(result)
         expected_url = f"{self.mock_url}/api/collections.remove_user"
-        expected_payload = {"collectionId": "coll_id_1", "userId": "user_id_1"}
+        expected_payload = {"id": "coll_id_1", "userId": "user_id_1"} # Corrected: "id"
         mock_post.assert_called_once_with(expected_url, headers=self.client.headers, json=expected_payload)
 
     @patch("requests.post")
@@ -186,7 +186,7 @@ class TestOutlineClient(unittest.TestCase):
         result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")
         self.assertTrue(result)
         expected_url = f"{self.mock_url}/api/collections.remove_user"
-        expected_payload = {"collectionId": "coll_id_1", "userId": "user_id_1"}
+        expected_payload = {"id": "coll_id_1", "userId": "user_id_1"} # Corrected: "id"
         mock_post.assert_called_once_with(expected_url, headers=self.client.headers, json=expected_payload)
 
     @patch("requests.post")

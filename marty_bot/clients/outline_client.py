@@ -403,7 +403,7 @@ class OutlineClient:
 
         api_url = f"{self.base_url}/api/collections.remove_user"
         payload = {
-            "collectionId": collection_id,  # Note: API docs might vary, check if it's 'id' or 'collectionId'
+            "id": collection_id, # Corrigé: "id" au lieu de "collectionId"
             "userId": user_id,
         }
         logging.info(
