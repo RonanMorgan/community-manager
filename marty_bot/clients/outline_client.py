@@ -266,10 +266,11 @@ class OutlineClient:
             "userId": user_id,
             "permission": permission,
         }
-        logging.debug(
+        log_msg = (
             f"Outline API >> Adding user ID '{user_id}' to collection ID '{collection_id}' "
-            f"with permission '{permission}'. Payload: {json.dumps(payload)}"  # noqa: E501
-        )
+            f"with permission '{permission}'. Payload: {json.dumps(payload)}"
+        )  # noqa: E501
+        logging.debug(log_msg)
         try:
             response = requests.post(api_url, headers=self.headers, json=payload)
             response.raise_for_status()
@@ -349,6 +350,68 @@ class OutlineClient:
                 f"Error decoding JSON from Outline collections.info response for collection ID '{collection_id}': {e}"  # noqa: E501
             )
             return None
+
+    def remove_user_from_collection(self, collection_id: str, user_id: str) -> bool:
+        """
+        Removes a user from an Outline collection.
+        :param collection_id: The ID of the collection.
+        :param user_id: The ID of the user to remove.
+        :return: True if successful, False otherwise.
+        """
+        if not collection_id or not user_id:
+            logging.error("Collection ID and User ID must be provided to remove user from collection.")
+            return False
+
+        api_url = f"{self.base_url}/api/collections.remove_user"
+        payload = {
+            "collectionId": collection_id,  # Note: API docs might vary, check if it's 'id' or 'collectionId'
+            "userId": user_id,
+        }
+        logging.info(
+            f"Outline API >> Removing user ID '{user_id}' from collection ID '{collection_id}'. Payload: {json.dumps(payload)}"
+        )
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()  # Check for HTTP errors
+
+            # Outline API usually returns a success boolean or specific data structure
+            # For remove_user, a 200 OK with {"success": true} is common, or 204 No Content
+            if response.status_code == 204:  # Successfully removed, no content
+                logging.info(f"Successfully removed user ID '{user_id}' from Outline collection ID '{collection_id}'.")
+                return True
+
+            response_data = response.json()
+            if response_data.get("success"):
+                logging.info(f"Successfully removed user ID '{user_id}' from Outline collection ID '{collection_id}'.")
+                return True
+            else:
+                # This case handles 200 OK but success:false or missing success field
+                logging.warning(
+                    f"Outline collections.remove_user for user ID '{user_id}' in collection ID '{collection_id}' "
+                    f"did not report success or returned unexpected data: {response.text}"
+                )
+                return False
+        except requests.exceptions.HTTPError as e:
+            # Specific check if user was not in collection - Outline might return 400/404 or specific error
+            # Example: if e.response.status_code == 400 and "User is not a member" in e.response.text:
+            #    logging.info(f"User {user_id} was not in collection {collection_id}. Considered successful removal.")
+            #    return True
+            logging.error(
+                f"HTTP error removing user ID '{user_id}' from Outline collection ID '{collection_id}': "
+                f"{e.response.status_code} - {e.response.text}"
+            )
+            return False
+        except requests.exceptions.RequestException as e:
+            logging.error(
+                f"Request exception removing user ID '{user_id}' from Outline collection ID '{collection_id}': {e}"
+            )
+            return False
+        except json.JSONDecodeError as e:  # If response is not JSON
+            logging.error(
+                f"Error decoding JSON from Outline collections.remove_user response for user '{user_id}' "
+                f"in collection '{collection_id}': {e}. Response text: {response.text}"
+            )
+            return False
 
 
 if __name__ == "__main__":

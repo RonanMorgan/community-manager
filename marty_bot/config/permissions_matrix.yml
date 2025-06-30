@@ -1,44 +1,56 @@
-# marty_bot/config/permissions_matrix.yml
 permissions:
-  - category: PROJET
-    mattermost:
-      channel_type: "O" # Open
+  PROJET:
+    standard:
+      mattermost_channel_name_pattern: "projet_{base_name}"
+      mattermost_channel_type: "O"
+      authentik_group_name_pattern: "projet_{base_name}"
+    admin:
+      mattermost_channel_name_pattern: "projet_{base_name} Admin"
+      mattermost_channel_type: "P"
+      authentik_group_name_pattern: "projet_{base_name} Admin"
     outline:
-      access: "read"
-    nocodb:
-      access: "No"
-  - category: PROJET_ADMIN
-    mattermost:
-      channel_type: "P" # Private
+      collection_name_pattern: "projet_{base_name}"
+      default_access: "read"
+      admin_access: "read_write"
+    # nocodb:
+    #   access: "No" # L'ancienne matrice avait "No" pour PROJET
+
+  ANTENNE:
+    standard:
+      mattermost_channel_name_pattern: "antenne_{base_name}"
+      mattermost_channel_type: "O"
+      authentik_group_name_pattern: "antenne_{base_name}"
+    admin:
+      mattermost_channel_name_pattern: "antenne_{base_name} Admin"
+      mattermost_channel_type: "P"
+      authentik_group_name_pattern: "antenne_{base_name} Admin"
     outline:
-      access: "rw"
+      collection_name_pattern: "antenne_{base_name}"
+      default_access: "read"
+      admin_access: "read_write"
     nocodb:
-      access: "No"
-  - category: ANTENNE
-    mattermost:
-      channel_type: "O" # Open
+      # L'ancienne matrice avait read/rw pour Antenne et Antenne_Admin
+      # Cette structure devrait être adaptée si NocoDB est utilisé.
+      # Par exemple:
+      # base_name_pattern: "antenne_{base_name}"
+      # default_access: "read"
+      # admin_access: "rw"
+      access: "read" # Simplifié pour l'instant, en supposant que cela s'applique à la ressource standard
+      admin_access: "rw" # Et ceci pour la ressource admin, mais NocoDB n'est pas au focus ici
+
+  POLES: # Nom de catégorie au pluriel
+    standard:
+      mattermost_channel_name_pattern: "pole_{base_name}"
+      mattermost_channel_type: "P" # Canal standard privé pour Pôles
+      authentik_group_name_pattern: "pole_{base_name}"
+    admin:
+      mattermost_channel_name_pattern: "pole_{base_name} Admin"
+      mattermost_channel_type: "P"
+      authentik_group_name_pattern: "pole_{base_name} Admin"
     outline:
-      access: "read"
-    nocodb:
-      access: "read"
-  - category: ANTENNE_ADMIN
-    mattermost:
-      channel_type: "P" # Private
-    outline:
-      access: "rw"
-    nocodb:
-      access: "rw"
-  - category: POLES
-    mattermost:
-      channel_type: "P" # Private
-    outline:
-      access: "read"
-    nocodb:
-      access: "read"
-  - category: POLES_ADMIN
-    mattermost:
-      channel_type: "P" # Private
-    outline:
-      access: "rw"
-    nocodb:
-      access: "rw"
+      collection_name_pattern: "pole_{base_name}"
+      default_access: "read"
+      admin_access: "read_write"
+    # nocodb:
+    #   access: "read" # Simplifié
+    #   admin_access: "rw" # Simplifié

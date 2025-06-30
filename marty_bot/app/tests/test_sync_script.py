@@ -14,10 +14,10 @@ from clients.outline_client import OutlineClient
 
 # Functions/modules to be tested
 import scripts.sync_mm_authentik_groups as script_module
-from libraries.group_sync_services import (  # noqa: E501
+from libraries.group_sync_services import (
     get_all_authentik_groups_and_user_map,
-    sync_single_group_to_services,
     orchestrate_group_synchronization,
+    # sync_entity_permissions removed as it's not directly used by these tests after refactor
 )
 
 
@@ -47,12 +47,9 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.MATTERMOST_URL = "http://mm.example.com"
         mock_script_config.BOT_TOKEN = "mm_bot_token"
         mock_script_config.MATTERMOST_TEAM_ID = "mm_team_id"
-
         mock_auth_instance = MockScriptAuthClient.return_value
         mock_mm_instance = MockScriptMMClient.return_value
-
         auth_client, mm_client = script_module.initialize_clients()
-
         MockScriptAuthClient.assert_called_once_with("http://auth.example.com", "auth_token")
         MockScriptMMClient.assert_called_once_with("http://mm.example.com", "mm_bot_token", "mm_team_id")
         self.assertEqual(auth_client, mock_auth_instance)
@@ -66,9 +63,7 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.MATTERMOST_URL = "http://mm.example.com"
         mock_script_config.BOT_TOKEN = "mm_bot_token"
         mock_script_config.MATTERMOST_TEAM_ID = "mm_team_id"
-
         auth_client, _ = script_module.initialize_clients()
-
         self.assertIsNone(auth_client)
         MockScriptAuthClient.assert_not_called()
 
@@ -80,7 +75,6 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.MATTERMOST_TEAM_ID = "team_id"
         mock_script_config.AUTHENTIK_URL = "http://auth.example.com"
         mock_script_config.AUTHENTIK_TOKEN = "auth_token"
-
         _, mm_client = script_module.initialize_clients()
         self.assertIsNone(mm_client)
         MockScriptMMClient.assert_not_called()
@@ -89,9 +83,7 @@ class TestSyncLogic(unittest.TestCase):
         mock_groups_data = [{"name": "group1"}]
         mock_email_map_data = {"email@example.com": "pk1"}
         self.mock_auth_client_instance.get_groups_with_users.return_value = (mock_groups_data, mock_email_map_data)
-
         groups, email_map = get_all_authentik_groups_and_user_map(self.mock_auth_client_instance)
-
         self.mock_auth_client_instance.get_groups_with_users.assert_called_once()
         self.assertEqual(groups, mock_groups_data)
         self.assertEqual(email_map, mock_email_map_data)
@@ -101,292 +93,37 @@ class TestSyncLogic(unittest.TestCase):
         self.assertEqual(groups, [])
         self.assertEqual(email_map, {})
 
-    def test_library_sync_single_group_user_added_successfully_all_services(self):
-        auth_group = {"pk": "auth_g_pk1", "name": "Dev Team Sync", "users": []}
-        user_email = "dev1@example.com"
-        auth_user_pk = "auth_user_pk1"
-        outline_user_id = "outline_user_id_1"
-        outline_collection_id = "outline_coll_id_1"
-
-        email_map = {user_email: auth_user_pk}
-        mm_users = [{"email": user_email, "id": "mm_id_1", "username": "dev1"}]
-
-        self.mock_mm_client_instance.get_channel_by_name.return_value = {
-            "id": "mm_chan_id1",
-            "display_name": "Dev Team Sync",
-        }
-        self.mock_mm_client_instance.get_users_in_channel.return_value = mm_users
-        self.mock_auth_client_instance.add_user_to_group.return_value = True
-        self.mock_outline_client_instance.get_user_by_email.return_value = {"id": outline_user_id, "email": user_email}
-        self.mock_outline_client_instance.get_collection_by_name.return_value = {
-            "id": outline_collection_id,
-            "name": "Dev Team Sync",
-        }
-        self.mock_outline_client_instance.get_collection_members.return_value = []
-        self.mock_outline_client_instance.add_user_to_collection.return_value = True
-        self.mock_outline_client_instance.get_collection_details.return_value = {
-            "id": outline_collection_id,
-            "name": "Dev Team Sync Official Name",
-        }
-        self.mock_mm_client_instance.send_dm.return_value = True
-
-        with patch("libraries.group_sync_services.config") as mock_lib_config:
-            mock_lib_config.OUTLINE_URL = "http://test-outline.com"
-            results = sync_single_group_to_services(
-                self.mock_auth_client_instance,
-                self.mock_mm_client_instance,
-                self.mock_outline_client_instance,
-                self.test_mm_team_id,
-                auth_group,
-                email_map,
-            )
-
-        self.assertEqual(len(results), 2)
-        auth_result = next(r for r in results if r["service"] == "AUTHENTIK")
-        self.assertEqual(auth_result["status"], "SUCCESS")
-        self.assertEqual(auth_result["action"], "USER_ADDED_TO_AUTHENTIK_GROUP")
-        self.assertEqual(auth_result["mm_username"], "dev1")
-        self.mock_auth_client_instance.add_user_to_group.assert_called_once_with(auth_group["pk"], auth_user_pk)
-
-        outline_result = next(r for r in results if r["service"] == "OUTLINE")
-        self.assertEqual(outline_result["status"], "SUCCESS")
-        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT")
-        self.assertEqual(outline_result["mm_username"], "dev1")
-
-        self.mock_outline_client_instance.get_user_by_email.assert_called_once_with(user_email)
-        self.mock_outline_client_instance.get_collection_by_name.assert_called_once_with(auth_group["name"])
-        self.mock_outline_client_instance.get_collection_members.assert_called_once_with(outline_collection_id)
-        self.mock_outline_client_instance.add_user_to_collection.assert_called_once_with(
-            outline_collection_id, outline_user_id, permission="read"  # Added permission
-        )
-        self.mock_outline_client_instance.get_collection_details.assert_called_once_with(outline_collection_id)
-        self.mock_mm_client_instance.send_dm.assert_called_once()
-        dm_call_args = self.mock_mm_client_instance.send_dm.call_args[0]
-        self.assertEqual(dm_call_args[0], "mm_id_1")
-        self.assertIn("Dev Team Sync Official Name", dm_call_args[1])
-        self.assertIn(
-            f"http://test-outline.com/collection/dev-team-sync-official-name-{outline_collection_id}", dm_call_args[1]
-        )
-
-        self.mock_mm_client_instance.get_channel_by_name.assert_called_once()
-        self.mock_mm_client_instance.get_users_in_channel.assert_called_once_with("mm_chan_id1")
-
-    def test_library_sync_single_group_user_added_successfully_outline_skipped(self):
-        auth_group = {"pk": "auth_g_pk1", "name": "Dev Team Sync", "users": []}
-        email_map = {"dev1@example.com": "auth_user_pk1"}
-        mm_users = [{"email": "dev1@example.com", "id": "mm_id_1", "username": "dev1"}]
-        self.mock_mm_client_instance.get_channel_by_name.return_value = {
-            "id": "mm_chan_id1",
-            "display_name": "Dev Team Sync",
-        }
-        self.mock_mm_client_instance.get_users_in_channel.return_value = mm_users
-        self.mock_auth_client_instance.add_user_to_group.return_value = True
-
-        results = sync_single_group_to_services(
-            self.mock_auth_client_instance,
-            self.mock_mm_client_instance,
-            None,
-            self.test_mm_team_id,
-            auth_group,
-            email_map,
-        )
-        self.assertEqual(len(results), 1)
-        auth_result = results[0]
-        self.assertEqual(auth_result["service"], "AUTHENTIK")
-        self.assertEqual(auth_result["status"], "SUCCESS")
-        self.assertEqual(auth_result["action"], "USER_ADDED_TO_AUTHENTIK_GROUP")
-        self.mock_auth_client_instance.add_user_to_group.assert_called_once_with("auth_g_pk1", "auth_user_pk1")
-        self.mock_outline_client_instance.get_user_by_email.assert_not_called()
-
-    def test_library_sync_single_group_mm_channel_not_found(self):
-        auth_group = {"pk": "auth_g_pk1", "name": "NoChannelHere", "users": []}
-        self.mock_mm_client_instance.get_channel_by_name.return_value = None
-        results = sync_single_group_to_services(
-            self.mock_auth_client_instance,
-            self.mock_mm_client_instance,
-            self.mock_outline_client_instance,
-            self.test_mm_team_id,
-            auth_group,
-            {},
-        )
-        self.assertEqual(results, [])
-        self.mock_mm_client_instance.get_users_in_channel.assert_not_called()
-
-    def test_library_sync_single_group_no_users_added(self):
-        auth_group = {"pk": "auth_g_pk1", "name": "Dev Team Sync", "users": ["auth_user_pk1"]}
-        email_map = {"dev1@example.com": "auth_user_pk1"}
-        mm_users = [{"email": "dev1@example.com", "id": "mm_id_1"}]
-        self.mock_mm_client_instance.get_channel_by_name.return_value = {
-            "id": "mm_chan_id1",
-            "display_name": "Dev Team Sync",
-        }
-        self.mock_mm_client_instance.get_users_in_channel.return_value = mm_users
-        self.mock_outline_client_instance.get_user_by_email.return_value = {
-            "id": "outline_user_id_1",
-            "email": "dev1@example.com",
-        }
-        self.mock_outline_client_instance.get_collection_by_name.return_value = {
-            "id": "outline_coll_id_1",
-            "name": "Dev Team Sync",
-        }
-        outline_user_id_for_test = "outline_user_id_1"
-        self.mock_outline_client_instance.get_collection_members.return_value = [outline_user_id_for_test]
-
-        results = sync_single_group_to_services(
-            self.mock_auth_client_instance,
-            self.mock_mm_client_instance,
-            self.mock_outline_client_instance,
-            self.test_mm_team_id,
-            auth_group,
-            email_map,
-        )
-        self.assertEqual(len(results), 2)
-        auth_res = next(r for r in results if r["service"] == "AUTHENTIK")
-        self.assertEqual(auth_res["status"], "SUCCESS")
-        self.assertEqual(auth_res["action"], "USER_ALREADY_IN_AUTHENTIK_GROUP")
-        outline_res = next(r for r in results if r["service"] == "OUTLINE")
-        self.assertEqual(outline_res["status"], "SUCCESS")
-        self.assertEqual(outline_res["action"], "USER_ALREADY_IN_OUTLINE_COLLECTION")
-        self.mock_auth_client_instance.add_user_to_group.assert_not_called()
-        self.mock_outline_client_instance.get_collection_members.assert_called_once()
-        self.mock_outline_client_instance.add_user_to_collection.assert_not_called()
-        self.mock_mm_client_instance.send_dm.assert_not_called()
-
-        self.mock_auth_client_instance.reset_mock()
-        self.mock_mm_client_instance.reset_mock()
-        self.mock_outline_client_instance.reset_mock()
-
-        results_no_outline = sync_single_group_to_services(
-            self.mock_auth_client_instance,
-            self.mock_mm_client_instance,
-            None,
-            self.test_mm_team_id,
-            auth_group,
-            email_map,
-        )
-        self.assertEqual(len(results_no_outline), 1)
-        self.assertEqual(results_no_outline[0]["service"], "AUTHENTIK")
-        self.assertEqual(results_no_outline[0]["action"], "USER_ALREADY_IN_AUTHENTIK_GROUP")
-
-    def test_library_sync_single_group_outline_user_not_found(self):
-        auth_group = {"pk": "auth_g_pk1", "name": "Dev Team Sync", "users": []}
-        user_email = "dev1@example.com"
-        email_map = {user_email: "auth_user_pk1"}
-        mm_users = [{"email": user_email, "id": "mm_id_1", "username": "dev1"}]
-        self.mock_mm_client_instance.get_channel_by_name.return_value = {
-            "id": "mm_chan_id1",
-            "display_name": "Dev Team Sync",
-        }
-        self.mock_mm_client_instance.get_users_in_channel.return_value = mm_users
-        self.mock_auth_client_instance.add_user_to_group.return_value = True
-        self.mock_outline_client_instance.get_user_by_email.return_value = None
-
-        results = sync_single_group_to_services(
-            self.mock_auth_client_instance,
-            self.mock_mm_client_instance,
-            self.mock_outline_client_instance,
-            self.test_mm_team_id,
-            auth_group,
-            email_map,
-        )
-        self.assertEqual(len(results), 2)
-        outline_res = next(r for r in results if r["service"] == "OUTLINE")
-        self.assertEqual(outline_res["status"], "SKIPPED")
-        self.assertEqual(outline_res["action"], "SKIPPED_USER_NOT_IN_OUTLINE")
-        self.mock_outline_client_instance.get_collection_by_name.assert_not_called()
-        self.mock_outline_client_instance.add_user_to_collection.assert_not_called()
-
-    def test_library_sync_single_group_outline_collection_not_found(self):
-        auth_group = {"pk": "auth_g_pk1", "name": "Dev Team Sync", "users": []}
-        user_email = "dev1@example.com"
-        email_map = {user_email: "auth_user_pk1"}
-        mm_users = [{"email": user_email, "id": "mm_id_1", "username": "dev1"}]
-        self.mock_mm_client_instance.get_channel_by_name.return_value = {
-            "id": "mm_chan_id1",
-            "display_name": "Dev Team Sync",
-        }
-        self.mock_mm_client_instance.get_users_in_channel.return_value = mm_users
-        self.mock_auth_client_instance.add_user_to_group.return_value = True
-        self.mock_outline_client_instance.get_user_by_email.return_value = {"id": "outline_user_id_1"}
-        self.mock_outline_client_instance.get_collection_by_name.return_value = None
-
-        results = sync_single_group_to_services(
-            self.mock_auth_client_instance,
-            self.mock_mm_client_instance,
-            self.mock_outline_client_instance,
-            self.test_mm_team_id,
-            auth_group,
-            email_map,
-        )
-        self.assertEqual(len(results), 2)
-        outline_res = next(r for r in results if r["service"] == "OUTLINE")
-        self.assertEqual(outline_res["status"], "SKIPPED")
-        self.assertEqual(outline_res["action"], "SKIPPED_OUTLINE_COLLECTION_NOT_FOUND")
-        self.mock_outline_client_instance.add_user_to_collection.assert_not_called()
-
-    def test_library_sync_single_group_outline_add_user_fails(self):
-        auth_group = {"pk": "auth_g_pk1", "name": "Dev Team Sync", "users": []}
-        user_email = "dev1@example.com"
-        email_map = {user_email: "auth_user_pk1"}
-        mm_users = [{"email": user_email, "id": "mm_id_1", "username": "dev1"}]
-        self.mock_mm_client_instance.get_channel_by_name.return_value = {
-            "id": "mm_chan_id1",
-            "display_name": "Dev Team Sync",
-        }
-        self.mock_mm_client_instance.get_users_in_channel.return_value = mm_users
-        self.mock_auth_client_instance.add_user_to_group.return_value = True
-        self.mock_outline_client_instance.get_user_by_email.return_value = {"id": "outline_user_id_1"}
-        self.mock_outline_client_instance.get_collection_by_name.return_value = {"id": "outline_coll_id_1"}
-        self.mock_outline_client_instance.add_user_to_collection.return_value = False
-
-        results = sync_single_group_to_services(
-            self.mock_auth_client_instance,
-            self.mock_mm_client_instance,
-            self.mock_outline_client_instance,
-            self.test_mm_team_id,
-            auth_group,
-            email_map,
-        )
-        self.assertEqual(len(results), 2)
-        outline_res = next(r for r in results if r["service"] == "OUTLINE")
-        self.assertEqual(outline_res["status"], "FAILURE")
-        self.assertEqual(outline_res["action"], "FAILED_TO_ADD_TO_OUTLINE_COLLECTION")
-
-    def test_library_sync_single_group_client_missing(self):
-        results_no_auth = sync_single_group_to_services(
-            None, self.mock_mm_client_instance, self.mock_outline_client_instance, self.test_mm_team_id, {}, {}
-        )
-        self.assertEqual(results_no_auth, [])
-        results_no_mm = sync_single_group_to_services(
-            self.mock_auth_client_instance, None, self.mock_outline_client_instance, self.test_mm_team_id, {}, {}
-        )
-        self.assertEqual(results_no_mm, [])
-
-    @patch("libraries.group_sync_services.sync_single_group_to_services")
+    @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
-    def test_library_orchestrate_sync_success_all_clients(self, mock_get_groups_map, mock_sync_single_group):
+    @patch("libraries.group_sync_services.config")
+    def test_library_orchestrate_sync_success_all_clients(
+        self, mock_lib_config, mock_get_groups_map, mock_sync_entity_permissions
+    ):
         mock_auth_client = MagicMock(spec=AuthentikClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
         mock_outline_client = MagicMock(spec=OutlineClient)
         mock_team_id = "team123"
-        mock_groups_list = [{"name": "group1", "pk": "g1"}, {"name": "group2", "pk": "g2"}]
+        mock_groups_list = [
+            {"name": "projet_alpha", "pk": "g1_std", "users": [], "users_obj": []},
+            {"name": "projet_alpha Admin", "pk": "g1_adm", "users": [], "users_obj": []},
+            {"name": "antenne_beta", "pk": "g2_std", "users": [], "users_obj": []},
+        ]
         mock_email_pk_map = {"user1@example.com": "upk1"}
         mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map)
-        mock_sync_single_group.side_effect = [
-            [
-                {"service": "AUTHENTIK", "action": "USER_ADDED_TO_AUTHENTIK_GROUP", "status": "SUCCESS"},
-                {"service": "OUTLINE", "action": "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION", "status": "SUCCESS"},
-            ],
-            [
-                {"service": "AUTHENTIK", "action": "USER_ALREADY_IN_AUTHENTIK_GROUP", "status": "SUCCESS"},
-                {"service": "OUTLINE", "action": "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION", "status": "SUCCESS"},
-            ],
+        mock_lib_config.PERMISSIONS_MATRIX = {
+            "PROJET": {
+                "standard": {"authentik_group_name_pattern": "projet_{base_name}"},
+                "admin": {"authentik_group_name_pattern": "projet_{base_name} Admin"},
+            },
+            "ANTENNE": {"standard": {"authentik_group_name_pattern": "antenne_{base_name}"}},
+        }
+        mock_sync_entity_permissions.side_effect = [
+            [{"service": "PROJET_ALPHA_SYNC", "status": "SUCCESS"}],
+            [{"service": "ANTENNE_BETA_SYNC", "status": "SUCCESS"}],
         ]
         expected_detailed_results = [
-            {"service": "AUTHENTIK", "action": "USER_ADDED_TO_AUTHENTIK_GROUP", "status": "SUCCESS"},
-            {"service": "OUTLINE", "action": "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION", "status": "SUCCESS"},
-            {"service": "AUTHENTIK", "action": "USER_ALREADY_IN_AUTHENTIK_GROUP", "status": "SUCCESS"},
-            {"service": "OUTLINE", "action": "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION", "status": "SUCCESS"},
+            {"service": "PROJET_ALPHA_SYNC", "status": "SUCCESS"},
+            {"service": "ANTENNE_BETA_SYNC", "status": "SUCCESS"},
         ]
         success, detailed_results = orchestrate_group_synchronization(
             mock_auth_client, mock_mm_client, mock_outline_client, mock_team_id
@@ -394,46 +131,68 @@ class TestSyncLogic(unittest.TestCase):
         self.assertTrue(success)
         self.assertEqual(detailed_results, expected_detailed_results)
         mock_get_groups_map.assert_called_once_with(mock_auth_client)
-        self.assertEqual(mock_sync_single_group.call_count, 2)
-        mock_sync_single_group.assert_any_call(
-            mock_auth_client, mock_mm_client, mock_outline_client, mock_team_id, mock_groups_list[0], mock_email_pk_map
-        )  # noqa: E501
-        mock_sync_single_group.assert_any_call(
-            mock_auth_client, mock_mm_client, mock_outline_client, mock_team_id, mock_groups_list[1], mock_email_pk_map
-        )  # noqa: E501
+        self.assertEqual(mock_sync_entity_permissions.call_count, 2)
+        mock_sync_entity_permissions.assert_any_call(
+            mock_auth_client,
+            mock_mm_client,
+            mock_outline_client,
+            mock_team_id,
+            "alpha",
+            "PROJET",
+            mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
+            unittest.mock.ANY,
+            mock_email_pk_map,
+        )
+        mock_sync_entity_permissions.assert_any_call(
+            mock_auth_client,
+            mock_mm_client,
+            mock_outline_client,
+            mock_team_id,
+            "beta",
+            "ANTENNE",
+            mock_lib_config.PERMISSIONS_MATRIX["ANTENNE"],
+            unittest.mock.ANY,
+            mock_email_pk_map,
+        )
 
-    @patch("libraries.group_sync_services.sync_single_group_to_services")
+    @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
-    def test_library_orchestrate_sync_success_outline_client_none(self, mock_get_groups_map, mock_sync_single_group):
+    @patch("libraries.group_sync_services.config")
+    def test_library_orchestrate_sync_success_outline_client_none(
+        self, mock_lib_config, mock_get_groups_map, mock_sync_entity_permissions
+    ):
         mock_auth_client = MagicMock(spec=AuthentikClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
         mock_team_id = "team123"
         mock_outline_client_none = None
-        mock_groups_list = [{"name": "group1", "pk": "g1"}]
-        mock_email_pk_map = {"user1@example.com": "upk1"}
+        mock_groups_list = [{"name": "projet_gamma", "pk": "g_gamma", "users": [], "users_obj": []}]
+        mock_email_pk_map = {"usergamma@example.com": "upk_gamma"}
         mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map)
-        mock_sync_single_group.return_value = [
-            {"service": "AUTHENTIK", "action": "USER_ADDED_TO_AUTHENTIK_GROUP", "status": "SUCCESS"}
-        ]
-        expected_detailed_results = [
-            {"service": "AUTHENTIK", "action": "USER_ADDED_TO_AUTHENTIK_GROUP", "status": "SUCCESS"}
-        ]
+        mock_lib_config.PERMISSIONS_MATRIX = {
+            "PROJET": {"standard": {"authentik_group_name_pattern": "projet_{base_name}"}}
+        }
+        mock_sync_entity_permissions.return_value = [{"service": "AUTHENTIK_ONLY", "status": "SUCCESS"}]
+        expected_detailed_results = [{"service": "AUTHENTIK_ONLY", "status": "SUCCESS"}]
         success, detailed_results = orchestrate_group_synchronization(
             mock_auth_client, mock_mm_client, mock_outline_client_none, mock_team_id
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, expected_detailed_results)
-        mock_sync_single_group.assert_called_once_with(
+        mock_sync_entity_permissions.assert_called_once_with(
             mock_auth_client,
             mock_mm_client,
             mock_outline_client_none,
             mock_team_id,
-            mock_groups_list[0],
+            "gamma",
+            "PROJET",
+            mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
+            unittest.mock.ANY,
             mock_email_pk_map,
         )
 
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
-    def test_library_orchestrate_sync_no_groups_found(self, mock_get_groups_map):
+    @patch("libraries.group_sync_services.config")
+    def test_library_orchestrate_sync_no_groups_found(self, mock_lib_config, mock_get_groups_map):
         mock_auth_client = MagicMock(spec=AuthentikClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
         mock_outline_client = MagicMock(spec=OutlineClient)

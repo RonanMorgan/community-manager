@@ -163,6 +163,63 @@ class TestOutlineClient(unittest.TestCase):
         expected_payload = {"id": collection_id}
         mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
 
+    # Tests for remove_user_from_collection
+    @patch("requests.post")
+    def test_remove_user_from_collection_success_true(self, mock_post):
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = {"success": True}
+        mock_post.return_value = mock_response
+
+        result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")
+        self.assertTrue(result)
+        expected_url = f"{self.mock_url}/api/collections.remove_user"
+        expected_payload = {"collectionId": "coll_id_1", "userId": "user_id_1"}
+        mock_post.assert_called_once_with(expected_url, headers=self.client.headers, json=expected_payload)
+
+    @patch("requests.post")
+    def test_remove_user_from_collection_success_204_no_content(self, mock_post):
+        mock_response = Mock(status_code=204)
+        # For 204, .json() would typically not be called or would raise an error if called.
+        # The client logic should handle this (e.g., by not calling .json()).
+        mock_post.return_value = mock_response
+
+        result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")
+        self.assertTrue(result)
+        expected_url = f"{self.mock_url}/api/collections.remove_user"
+        expected_payload = {"collectionId": "coll_id_1", "userId": "user_id_1"}
+        mock_post.assert_called_once_with(expected_url, headers=self.client.headers, json=expected_payload)
+
+    @patch("requests.post")
+    def test_remove_user_from_collection_failure_false(self, mock_post):
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = {"success": False}  # API reports not successful
+        mock_post.return_value = mock_response
+
+        result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")
+        self.assertFalse(result)
+
+    @patch("requests.post")
+    def test_remove_user_from_collection_failure_http_error(self, mock_post):
+        mock_err_response = Mock(status_code=403)  # Forbidden
+        mock_err_response.text = "Forbidden action"
+        mock_err_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_err_response)
+        mock_post.return_value = mock_err_response
+
+        result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")
+        self.assertFalse(result)
+
+    @patch("requests.post")
+    def test_remove_user_from_collection_failure_request_exception(self, mock_post):
+        mock_post.side_effect = requests.exceptions.RequestException("Network issue")
+        result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")
+        self.assertFalse(result)
+
+    def test_remove_user_from_collection_missing_ids(self):
+        self.assertFalse(self.client.remove_user_from_collection(None, "user_id_1"))
+        self.assertFalse(self.client.remove_user_from_collection("coll_id_1", None))
+        self.assertFalse(self.client.remove_user_from_collection("", "user_id_1"))
+        self.assertFalse(self.client.remove_user_from_collection("coll_id_1", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -112,141 +112,325 @@ class MartyBot:
         self.MAX_RECONNECT_DELAY = 60  # seconds
 
         self.commands = {
-            "create_projet": self._handle_create_projet_command,
-            "create_antenne": self._handle_create_antenne_command,
-            "create_pole": self._handle_create_pole_command,
+            "create_projet": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(
+                c, arg_str, "projet", "PROJET", user_id_who_posted
+            ),
+            "create_antenne": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(
+                c, arg_str, "antenne", "ANTENNE", user_id_who_posted
+            ),
+            "create_pole": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(
+                c, arg_str, "pôle", "POLES", user_id_who_posted
+            ),
             "help": self._send_help_message,
             "sync_user_channels": self._handle_sync_user_channels_command,
+            "update_user_rights": self._handle_update_user_rights_command,
         }
 
-    async def _create_resources_for_category(
-        self,
-        base_name: str,
-        category_key: str,
-        admin_category_key: str | None,
-        # channel_id: str, # No longer used for sending message here
-        item_type_display: str,
-        requesting_user_id: str | None,  # Added user_id
+    async def _format_and_send_sync_results(
+        self, channel_id: str, initial_post_id: str | None, detailed_results: list[dict]
     ):
-        """
-        Helper function to create resources based on permission matrix categories.
-        It creates resources for a primary category and optionally for an admin category for a single base_name.
-        Returns a list of log messages for this specific base_name.
-        """
-        item_results_log = []
+        """Helper function to format and send detailed synchronization results."""
+        if not detailed_results:
+            final_summary_message = ":information_source: Processus de synchronisation terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
+            await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
+            return
 
-        # Determine the prefix string based on the primary category_key
-        prefix_str = ""
-        if category_key == "PROJET":
-            prefix_str = "projet_"
-        elif category_key == "ANTENNE":
-            prefix_str = "antenne_"
-        elif category_key == "POLES":
-            prefix_str = "pole_"
+        total_success_ops = 0
+        total_problem_ops = 0
+        action_summary = {}  # Pour compter les types d'actions
 
-        prefixed_base_name = f"{prefix_str}{base_name}"
+        for result in detailed_results:
+            user_mm_name = result.get("mm_username", "Utilisateur inconnu")
+            service_name = result.get("service", "ServiceInconnu").upper()
+            target_resource = result.get("target_resource_name", "RessourceInconnue")
+            action = result.get("action", "AUCUNE_ACTION")
+            status = result.get("status", "ECHEC")
+            error_msg = result.get("error_message")
 
-        categories_to_process = [(category_key, prefixed_base_name)]
-        if admin_category_key:
-            admin_resource_name = f"{prefixed_base_name} Admin"
-            categories_to_process.append((admin_category_key, admin_resource_name))
+            action_summary[action] = action_summary.get(action, 0) + 1
 
-        item_results_log.append(f"--- Création pour {item_type_display} **`{base_name}`** (préfixé en `{prefix_str}`) ---")
+            icon = ":white_check_mark:" if status == "SUCCESS" else ":x:"
+            if (
+                status == "SKIPPED" and action != "SKIPPED_NO_MM_EMAIL"
+            ):  # SKIPPED_NO_MM_EMAIL n'est pas un problème en soi
+                icon = ":warning:"
 
-        # Loop variable 'name_for_creation' now holds the correctly prefixed name
-        for current_category_key, name_for_creation in categories_to_process:
-            category_permissions = self.config.PERMISSIONS_MATRIX.get(current_category_key)
+            user_line = f"{icon} **Utilisateur :** `{user_mm_name}`"
+            if result.get("mm_user_email") and result.get("mm_user_email") != "NoEmailProvided":
+                user_line += f" ({result.get('mm_user_email')})"
 
-            if not category_permissions:
-                msg = f":x: Configuration error: No permissions found for category '{current_category_key}' in the matrix for '{name_for_creation}'."
-                logging.error(msg)
-                item_results_log.append(msg)
-                continue
+            service_line = f"**Service :** `{service_name}`"
+            resource_line = f"**Ressource :** `{target_resource}`"
+            action_line = f"**Action :** `{action}`"
+            message_parts = [user_line, service_line, resource_line, action_line]
 
-            item_results_log.append(
-                f"  - Sous-groupe/canal **`{name_for_creation}`** (basé sur *{current_category_key}*):"
+            if status == "SUCCESS":
+                total_success_ops += 1
+                # Descriptions spécifiques par action
+                if action == "USER_ADDED_TO_AUTHENTIK_GROUP":
+                    message_parts.append("Ajouté avec succès au groupe Authentik.")
+                elif action == "USER_ALREADY_IN_AUTHENTIK_GROUP":
+                    message_parts.append("Déjà membre du groupe Authentik.")
+                elif action == "USER_REMOVED_FROM_AUTHENTIK_GROUP":
+                    message_parts.append("Supprimé avec succès du groupe Authentik.")
+                elif action.startswith("USER_ADDED_TO_OUTLINE_COLLECTION_WITH_") and action.endswith("_AND_DM_SENT"):
+                    permission = action.split("_WITH_")[1].split("_ACCESS")[0]
+                    message_parts.append(
+                        f"Ajouté à la collection Outline (permission {permission.lower()}) et MP envoyé."
+                    )
+                elif action.startswith("USER_ADDED_TO_OUTLINE_COLLECTION_WITH_") and action.endswith("_DM_FAILED"):
+                    permission = action.split("_WITH_")[1].split("_ACCESS")[0]
+                    message_parts.append(
+                        f"Ajouté à la collection Outline (permission {permission.lower()}), mais échec de l'envoi du MP."
+                    )
+                elif action.startswith("USER_ADDED_TO_OUTLINE_COLLECTION_WITH_"):  # No DM part
+                    permission = action.split("_WITH_")[1].split("_ACCESS")[0]
+                    message_parts.append(f"Ajouté à la collection Outline (permission {permission.lower()}).")
+                elif action == "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED":
+                    message_parts.append("Déjà membre de la collection Outline, permission assurée.")
+                elif action == "USER_REMOVED_FROM_OUTLINE_COLLECTION":
+                    message_parts.append("Supprimé avec succès de la collection Outline.")
+                # ... autres actions SUCCESS ...
+            elif status == "SKIPPED":
+                message_parts.append(f"Ignoré. Raison : {error_msg if error_msg else 'Non spécifiée'}")
+                if action != "SKIPPED_NO_MM_EMAIL":  # Ne pas compter comme un problème si juste pas d'email
+                    total_problem_ops += 1
+            else:  # FAILURE
+                total_problem_ops += 1
+                message_parts.append(f"ÉCHEC. Raison : {error_msg if error_msg else 'Non spécifiée'}")
+
+            full_user_report_message = "\n".join(message_parts)
+            await asyncio.to_thread(
+                self.envoyer_message, channel_id, full_user_report_message, thread_id=initial_post_id
             )
 
-            auth_msg = "    - Authentik: "
+        # Construction du message de résumé final
+        summary_lines = ["### :checkered_flag: Résumé de la synchronisation des droits :"]
+        summary_lines.append(f"- Opérations réussies : {total_success_ops}")
+        if total_problem_ops > 0:
+            summary_lines.append(f"- Problèmes/omissions : {total_problem_ops}")
+
+        summary_lines.append("\n**Détail des actions :**")
+        for act, count in sorted(action_summary.items()):
+            summary_lines.append(f"- `{act}` : {count} fois")
+
+        if total_problem_ops > 0 and total_success_ops > 0:
+            summary_lines.insert(1, ":warning: Synchronisation partiellement terminée.")
+        elif total_problem_ops > 0:
+            summary_lines.insert(1, ":x: Synchronisation terminée avec des problèmes/omissions.")
+        elif total_success_ops > 0:
+            summary_lines.insert(1, ":rocket: Synchronisation terminée avec succès.")
+        else:  # No ops or only skips like NO_MM_EMAIL
+            summary_lines.insert(
+                1, ":information_source: Synchronisation terminée. Peu ou pas d'opérations significatives effectuées."
+            )
+
+        final_summary_message = "\n".join(summary_lines)
+        if final_summary_message:
+            await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
+
+    async def _handle_update_user_rights_command(self, channel_id, arg_string=None):
+        """Met à jour tous les droits utilisateurs et supprime les accès obsolètes."""
+        logging.info(f"'{self.bot_name_mention} update_user_rights' command received in channel {channel_id}.")
+
+        initial_message_text = (
+            ":hourglass_flowing_sand: Démarrage de la mise à jour des droits utilisateurs... "
+            "Ceci inclut la synchronisation des groupes Authentik et des collections Outline, "
+            "ainsi que la suppression des accès obsolètes. Cela peut prendre un moment."
+        )
+        initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
+
+        if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
+            error_msg = (
+                ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la synchronisation. "
+                "Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. "
+                "Veuillez vérifier les logs du serveur."
+            )
+            logging.error(
+                "Bot is not properly configured for rights update (core components): Missing Authentik client, "
+                "Mattermost API client, or Mattermost Team ID."
+            )
+            await asyncio.to_thread(self.envoyer_message, channel_id, error_msg, thread_id=initial_post_id)
+            return
+
+        if not self.outline_client:
+            logging.info(
+                "Outline client not configured on this bot instance. Outline synchronization will be skipped."
+            )
+
+        try:
+            logging.info("Dispatching group synchronization task (for rights update) to a thread...")
+            # On réutilise orchestrate_group_synchronization car elle fait maintenant la synchro complète
+            orchestration_success, detailed_results = await asyncio.to_thread(
+                orchestrate_group_synchronization,
+                self.authentik_client,
+                self.mattermost_api_client,
+                self.outline_client,  # Peut être None, géré par l'orchestrateur
+                self.config.MATTERMOST_TEAM_ID,
+            )
+
+            if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
+                logging.warning(
+                    "Group synchronization task (for rights update) reported critical failure during orchestration."
+                )
+                summary_msg = (
+                    ":x: La mise à jour des droits a échoué de manière critique durant l'orchestration. "
+                    "Veuillez consulter les logs du serveur pour plus de détails."
+                )
+                await asyncio.to_thread(self.envoyer_message, channel_id, summary_msg, thread_id=initial_post_id)
+            else:
+                logging.info(
+                    f"Group synchronization task (for rights update) orchestration completed. Detailed results count: {len(detailed_results)}"
+                )
+                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results)
+
+        except Exception as e:
+            logging.error(
+                f"An unexpected error occurred while dispatching or running the rights update task: {e}", exc_info=True
+            )
+            error_response_msg = (
+                ":boom: Une erreur serveur inattendue s'est produite lors de la tentative "
+                "d'exécution de la mise à jour des droits. Veuillez consulter les logs du serveur."
+            )
+            await asyncio.to_thread(self.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id)
+
+    async def _create_resources_for_entity(
+        self,
+        base_name: str,  # User-provided name, e.g., "MonProjet"
+        entity_key: str,  # Key from PERMISSIONS_MATRIX, e.g., "PROJET"
+        item_type_display: str,  # e.g., "projet"
+        requesting_user_id: str | None,
+    ):
+        """
+        Helper function to create resources for a given entity type (e.g., PROJET)
+        based on the new permissions matrix structure.
+        """
+        item_results_log = []
+        entity_config = self.config.PERMISSIONS_MATRIX.get(entity_key)
+
+        if not entity_config:
+            msg = f":x: Configuration error: No permissions found for entity category '{entity_key}' in the matrix."
+            logging.error(msg)
+            item_results_log.append(msg)
+            return item_results_log
+
+        item_results_log.append(
+            f"--- Création pour {item_type_display} **`{base_name}`** (entité: *{entity_key}*) ---"
+        )
+
+        # Standard resources
+        standard_config = entity_config.get("standard")
+        if standard_config:
+            std_auth_pattern = standard_config.get("authentik_group_name_pattern", "{base_name}")
+            std_mm_chan_pattern = standard_config.get("mattermost_channel_name_pattern", "{base_name}")
+            std_mm_chan_type = standard_config.get("mattermost_channel_type", "O")
+
+            std_auth_name = std_auth_pattern.format(base_name=base_name)
+            std_mm_chan_name = std_mm_chan_pattern.format(base_name=base_name)
+
+            item_results_log.append(f"  - Standard (base: `{base_name}`):")
+            # Authentik Group (Standard)
+            auth_msg_std = f"    - Authentik Groupe `{std_auth_name}`: "
             if self.authentik_client:
                 try:
-                    if self.authentik_client.create_group(name_for_creation):
-                        auth_msg += ":white_check_mark: Groupe créé."
+                    if self.authentik_client.create_group(std_auth_name):
+                        auth_msg_std += ":white_check_mark: Créé."
                     else:
-                        auth_msg += ":warning: Échec création (ou groupe existe déjà)."
+                        auth_msg_std += ":warning: Échec/Existe déjà."
                 except Exception as e:
-                    logging.error(
-                        f"Error creating Authentik group for {name_for_creation} ({current_category_key}): {e}",
-                        exc_info=True,
-                    )
-                    auth_msg += f":x: Erreur interne ({e})."
+                    auth_msg_std += f":x: Erreur ({e})."
             else:
-                auth_msg += ":information_source: Client non configuré."
-            item_results_log.append(auth_msg)
+                auth_msg_std += ":information_source: Client non configuré."
+            item_results_log.append(auth_msg_std)
 
-            outline_msg = "    - Outline: "
+            # Mattermost Channel (Standard)
+            mm_msg_std = f"    - Mattermost Canal `{std_mm_chan_name}` (type: {std_mm_chan_type}): "
+            if self.mattermost_api_client:
+                try:
+                    ch_std = self.mattermost_api_client.create_channel(std_mm_chan_name, channel_type=std_mm_chan_type)
+                    if ch_std and ch_std.get("id"):
+                        mm_msg_std += f":white_check_mark: Créé (ID: {ch_std['id']})."
+                        if requesting_user_id and self.mattermost_api_client.add_user_to_channel(
+                            ch_std["id"], requesting_user_id
+                        ):
+                            mm_msg_std += " Demandeur ajouté."
+                        elif requesting_user_id:
+                            mm_msg_std += " Échec ajout demandeur."
+                    else:
+                        mm_msg_std += ":warning: Échec/Existe déjà."
+                except Exception as e:
+                    mm_msg_std += f":x: Erreur ({e})."
+            else:
+                mm_msg_std += ":information_source: Client non configuré."
+            item_results_log.append(mm_msg_std)
+
+        # Admin resources (if configured)
+        admin_config = entity_config.get("admin")
+        if admin_config:
+            adm_auth_pattern = admin_config.get("authentik_group_name_pattern", "{base_name} Admin")
+            adm_mm_chan_pattern = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin")
+            adm_mm_chan_type = admin_config.get("mattermost_channel_type", "P")
+
+            adm_auth_name = adm_auth_pattern.format(base_name=base_name)
+            adm_mm_chan_name = adm_mm_chan_pattern.format(base_name=base_name)
+
+            item_results_log.append(f"  - Admin (base: `{base_name}`):")
+            # Authentik Group (Admin)
+            auth_msg_adm = f"    - Authentik Groupe `{adm_auth_name}`: "
+            if self.authentik_client:
+                try:
+                    if self.authentik_client.create_group(adm_auth_name):
+                        auth_msg_adm += ":white_check_mark: Créé."
+                    else:
+                        auth_msg_adm += ":warning: Échec/Existe déjà."
+                except Exception as e:
+                    auth_msg_adm += f":x: Erreur ({e})."
+            else:
+                auth_msg_adm += ":information_source: Client non configuré."
+            item_results_log.append(auth_msg_adm)
+
+            # Mattermost Channel (Admin)
+            mm_msg_adm = f"    - Mattermost Canal `{adm_mm_chan_name}` (type: {adm_mm_chan_type}): "
+            if self.mattermost_api_client:
+                try:
+                    ch_adm = self.mattermost_api_client.create_channel(adm_mm_chan_name, channel_type=adm_mm_chan_type)
+                    if ch_adm and ch_adm.get("id"):
+                        mm_msg_adm += f":white_check_mark: Créé (ID: {ch_adm['id']})."
+                        if requesting_user_id and self.mattermost_api_client.add_user_to_channel(
+                            ch_adm["id"], requesting_user_id
+                        ):
+                            mm_msg_adm += " Demandeur ajouté."
+                        elif requesting_user_id:
+                            mm_msg_adm += " Échec ajout demandeur."
+                    else:
+                        mm_msg_adm += ":warning: Échec/Existe déjà."
+                except Exception as e:
+                    mm_msg_adm += f":x: Erreur ({e})."
+            else:
+                mm_msg_adm += ":information_source: Client non configuré."
+            item_results_log.append(mm_msg_adm)
+
+        # Outline Collection (unique per entity)
+        outline_config = entity_config.get("outline")
+        if outline_config:
+            coll_pattern = outline_config.get("collection_name_pattern", "{base_name}")
+            outline_coll_name = coll_pattern.format(base_name=base_name)
+
+            outline_msg = f"  - Outline Collection `{outline_coll_name}`: "
             if self.outline_client:
                 try:
-                    status = self.outline_client.create_group(name_for_creation)
+                    status = self.outline_client.create_group(outline_coll_name)  # create_group ensures existence
                     if status == "CREATED":
-                        outline_msg += ":white_check_mark: Collection créée."
+                        outline_msg += ":white_check_mark: Créée."
                     elif status == "EXISTS":
                         outline_msg += ":information_source: Collection existait déjà."
                     else:  # FAILED
                         outline_msg += ":warning: Échec création/vérification."
                 except Exception as e:
-                    logging.error(
-                        f"Error creating Outline collection for {name_for_creation} ({current_category_key}): {e}",
-                        exc_info=True,
-                    )
-                    outline_msg += f":x: Erreur interne ({e})."
+                    outline_msg += f":x: Erreur ({e})."
             else:
                 outline_msg += ":information_source: Client non configuré."
             item_results_log.append(outline_msg)
-
-            mm_settings = category_permissions.get("mattermost", {})
-            mm_channel_type = mm_settings.get("channel_type", "O")
-            mm_msg = "    - Mattermost: "
-            if self.mattermost_api_client:
-                created_mm_channel_id = None
-                try:
-                    channel_creation_result = self.mattermost_api_client.create_channel(
-                        name_for_creation, channel_type=mm_channel_type
-                    )
-                    if (
-                        channel_creation_result
-                        and isinstance(channel_creation_result, dict)
-                        and channel_creation_result.get("id")
-                    ):
-                        created_mm_channel_id = channel_creation_result["id"]
-                        mm_msg += f":white_check_mark: Canal ({'Public' if mm_channel_type == 'O' else 'Privé'}) créé (ID: {created_mm_channel_id})."
-                        if requesting_user_id and created_mm_channel_id:
-                            logging.info(
-                                f"Attempting to add user {requesting_user_id} to new channel {created_mm_channel_id} ({name_for_creation})"
-                            )
-                            if self.mattermost_api_client.add_user_to_channel(
-                                created_mm_channel_id, requesting_user_id
-                            ):
-                                mm_msg += " Utilisateur demandeur ajouté au canal."
-                                logging.info(
-                                    f"Successfully added user {requesting_user_id} to channel {created_mm_channel_id} ({name_for_creation})"
-                                )
-                            else:
-                                mm_msg += " Échec de l'ajout de l'utilisateur demandeur au canal."
-                                logging.warning(
-                                    f"Failed to add user {requesting_user_id} to channel {created_mm_channel_id} ({name_for_creation})"
-                                )
-                    else:
-                        mm_msg += f":warning: Échec création ({'Public' if mm_channel_type == 'O' else 'Privé'}) (ou existe déjà)."
-                except Exception as e:
-                    logging.error(
-                        f"Error creating Mattermost channel for {name_for_creation} ({current_category_key}): {e}",
-                        exc_info=True,
-                    )
-                    mm_msg += f":x: Erreur interne ({e})."
-            else:
-                mm_msg += ":information_source: Client non configuré."
-            item_results_log.append(mm_msg)
 
         return item_results_log
 
@@ -254,18 +438,17 @@ class MartyBot:
         self,
         channel_id: str,
         arg_string: str | None,
-        item_type_display: str,
-        category_key: str,
-        admin_category_key: str | None,
-        command_name: str,
-        requesting_user_id: str | None,  # Added user_id
+        item_type_display: str,  # e.g. "projet"
+        entity_key: str,  # e.g. "PROJET"
+        requesting_user_id: str | None,
     ):
-        """Generic handler for create commands supporting multiple arguments."""
+        """Generic handler for create commands supporting multiple arguments, using new matrix structure."""
+        command_name = f"create_{item_type_display.lower()}"  # Reconstruct command name for messages
         if not arg_string:
             await asyncio.to_thread(
                 self.envoyer_message,
                 channel_id,
-                f":warning: Au moins un nom de {item_type_display} est requis. Usage: `{self.bot_name_mention} {command_name} <Nom1> [Nom2 ...]`",  # noqa: E501
+                f":warning: Au moins un nom de {item_type_display} est requis. Usage: `{self.bot_name_mention} {command_name} <Nom1> [Nom2 ...]`",
             )
             return
 
@@ -279,24 +462,27 @@ class MartyBot:
         )
         await asyncio.to_thread(self.envoyer_message, channel_id, initial_message)
 
-        if not self.config.PERMISSIONS_MATRIX:
+        entity_config = self.config.PERMISSIONS_MATRIX.get(entity_key)
+        if not entity_config:
             await asyncio.to_thread(
                 self.envoyer_message,
                 channel_id,
-                ":x: Erreur: La matrice des permissions n'est pas chargée. Impossible de continuer.",
+                f":x: Erreur: Configuration pour l'entité '{entity_key}' non trouvée dans la matrice des permissions.",
             )
             return
 
         overall_log_parts = [f"### Résumé global pour la commande `{command_name}`"]
 
         for base_name in base_names:
-            logging.info(f"'{command_name}' command processing for: {base_name} by user {requesting_user_id}")
-            item_log = await self._create_resources_for_category(
+            logging.info(
+                f"'{command_name}' command processing for: {base_name} (entity: {entity_key}) by user {requesting_user_id}"
+            )
+            # Pass the whole entity_config dict for this entity_key
+            item_log = await self._create_resources_for_entity(
                 base_name=base_name,
-                category_key=category_key,
-                admin_category_key=admin_category_key,
+                entity_key=entity_key,
                 item_type_display=item_type_display,
-                requesting_user_id=requesting_user_id,  # Pass it down
+                requesting_user_id=requesting_user_id,
             )
             overall_log_parts.extend(item_log)
             overall_log_parts.append("---")
@@ -304,23 +490,25 @@ class MartyBot:
         final_summary_message = "\n".join(overall_log_parts)
         await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message)
 
-    async def _handle_create_projet_command(self, channel_id, arg_string, user_id_who_posted=None):  # Added user_id
-        """Crée les ressources pour un ou plusieurs projets (standard et admin). Usage: create_projet <NomProjet1> [NomProjet2 ...]"""
-        await self._execute_batch_create_command(
-            channel_id, arg_string, "projet", "PROJET", "PROJET_ADMIN", "create_projet", user_id_who_posted
-        )
-
-    async def _handle_create_antenne_command(self, channel_id, arg_string, user_id_who_posted=None):  # Added user_id
-        """Crée les ressources pour une ou plusieurs antennes (standard et admin). Usage: create_antenne <NomAntenne1> [NomAntenne2 ...]"""
-        await self._execute_batch_create_command(
-            channel_id, arg_string, "antenne", "ANTENNE", "ANTENNE_ADMIN", "create_antenne", user_id_who_posted
-        )
-
-    async def _handle_create_pole_command(self, channel_id, arg_string, user_id_who_posted=None):  # Added user_id
-        """Crée les ressources pour un ou plusieurs pôles (standard et admin). Usage: create_pole <NomPole1> [NomPole2 ...]"""
-        await self._execute_batch_create_command(
-            channel_id, arg_string, "pôle", "POLES", "POLES_ADMIN", "create_pole", user_id_who_posted
-        )
+    # _handle_create_projet_command, _handle_create_antenne_command, _handle_create_pole_command
+    # are now simplified by the lambdas in self.commands, directly calling _execute_batch_create_command.
+    # They can be removed if no other specific logic is needed for them.
+    # For now, I will keep them commented out in case they are needed for more specific logic later.
+    # async def _handle_create_projet_command(self, channel_id, arg_string, user_id_who_posted=None):
+    #     """Crée les ressources pour un ou plusieurs projets. Usage: create_projet <NomProjet1> [NomProjet2 ...]"""
+    #     await self._execute_batch_create_command(
+    #         channel_id, arg_string, "projet", "PROJET", user_id_who_posted
+    #     )
+    # async def _handle_create_antenne_command(self, channel_id, arg_string, user_id_who_posted=None):
+    #     """Crée les ressources pour une ou plusieurs antennes. Usage: create_antenne <NomAntenne1> [NomAntenne2 ...]"""
+    #     await self._execute_batch_create_command(
+    #         channel_id, arg_string, "antenne", "ANTENNE", user_id_who_posted
+    #     )
+    # async def _handle_create_pole_command(self, channel_id, arg_string, user_id_who_posted=None):
+    #     """Crée les ressources pour un ou plusieurs pôles. Usage: create_pole <NomPole1> [NomPole2 ...]"""
+    #     await self._execute_batch_create_command(
+    #         channel_id, arg_string, "pôle", "POLES", user_id_who_posted
+    #     )
 
     async def _handle_sync_user_channels_command(
         self, channel_id, arg_string=None
@@ -332,9 +520,14 @@ class MartyBot:
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
 
         if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
-            error_msg = ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la synchronisation. Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. Veuillez vérifier les logs du serveur."
+            error_msg = (
+                ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la synchronisation. "
+                "Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. "
+                "Veuillez vérifier les logs du serveur."
+            )
             logging.error(
-                "Bot is not properly configured for sync (core components): Missing Authentik client, Mattermost API client, or Mattermost Team ID."
+                "Bot is not properly configured for sync (core components): Missing Authentik client, "
+                "Mattermost API client, or Mattermost Team ID."
             )
             await asyncio.to_thread(self.envoyer_message, channel_id, error_msg, thread_id=initial_post_id)
             return
@@ -348,86 +541,23 @@ class MartyBot:
                 orchestrate_group_synchronization,
                 self.authentik_client,
                 self.mattermost_api_client,
-                self.outline_client,
+                self.outline_client,  # Peut être None, géré par l'orchestrateur
                 self.config.MATTERMOST_TEAM_ID,
             )
 
-            final_summary_message = ""
-            if not orchestration_success:
+            if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
                 logging.warning("Group synchronization task reported critical failure during orchestration.")
-                final_summary_message = ":x: La synchronisation des groupes a échoué de manière critique durant l'orchestration. Veuillez consulter les logs du serveur pour plus de détails."
+                summary_msg = (
+                    ":x: La synchronisation des groupes a échoué de manière critique durant l'orchestration. "
+                    "Veuillez consulter les logs du serveur pour plus de détails."
+                )
+                await asyncio.to_thread(self.envoyer_message, channel_id, summary_msg, thread_id=initial_post_id)
             else:
                 logging.info(
                     f"Group synchronization task orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
-                if not detailed_results:
-                    final_summary_message = ":information_source: Processus de synchronisation terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
-                else:
-                    total_success_ops = 0
-                    total_problem_ops = 0
-
-                    for result in detailed_results:
-                        user_mm_name = result.get("mm_username", "Utilisateur inconnu")
-                        service_name = result.get("service", "ServiceInconnu").upper()
-                        target_resource = result.get("target_resource_name", "RessourceInconnue")
-                        action = result.get("action", "AUCUNE_ACTION")
-                        status = result.get("status", "ECHEC")
-                        error_msg = result.get("error_message")
-
-                        icon = ":white_check_mark:" if status == "SUCCESS" else ":x:"
-                        if status == "SKIPPED" and action != "SKIPPED_NO_MM_EMAIL":
-                            icon = ":warning:"
-
-                        user_line = f"{icon} **Utilisateur :** `{user_mm_name}`"
-                        if result.get("mm_user_email") and result.get("mm_user_email") != "NoEmailProvided":
-                            user_line += f" ({result.get('mm_user_email')})"
-
-                        service_line = "**Service :** `{}`".format(service_name)
-                        resource_line = "**Ressource :** `{}`".format(target_resource)
-                        action_line = "**Action :** `{}`".format(action)
-
-                        message_parts = [user_line, service_line, resource_line, action_line]
-
-                        if status == "SUCCESS":
-                            total_success_ops += 1
-                            if action == "USER_ADDED_TO_AUTHENTIK_GROUP":
-                                message_parts.append("Ajouté avec succès au groupe Authentik.")
-                            elif action == "USER_ALREADY_IN_AUTHENTIK_GROUP":
-                                message_parts.append("Déjà membre du groupe Authentik.")
-                            elif action == "USER_ADDED_TO_OUTLINE_COLLECTION_AND_DM_SENT":
-                                message_parts.append("Ajouté à la collection Outline et MP envoyé.")
-                            elif action == "USER_ADDED_TO_OUTLINE_COLLECTION_DM_FAILED":
-                                message_parts.append("Ajouté à la collection Outline, mais échec de l'envoi du MP.")
-                            elif action == "USER_ALREADY_IN_OUTLINE_COLLECTION":
-                                message_parts.append("Déjà membre de la collection Outline.")
-                            elif action == "USER_MEMBERSHIP_ENSURED_IN_OUTLINE_COLLECTION":
-                                message_parts.append("Appartenance assurée à la collection Outline.")
-                        elif status == "SKIPPED":
-                            message_parts.append(f"Ignoré. Raison : {error_msg if error_msg else 'Non spécifiée'}")
-                            if action != "SKIPPED_NO_MM_EMAIL":
-                                total_problem_ops += 1
-                        else:  # FAILURE
-                            total_problem_ops += 1
-                            message_parts.append(f"ÉCHEC. Raison : {error_msg if error_msg else 'Non spécifiée'}")
-
-                        full_user_report_message = "\n".join(message_parts)
-                        await asyncio.to_thread(
-                            self.envoyer_message, channel_id, full_user_report_message, thread_id=initial_post_id
-                        )
-
-                    if total_problem_ops > 0 and total_success_ops > 0:
-                        final_summary_message = f":warning: Synchronisation partiellement terminée. {total_success_ops} opérations réussies, {total_problem_ops} problèmes/omissions nécessitant attention. Voir détails ci-dessus."
-                    elif total_problem_ops > 0:
-                        final_summary_message = f":x: Synchronisation terminée avec {total_problem_ops} problèmes/omissions nécessitant attention. Voir détails ci-dessus."
-                    elif total_success_ops > 0:
-                        final_summary_message = f":rocket: Synchronisation terminée avec succès avec {total_success_ops} opérations. Voir détails ci-dessus."
-                    else:
-                        final_summary_message = ":white_check_mark: Processus de synchronisation terminé. Aucune nouvelle appartenance créée ou problème critique détecté. Vérifiez les détails pour les omissions ou appartenances existantes."
-
-            if final_summary_message:
-                await asyncio.to_thread(
-                    self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id
-                )
+                # Utiliser la méthode factorisée pour envoyer les résultats
+                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results)
 
         except Exception as e:
             logging.error(
@@ -518,7 +648,8 @@ class MartyBot:
         help_lines.append(f"* `{self.bot_name_mention} create_antenne AntenneRegionale`")
         help_lines.append(f"* `{self.bot_name_mention} create_pole PoleTechnique AutrePole`")
         help_lines.append(
-            f"\n**Note :** La commande `{self.bot_name_mention} sync_user_channels` peut prendre un certain temps pour s'exécuter."
+            f"\n**Note :** Les commandes `{self.bot_name_mention} sync_user_channels` et `{self.bot_name_mention} update_user_rights` "
+            "peuvent prendre un certain temps pour s'exécuter."
         )
         help_lines.append(f"\nMentionnez-moi avec une commande, comme `{self.bot_name_mention} help`.")
         help_text = "\n".join(help_lines)
@@ -546,13 +677,16 @@ class MartyBot:
             handler_method = self.commands.get(command_verb)
             if handler_method:
                 # Pass user_id_who_posted to command handlers that need it
+                # For lambdas, arguments must be positional if not explicitly defined with same name.
                 if command_verb in ["create_projet", "create_antenne", "create_pole"]:
-                    await handler_method(channel_id, arg_string, user_id_who_posted=user_id_who_posted)
-                elif (
-                    command_verb == "sync_user_channels"
-                ):  # This command doesn't need user_id_who_posted for its core logic
+                    # The lambda expects (channel_id, arg_string, user_id_who_posted)
+                    await handler_method(channel_id, arg_string, user_id_who_posted)
+                elif command_verb in ["sync_user_channels", "update_user_rights", "help"]:
+                    # These handlers are defined to accept (self, channel_id, arg_string)
+                    # user_id_who_posted is not passed or needed by their current definition.
                     await handler_method(channel_id, arg_string)
-                else:  # For help or other commands that might not need it
+                else:
+                    # Fallback for any other command type if they were to be added without specific handling
                     await handler_method(channel_id, arg_string)
             else:
                 message = f":question: Commande inconnue : **`{command_verb}`**. Essayez `{self.bot_name_mention} help` pour une liste des commandes disponibles."

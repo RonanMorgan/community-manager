@@ -58,24 +58,19 @@ if PERMISSIONS_MATRIX_FILE_PATH:
         try:
             with open(PERMISSIONS_MATRIX_FILE_PATH, "r") as f:
                 loaded_matrix = yaml.safe_load(f)
-                if loaded_matrix and "permissions" in loaded_matrix:
-                    # Transform list into a dict keyed by category for easier access
-                    for item in loaded_matrix["permissions"]:
-                        if "category" in item:
-                            PERMISSIONS_MATRIX[item["category"]] = item
-                        else:
-                            logging.warning(f"Item in permissions_matrix.yml missing 'category': {item}")
+                if loaded_matrix and isinstance(loaded_matrix.get("permissions"), dict):
+                    PERMISSIONS_MATRIX = loaded_matrix["permissions"]
                     if PERMISSIONS_MATRIX:
                         logging.info(
                             f"Successfully loaded {len(PERMISSIONS_MATRIX)} permission categories from {PERMISSIONS_MATRIX_FILE_PATH}."  # noqa: E501
                         )
                     else:
                         logging.warning(
-                            f"Permissions matrix file {PERMISSIONS_MATRIX_FILE_PATH} loaded, but no valid categories found or 'permissions' list was empty."  # noqa: E501
+                            f"Permissions matrix file {PERMISSIONS_MATRIX_FILE_PATH} loaded, but the 'permissions' dictionary is empty."  # noqa: E501
                         )
                 else:
                     logging.warning(
-                        f"Permissions matrix file {PERMISSIONS_MATRIX_FILE_PATH} is empty or not structured correctly (missing 'permissions' key)."  # noqa: E501
+                        f"Permissions matrix file {PERMISSIONS_MATRIX_FILE_PATH} is empty or not structured correctly (missing 'permissions' key or not a dictionary)."  # noqa: E501
                     )
         except yaml.YAMLError as e:
             logging.error(f"Error parsing YAML from permissions matrix file at {PERMISSIONS_MATRIX_FILE_PATH}: {e}.")

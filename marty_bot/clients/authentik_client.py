@@ -183,6 +183,50 @@ class AuthentikClient:
             logging.error(f"Request exception adding user PK {user_pk} to group PK {group_pk}: {e}")
             return False
 
+    def remove_user_from_group(self, group_pk: str, user_pk: int) -> bool:
+        """Removes a user from an Authentik group."""
+        if not self.base_url or not self.token:
+            logging.error("Authentik client not configured.")
+            return False
+        if not group_pk or user_pk is None:  # user_pk can be 0, so check for None explicitly
+            logging.error("Group PK and User PK must be provided to remove user from group.")
+            return False
+
+        url = f"{self.base_url}/api/v3/core/groups/{group_pk}/remove_user/"
+        payload = {"pk": user_pk}
+
+        logging.info(f"Removing user PK {user_pk} from Authentik group PK {group_pk} at {url}")
+        try:
+            response = requests.post(url, headers=self.headers, json=payload)
+            response.raise_for_status()  # Raises for 4xx/5xx responses
+
+            # Typically 204 No Content or 200 OK for this kind of operation
+            if 200 <= response.status_code < 300:
+                logging.info(f"Successfully removed user PK {user_pk} from group PK {group_pk}.")
+                return True
+            else:
+                # This case might be redundant if raise_for_status() is effective
+                logging.warning(
+                    f"Removing user PK {user_pk} from group PK {group_pk} returned "
+                    f"status {response.status_code}. Response: {response.text}"
+                )
+                return False
+        except requests.exceptions.HTTPError as e:
+            # Check if the user was already not a member (Authentik might return 400 or specific error)
+            # This depends on Authentik's exact error response structure for "user not in group"
+            # For example, a 400 response with a specific message.
+            # if e.response.status_code == 400 and "user not in group" in e.response.text.lower():
+            #     logging.info(f"User PK {user_pk} was not a member of group PK {group_pk}. Considered successful removal.")
+            #     return True
+            logging.error(
+                f"HTTP error removing user PK {user_pk} from group PK {group_pk}: "
+                f"{e.response.status_code} - {e.response.text}"
+            )
+            return False
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception removing user PK {user_pk} from group PK {group_pk}: {e}")
+            return False
+
 
 if __name__ == "__main__":
     from dotenv import load_dotenv
