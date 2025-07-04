@@ -444,6 +444,37 @@ class MartyBot:
                 outline_msg += ":information_source: Client non configuré."
             item_results_log.append(outline_msg)
 
+        # Brevo List (unique per entity)
+        brevo_config = entity_config.get("brevo")
+        if brevo_config:
+            brevo_list_pattern = brevo_config.get(
+                "list_name_pattern", "mm_list_{base_name}"
+            )  # Default pattern if not specified
+            brevo_list_name = brevo_list_pattern.format(base_name=base_name)
+
+            brevo_msg = f"  - Brevo Liste `{brevo_list_name}`: "
+            if self.brevo_client:
+                try:
+                    # Attempt to get the list first to see if it exists
+                    existing_list = self.brevo_client.get_list_by_name(brevo_list_name)
+                    if existing_list:
+                        brevo_msg += f":white_check_mark: Existe déjà (ID: {existing_list['id']})."
+                    else:
+                        # If not found, create it
+                        created_list = self.brevo_client.create_list(
+                            brevo_list_name
+                        )  # Assuming folder_id default is fine
+                        if created_list and created_list.get("id"):
+                            brevo_msg += f":white_check_mark: Créée (ID: {created_list['id']})."
+                        else:
+                            # This case might indicate an issue with create_list or a duplicate check within it failed to return obj
+                            brevo_msg += ":warning: Échec création/vérification."
+                except Exception as e:
+                    brevo_msg += f":x: Erreur ({e})."
+            else:
+                brevo_msg += ":information_source: Client non configuré."
+            item_results_log.append(brevo_msg)
+
         return item_results_log
 
     async def _execute_batch_create_command(

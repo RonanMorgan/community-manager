@@ -150,6 +150,10 @@ class TestMartyBot(unittest.TestCase):
 
         self.bot.authentik_client.create_group.return_value = {"name": expected_std_auth_name, "pk": "fake_pk"}
         self.bot.outline_client.create_group.return_value = {"name": expected_outline_coll_name, "id": "fake_id"}
+        # Setup Brevo client mocks for this test
+        expected_brevo_list_name = f"brevo_projet_{project_name}"  # Matches PERMISSIONS_MATRIX
+        self.bot.brevo_client.get_list_by_name.return_value = None  # Simulate list does not exist
+        self.bot.brevo_client.create_list.return_value = {"name": expected_brevo_list_name, "id": "fake_brevo_id"}
 
         def create_channel_side_effect(name, channel_type):
             if name == expected_std_mm_name:
@@ -193,12 +197,25 @@ class TestMartyBot(unittest.TestCase):
             f"Outline Collection `{expected_outline_coll_name}`: :white_check_mark: Collection assurée (créée ou existante).",
             summary_text,
         )
+        # Assert Brevo list creation
+        expected_brevo_list_name = f"brevo_projet_{project_name}"  # Based on PERMISSIONS_MATRIX in setUp
+        self.bot.brevo_client.get_list_by_name.assert_called_with(expected_brevo_list_name)
+        # Check if create_list was called (if get_list_by_name returned None) or not (if list existed)
+        # For this test, assume list does not exist initially, so create_list is called.
+        # To make it more robust, we could mock get_list_by_name to return None.
+        self.bot.brevo_client.create_list.assert_called_with(expected_brevo_list_name)
+        self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
 
     @async_test
     async def test_handle_create_projet_command_multiple_items_success(self):
         project_names_input = ["ProjetAlpha", "ProjetBeta"]
         self.bot.authentik_client.create_group.return_value = {"name": "mocked_auth_group", "pk": "mocked_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "mocked_outline_coll", "id": "mocked_id"}
+        self.bot.brevo_client.get_list_by_name.return_value = None  # Simulate lists do not exist
+        self.bot.brevo_client.create_list.side_effect = lambda name: {
+            "name": name,
+            "id": f"brevo_id_{name}",
+        }  # Dynamic ID
         self.bot.mattermost_api_client.create_channel.return_value = {
             "id": "mock_channel_id",
             "name": "mock_channel_name",
@@ -209,39 +226,56 @@ class TestMartyBot(unittest.TestCase):
 
         self.assertEqual(self.bot.authentik_client.create_group.call_count, len(project_names_input) * 2)
         self.assertEqual(self.bot.outline_client.create_group.call_count, len(project_names_input))
+        self.assertEqual(self.bot.brevo_client.create_list.call_count, len(project_names_input))
         self.assertEqual(self.bot.mattermost_api_client.create_channel.call_count, len(project_names_input) * 2)
         self.assertEqual(self.bot.mattermost_api_client.add_user_to_channel.call_count, len(project_names_input) * 2)
 
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         for name_input in project_names_input:
+            expected_brevo_list_name = f"brevo_projet_{name_input}"
             self.assertIn(f"Création pour projet **`{name_input}`** (entité: *PROJET*)", summary_text)
             self.assertIn(
                 f"Outline Collection `projet_{name_input}`: :white_check_mark: Collection assurée (créée ou existante).",
                 summary_text,
             )
+            self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
 
     @async_test
     async def test_handle_create_antenne_command_multiple_items(self):
         antenne_names_input = ["AntenneEst", "AntenneOuest"]
         self.bot.authentik_client.create_group.return_value = {"name": "mocked_auth_group", "pk": "mocked_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "mocked_outline_coll", "id": "mocked_id"}
+        self.bot.brevo_client.get_list_by_name.return_value = None
+        self.bot.brevo_client.create_list.side_effect = lambda name: {"name": name, "id": f"brevo_id_{name}"}
         self.bot.mattermost_api_client.create_channel.return_value = {"id": "mock_channel_id"}
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_antenne {' '.join(antenne_names_input)}")
         self.assertEqual(self.bot.authentik_client.create_group.call_count, len(antenne_names_input) * 2)
+        self.assertEqual(self.bot.brevo_client.create_list.call_count, len(antenne_names_input))
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
+        summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
+        for name_input in antenne_names_input:
+            expected_brevo_list_name = f"brevo_antenne_{name_input}"  # From PERMISSIONS_MATRIX
+            self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
 
     @async_test
     async def test_handle_create_pole_command_multiple_items(self):
         pole_names_input = ["PoleAlpha", "PoleBeta", "PoleGamma"]
         self.bot.authentik_client.create_group.return_value = {"name": "mocked_auth_group", "pk": "mocked_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "mocked_outline_coll", "id": "mocked_id"}
+        self.bot.brevo_client.get_list_by_name.return_value = None
+        self.bot.brevo_client.create_list.side_effect = lambda name: {"name": name, "id": f"brevo_id_{name}"}
         self.bot.mattermost_api_client.create_channel.return_value = {"id": "mock_channel_id"}
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_pole {' '.join(pole_names_input)}")
         self.assertEqual(self.bot.authentik_client.create_group.call_count, len(pole_names_input) * 2)
+        self.assertEqual(self.bot.brevo_client.create_list.call_count, len(pole_names_input))
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
+        summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
+        for name_input in pole_names_input:
+            expected_brevo_list_name = f"brevo_pole_{name_input}"  # From PERMISSIONS_MATRIX
+            self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
 
     @async_test
     async def test_create_commands_no_arg_provided(self):
@@ -276,6 +310,8 @@ class TestMartyBot(unittest.TestCase):
         project_name_input = "ClientFailProjet"
         self.bot.authentik_client.create_group.return_value = None
         self.bot.outline_client.create_group.return_value = None
+        self.bot.brevo_client.get_list_by_name.return_value = None  # Simulate list not found
+        self.bot.brevo_client.create_list.return_value = None  # Simulate creation failure
         self.bot.mattermost_api_client.create_channel.return_value = None
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name_input}")
 
@@ -298,6 +334,11 @@ class TestMartyBot(unittest.TestCase):
         )
         self.assertIn(
             f"Outline Collection `{expected_outline_coll_name}`: :warning: Échec création/vérification.", summary_text
+        )
+        # Assert Brevo list creation failure
+        expected_brevo_list_name = f"brevo_projet_{project_name_input}"
+        self.assertIn(
+            f"Brevo Liste `{expected_brevo_list_name}`: :warning: Échec création/vérification.", summary_text
         )
 
     @async_test
