@@ -109,7 +109,10 @@ class TestSyncLogic(unittest.TestCase):
             {"name": "antenne_beta", "pk": "g2_std", "users": [], "users_obj": []},
         ]
         mock_email_pk_map = {"user1@example.com": "upk1"}
-        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map)
+        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map) # For the email map part
+        # Also mock the direct call to authentik_client.get_groups_with_users for group discovery
+        mock_auth_client.get_groups_with_users.return_value = (mock_groups_list, mock_email_pk_map)
+
         mock_lib_config.PERMISSIONS_MATRIX = {
             "PROJET": {
                 "standard": {"authentik_group_name_pattern": "projet_{base_name}"},
@@ -169,7 +172,9 @@ class TestSyncLogic(unittest.TestCase):
         mock_outline_client_none = None
         mock_groups_list = [{"name": "projet_gamma", "pk": "g_gamma", "users": [], "users_obj": []}]
         mock_email_pk_map = {"usergamma@example.com": "upk_gamma"}
-        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map)
+        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map) # For email map
+        mock_auth_client.get_groups_with_users.return_value = (mock_groups_list, mock_email_pk_map) # For group discovery
+
         mock_lib_config.PERMISSIONS_MATRIX = {
             "PROJET": {"standard": {"authentik_group_name_pattern": "projet_{base_name}"}}
         }
@@ -200,9 +205,12 @@ class TestSyncLogic(unittest.TestCase):
         mock_mm_client = MagicMock(spec=MattermostClient)
         mock_outline_client = MagicMock(spec=OutlineClient)
         mock_team_id = "team123"
-        mock_get_groups_map.return_value = ([], {})
+        mock_get_groups_map.return_value = ([], {}) # For email map part
+        mock_auth_client.get_groups_with_users.return_value = ([], {}) # For group discovery part
+
         success, detailed_results = orchestrate_group_synchronization(
             mock_auth_client, mock_mm_client, mock_outline_client, mock_team_id, perform_deletions=True
+            # fetch_remote_members defaults to True, so this will use the mock_auth_client.get_groups_with_users
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, [])

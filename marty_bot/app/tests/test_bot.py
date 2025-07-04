@@ -422,7 +422,8 @@ class TestMartyBot(unittest.TestCase):
                 self.bot.mattermost_api_client,
                 self.bot.outline_client,
                 self.bot.config.MATTERMOST_TEAM_ID,
-                perform_deletions=False, # Key check for update_user_rights
+                perform_deletions=False,
+                fetch_remote_members=False # Ajouté
             )
             # Initial message + result messages (at least one user result + one summary)
             self.assertGreaterEqual(self.bot.envoyer_message.call_count, 3)
@@ -466,7 +467,8 @@ class TestMartyBot(unittest.TestCase):
                 self.bot.mattermost_api_client,
                 self.bot.outline_client,
                 self.bot.config.MATTERMOST_TEAM_ID,
-                perform_deletions=True, # Key check for remove_user_rights
+                perform_deletions=True,
+                fetch_remote_members=True # Ajouté
             )
             self.assertGreaterEqual(self.bot.envoyer_message.call_count, 3)
             found_user_result_message = False

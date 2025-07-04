@@ -1,6 +1,7 @@
 import requests
 import logging  # Added logging
 import json  # Added json
+from typing import Optional # Added for type hinting
 
 # Removed direct import of config, will be passed during instantiation
 
@@ -42,7 +43,7 @@ class AuthentikClient:
             logging.info(
                 f"Authentik group '{project_name}' created successfully. Group ID: {response.json().get('pk')}"
             )
-            return True
+            return response.json() # Return the created group object
         except requests.exceptions.HTTPError as e:
             # Log specific HTTP errors, e.g. if group already exists (often a 400 or 409)
             error_msg = (  # noqa: E501
@@ -125,6 +126,57 @@ class AuthentikClient:
             f"from Authentik over {page_count} pages."
         )
         return all_groups, email_to_user_pk_map
+
+    def get_group_by_name(self, group_name: str) -> Optional[dict]:
+        """
+        Fetches a specific group by its name.
+        Returns the group object (dict) if found, None otherwise.
+        The group object should include 'users' (list of user PKs) and 'users_obj' (list of user dicts).
+        """
+        if not self.base_url or not self.token:
+            logging.error("Authentik client not configured.")
+            return None
+        if not group_name:
+            logging.error("Group name must be provided to fetch group by name.")
+            return None
+
+        # Note: URL encoding for group_name might be necessary if names can contain special characters.
+        # requests usually handles this for query parameters.
+        api_url = f"{self.base_url}/api/v3/core/groups/"
+        params = {"name": group_name, "include_users": "true"} # Ensure users_obj is included
+
+        logging.info(f"Fetching Authentik group by name '{group_name}' from {api_url} with params {params}")
+        try:
+            response = requests.get(api_url, headers=self.headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+            results = data.get("results", [])
+            if results:
+                if len(results) > 1:
+                    logging.warning(
+                        f"Found multiple groups ({len(results)}) with the name '{group_name}'. Returning the first one."
+                    )
+                group_obj = results[0]
+                # Ensure the returned object has the expected structure, especially for users,
+                # similar to how get_groups_with_users structures it for consistency.
+                if 'users' not in group_obj: # List of user PKs
+                    group_obj['users'] = [user['pk'] for user in group_obj.get('users_obj', [])]
+
+                return group_obj
+            else:
+                logging.info(f"No Authentik group found with name '{group_name}'.")
+                return None
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error fetching Authentik group '{group_name}': {e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception fetching Authentik group '{group_name}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from Authentik get_group_by_name response for '{group_name}': {e}")
+            return None
 
     def add_user_to_group(self, group_pk, user_pk):
         """Adds a user to an Authentik group."""

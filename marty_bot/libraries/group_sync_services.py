@@ -101,10 +101,33 @@ def sync_entity_permissions(
     std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(base_name=base_name)
 
     std_auth_group_obj = all_authentik_groups_by_name.get(std_auth_group_name)
-    if not std_auth_group_obj:
+    if not std_auth_group_obj: # Group not pre-fetched (e.g. fetch_remote_members=False)
+        logging.info(f"Authentik group '{std_auth_group_name}' for entity '{base_name}' not in pre-fetched list. Attempting to fetch/create.")
+        std_auth_group_obj = authentik_client.get_group_by_name(std_auth_group_name)
+        if not std_auth_group_obj:
+            logging.info(f"Authentik group '{std_auth_group_name}' not found, attempting to create.")
+            # Ensure create_group returns the group object or None if failed
+            created_group = authentik_client.create_group(std_auth_group_name)
+            if created_group:
+                std_auth_group_obj = created_group
+                # Simulate the structure expected by _sync_single_authentik_group if needed,
+                # especially 'users' and 'users_obj' which would be empty for a new group.
+                if 'users' not in std_auth_group_obj: std_auth_group_obj['users'] = []
+                if 'users_obj' not in std_auth_group_obj: std_auth_group_obj['users_obj'] = []
+                logging.info(f"Authentik group '{std_auth_group_name}' created successfully.")
+            else:
+                logging.error(f"Failed to create Authentik group '{std_auth_group_name}'. Skipping standard Authentik sync for this group.")
+        else:
+            logging.info(f"Authentik group '{std_auth_group_name}' fetched successfully.")
+            # Ensure users and users_obj are present, even if empty, to match structure from get_groups_with_users
+            if 'users' not in std_auth_group_obj: std_auth_group_obj['users'] = [] # Should be populated by get_group_by_name if it includes users
+            if 'users_obj' not in std_auth_group_obj: std_auth_group_obj['users_obj'] = [] # Same as above
+
+    if not std_auth_group_obj: # Still no group object after trying to fetch/create
         logging.warning(
-            f"Authentik group '{std_auth_group_name}' for entity '{base_name}' not found. Skipping standard Authentik sync."
+            f"Failed to obtain Authentik group '{std_auth_group_name}' for entity '{base_name}'. Skipping standard Authentik sync."
         )
+    # else: std_auth_group_obj is now available for sync
 
     std_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(std_mm_channel_name))
     std_mm_users_in_channel = []
@@ -128,10 +151,29 @@ def sync_entity_permissions(
         )
         adm_mm_channel_name_for_log = adm_mm_channel_name  # For logging context
         adm_auth_group_obj = all_authentik_groups_by_name.get(adm_auth_group_name)
-        if not adm_auth_group_obj:
+        if not adm_auth_group_obj: # Group not pre-fetched
+            logging.info(f"Authentik admin group '{adm_auth_group_name}' for entity '{base_name}' not in pre-fetched list. Attempting to fetch/create.")
+            adm_auth_group_obj = authentik_client.get_group_by_name(adm_auth_group_name)
+            if not adm_auth_group_obj:
+                logging.info(f"Authentik admin group '{adm_auth_group_name}' not found, attempting to create.")
+                created_group = authentik_client.create_group(adm_auth_group_name)
+                if created_group:
+                    adm_auth_group_obj = created_group
+                    if 'users' not in adm_auth_group_obj: adm_auth_group_obj['users'] = []
+                    if 'users_obj' not in adm_auth_group_obj: adm_auth_group_obj['users_obj'] = []
+                    logging.info(f"Authentik admin group '{adm_auth_group_name}' created successfully.")
+                else:
+                    logging.error(f"Failed to create Authentik admin group '{adm_auth_group_name}'. Skipping admin Authentik sync for this group.")
+            else:
+                logging.info(f"Authentik admin group '{adm_auth_group_name}' fetched successfully.")
+                if 'users' not in adm_auth_group_obj: adm_auth_group_obj['users'] = []
+                if 'users_obj' not in adm_auth_group_obj: adm_auth_group_obj['users_obj'] = []
+
+        if not adm_auth_group_obj: # Still no admin group object
             logging.warning(
-                f"Authentik group '{adm_auth_group_name}' for entity '{base_name}' (admin) not found. Skipping admin Authentik sync."
+                f"Failed to obtain Authentik admin group '{adm_auth_group_name}' for entity '{base_name}'. Skipping admin Authentik sync."
             )
+        # else: adm_auth_group_obj is now available for sync
 
         adm_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(adm_mm_channel_name))
         if adm_mm_channel:
@@ -321,20 +363,26 @@ def _sync_single_outline_collection(
     perform_deletions: bool,
 ) -> list[dict]:
     results = []
-    outline_collection_obj = outline_client.get_collection_by_name(collection_name)
-    if not outline_collection_obj:
-        logging.warning(f"Outline collection '{collection_name}' not found. Cannot sync.")
+    # Attempt to get or create the Outline collection.
+    # Assuming outline_client.create_group ensures the collection exists and returns its object, or None on failure.
+    # The name `create_group` is a bit generic if it's also used for getting; `ensure_collection_exists` might be clearer.
+    # For now, using `create_group` as per existing code in `_create_resources_for_entity`.
+    outline_collection_obj = outline_client.create_group(collection_name) # Renamed from get_collection_by_name
+
+    if not outline_collection_obj or not outline_collection_obj.get("id"):
+        logging.error(f"Failed to get or create Outline collection '{collection_name}'. Cannot sync this collection.")
         return [
             {
                 "service": "OUTLINE",
                 "target_resource_name": collection_name,
-                "status": "SKIPPED",
-                "action": "SKIPPED_OUTLINE_COLLECTION_NOT_FOUND",
-                "error_message": "Collection not found in Outline.",
+                "status": "FAILURE", # Changed from SKIPPED to FAILURE as creation was attempted
+                "action": "FAILED_TO_ENSURE_OUTLINE_COLLECTION",
+                "error_message": "Failed to get or create collection in Outline.",
             }
         ]
 
     outline_collection_id = outline_collection_obj.get("id")
+    # get_collection_members should be called after we know the collection exists.
     current_outline_member_ids = set(outline_client.get_collection_members(outline_collection_id) or [])
     target_outline_ids_for_collection = set()
     # Map Outline user ID to their MM details (username, mm_user_id, email) for logging during removal
@@ -496,9 +544,13 @@ def orchestrate_group_synchronization(
     mattermost_client: "MattermostClient",
     outline_client: Optional["OutlineClient"],
     mm_team_id: str,
-    perform_deletions: bool = True, # Default to True for backward compatibility with script
+    perform_deletions: bool = True,
+    fetch_remote_members: bool = True,
 ) -> tuple[bool, list[dict]]:
-    logging.info(f"Starting group synchronization task for Authentik and Outline... (Perform Deletions: {perform_deletions})")
+    logging.info(
+        f"Starting group synchronization task... "
+        f"(Perform Deletions: {perform_deletions}, Fetch Remote Members: {fetch_remote_members})"
+    )
     detailed_results = []
 
     if not authentik_client:
@@ -511,105 +563,186 @@ def orchestrate_group_synchronization(
         logging.error("Mattermost Team ID not provided to orchestrator. Cannot proceed.")
         return False, detailed_results
 
-    all_auth_groups_list, email_to_auth_pk_map = get_all_authentik_groups_and_user_map(authentik_client)
+    if not outline_client:
+        logging.info("Outline client not provided. Outline synchronization will be skipped.")
 
-    if not all_auth_groups_list:
-        logging.info("No Authentik groups to process. Synchronization finished.")
-        return True, detailed_results
-
-    all_auth_groups_by_name = {g["name"]: g for g in all_auth_groups_list}
-
+    # Fetch all Authentik users for email-to-PK mapping, regardless of fetch_remote_members,
+    # as it's generally useful and avoids repeated lookups by email.
+    # However, fetching all groups is conditional.
+    _, email_to_auth_pk_map = get_all_authentik_groups_and_user_map(authentik_client) # We always need the email map
     if not email_to_auth_pk_map:
         logging.warning(
             "Authentik email-to-user-PK map is empty. Authentik sync operations might not find users effectively."
         )
 
-    if not outline_client:
-        logging.info("Outline client not provided. Outline synchronization will be skipped.")
+    all_auth_groups_by_name = {}
+    entities_to_process = {} # Stores { (entity_key, base_name): entity_config }
 
-    processed_entities = set()
+    if fetch_remote_members:
+        logging.info("Fetching all Authentik groups to discover entities...")
+        all_auth_groups_list, _ = authentik_client.get_groups_with_users() # email_map already fetched
+        if not all_auth_groups_list:
+            logging.info("No Authentik groups found to process based on remote member fetching. Synchronization might be limited.")
+            # Depending on strictness, could return early, or proceed if MM discovery is also planned
+        all_auth_groups_by_name = {g["name"]: g for g in all_auth_groups_list}
 
-    for auth_group_name_iter, auth_group_obj_iter in all_auth_groups_by_name.items():
-        found_entity_key = None
-        current_base_name = None
-
-        # Attempt to map Authentik group name to a base_name and entity_key from PERMISSIONS_MATRIX
-        for entity_key_matrix, entity_cfg_matrix in config.PERMISSIONS_MATRIX.items():
-            # Check standard group pattern first
-            std_pattern = entity_cfg_matrix.get("standard", {}).get("authentik_group_name_pattern")
-            if std_pattern:
-                # Simple check: if pattern is "prefix_{base_name}_suffix"
-                # More complex patterns might need regex. For now, assume "{base_name}" is the variable part.
-                parts = std_pattern.split("{base_name}")
-                prefix = parts[0]
-                suffix = parts[1] if len(parts) > 1 else ""
-
-                if auth_group_name_iter.startswith(prefix) and auth_group_name_iter.endswith(suffix):
-                    # Avoid matching admin group as standard if admin pattern is similar
-                    is_potentially_admin = False
-                    if entity_cfg_matrix.get("admin"):
-                        adm_pattern_check = entity_cfg_matrix.get("admin", {}).get("authentik_group_name_pattern")
-                        if adm_pattern_check == auth_group_name_iter: # Exact match to an admin pattern
-                             is_potentially_admin = True
-                        elif adm_pattern_check: # Check if this std group name could also be an admin group name
-                            adm_parts = adm_pattern_check.split("{base_name}")
-                            adm_prefix = adm_parts[0]
-                            adm_suffix = adm_parts[1] if len(adm_parts) > 1 else ""
-                            if auth_group_name_iter.startswith(adm_prefix) and auth_group_name_iter.endswith(adm_suffix) and len(auth_group_name_iter) >= len(adm_prefix) + len(adm_suffix):
-                                # If the current auth_group_name_iter could be formed by an admin pattern for some base_name,
-                                # it's ambiguous or an admin group. Prioritize admin group interpretation later if it matches fully.
-                                # This simple check might not be perfect for all overlapping patterns.
-                                if len(prefix) + len(suffix) < len(adm_prefix) + len(adm_suffix): # Admin pattern is more specific
-                                     is_potentially_admin = True
-
-
-                    if not is_potentially_admin and len(auth_group_name_iter) > len(prefix) + len(suffix) : # Ensure there's content for base_name
-                        current_base_name = auth_group_name_iter[len(prefix):len(auth_group_name_iter)-len(suffix)]
-                        found_entity_key = entity_key_matrix
-                        break # Found standard match
-
-            # If not found as standard, check admin group pattern
-            if found_entity_key is None and entity_cfg_matrix.get("admin"):
-                adm_pattern = entity_cfg_matrix.get("admin", {}).get("authentik_group_name_pattern")
-                if adm_pattern:
-                    parts = adm_pattern.split("{base_name}")
-                    prefix = parts[0]
-                    suffix = parts[1] if len(parts) > 1 else ""
-                    if auth_group_name_iter.startswith(prefix) and auth_group_name_iter.endswith(suffix) and \
-                       len(auth_group_name_iter) > len(prefix) + len(suffix): # Ensure content for base_name
-                        current_base_name = auth_group_name_iter[len(prefix):len(auth_group_name_iter)-len(suffix)]
-                        found_entity_key = entity_key_matrix
-                        break # Found admin match
-
-        if found_entity_key and current_base_name:
-            entity_tuple = (found_entity_key, current_base_name)
-            if entity_tuple in processed_entities: # Avoid processing the same entity (base_name + type) multiple times
-                continue
-
-            logging.info(f"Orchestrating sync for entity: {found_entity_key}, base_name: {current_base_name}, perform_deletions: {perform_deletions}")
-            entity_sync_results = sync_entity_permissions(
-                authentik_client,
-                mattermost_client,
-                outline_client,
-                mm_team_id,
-                current_base_name,
-                found_entity_key,
-                config.PERMISSIONS_MATRIX[found_entity_key],
-                all_auth_groups_by_name,
-                email_to_auth_pk_map,
-                perform_deletions, # Pass the flag here
+        for auth_group_name_iter in all_auth_groups_by_name.keys():
+            found_entity_key_auth, current_base_name_auth = _map_auth_group_to_entity_and_base_name(
+                auth_group_name_iter, config.PERMISSIONS_MATRIX
             )
-            detailed_results.extend(entity_sync_results)
-            processed_entities.add(entity_tuple)
-        else:
-            logging.warning(
-                f"Could not map Authentik group '{auth_group_name_iter}' to any entity in PERMISSIONS_MATRIX. Skipping."
+            if found_entity_key_auth and current_base_name_auth:
+                entity_tuple = (found_entity_key_auth, current_base_name_auth)
+                if entity_tuple not in entities_to_process:
+                    entities_to_process[entity_tuple] = config.PERMISSIONS_MATRIX[found_entity_key_auth]
+            else:
+                logging.debug(f"Authentik group '{auth_group_name_iter}' did not map to a known entity pattern.")
+    else:
+        logging.info("Discovering entities to process based on Mattermost channels...")
+        mm_channels = mattermost_client.get_channels_for_team(mm_team_id)
+        if not mm_channels:
+            logging.warning("No Mattermost channels found for the team. Cannot discover entities via Mattermost.")
+            return True, detailed_results # Nothing to process
+
+        for channel in mm_channels:
+            channel_name = channel.get("name") # This is the slugified name
+            channel_display_name = channel.get("display_name")
+
+            found_entity_key_mm, current_base_name_mm = _map_mm_channel_to_entity_and_base_name(
+                channel_name, channel_display_name, config.PERMISSIONS_MATRIX # Pass both for flexibility
             )
+            if found_entity_key_mm and current_base_name_mm:
+                entity_tuple = (found_entity_key_mm, current_base_name_mm)
+                if entity_tuple not in entities_to_process:
+                    entities_to_process[entity_tuple] = config.PERMISSIONS_MATRIX[found_entity_key_mm]
+                    logging.info(f"Discovered entity '{current_base_name_mm}' (type: {found_entity_key_mm}) from MM channel '{channel_display_name}'.")
+            else:
+                logging.debug(f"MM channel '{channel_display_name}' (slug: {channel_name}) did not map to a known entity pattern.")
+
+
+    if not entities_to_process:
+        logging.info("No entities found to process after discovery phase. Synchronization finished.")
+        return True, detailed_results
+
+    for (entity_key, base_name), entity_config_to_use in entities_to_process.items():
+        logging.info(
+            f"Orchestrating sync for entity: {entity_key}, base_name: {base_name}, "
+            f"perform_deletions: {perform_deletions}, fetch_remote_members mode was: {fetch_remote_members}"
+        )
+        # When fetch_remote_members is False, all_auth_groups_by_name is initially empty.
+        # sync_entity_permissions will need to handle this by potentially fetching/creating groups on demand.
+        entity_sync_results = sync_entity_permissions(
+            authentik_client,
+            mattermost_client,
+            outline_client,
+            mm_team_id,
+            base_name,
+            entity_key,
+            entity_config_to_use,
+            all_auth_groups_by_name, # This will be populated if fetch_remote_members=True, empty otherwise
+            email_to_auth_pk_map,
+            perform_deletions,
+        )
+        detailed_results.extend(entity_sync_results)
 
     log_msg = (
-        f"Synchronization task completed (perform_deletions={perform_deletions}). "
-        f"Processed {len(processed_entities)} unique entities. "
+        f"Synchronization task completed. Mode (fetch_remote: {fetch_remote_members}, deletions: {perform_deletions}). "
+        f"Processed {len(entities_to_process)} unique entities. "
         f"Total individual operations/results reported: {len(detailed_results)}."
     )
     logging.info(log_msg)
     return True, detailed_results
+
+
+def _map_auth_group_to_entity_and_base_name(auth_group_name: str, permissions_matrix: dict) -> tuple[Optional[str], Optional[str]]:
+    """
+    Attempts to map an Authentik group name to an entity key and base_name from the PERMISSIONS_MATRIX.
+    Returns (None, None) if no unambiguous match is found.
+    Prioritizes admin patterns if a name could ambiguously match both standard and admin.
+    """
+    # Check admin patterns first to give them precedence in ambiguity
+    for entity_key, entity_cfg in permissions_matrix.items():
+        if entity_cfg.get("admin"):
+            adm_pattern = entity_cfg.get("admin", {}).get("authentik_group_name_pattern")
+            if adm_pattern:
+                base_name = _extract_base_name(auth_group_name, adm_pattern)
+                if base_name is not None:
+                    return entity_key, base_name
+
+    # Then check standard patterns
+    for entity_key, entity_cfg in permissions_matrix.items():
+        std_pattern = entity_cfg.get("standard", {}).get("authentik_group_name_pattern")
+        if std_pattern:
+            base_name = _extract_base_name(auth_group_name, std_pattern)
+            if base_name is not None:
+                # Before returning, ensure this wasn't primarily an admin group from another pattern
+                # This check is imperfect if patterns are very complex or similar across entity types.
+                # A more robust solution might involve checking if formatting the extracted base_name
+                # with other admin patterns would yield the same auth_group_name.
+                # For now, this assumes that if it matched an admin pattern above, it was handled.
+                return entity_key, base_name
+    return None, None
+
+
+def _map_mm_channel_to_entity_and_base_name(
+    mm_channel_slug: str, mm_channel_display_name: str, permissions_matrix: dict
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Attempts to map a Mattermost channel (slug or display name) to an entity key and base_name.
+    """
+    # Try matching with channel display name first, as it's often more descriptive
+    for entity_key, entity_cfg in permissions_matrix.items():
+        if entity_cfg.get("admin"):
+            mm_adm_pattern = entity_cfg.get("admin", {}).get("mattermost_channel_name_pattern")
+            if mm_adm_pattern:
+                base_name = _extract_base_name(mm_channel_display_name, mm_adm_pattern)
+                if base_name is not None:
+                    return entity_key, base_name
+        std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
+        if std_pattern:
+            base_name = _extract_base_name(mm_channel_display_name, std_pattern)
+            if base_name is not None:
+                return entity_key, base_name
+
+    # Fallback to matching with channel slug if display name didn't yield a match
+    # (Patterns are usually based on display name conventions, but slug might work for simple cases)
+    for entity_key, entity_cfg in permissions_matrix.items():
+        if entity_cfg.get("admin"):
+            mm_adm_pattern = entity_cfg.get("admin", {}).get("mattermost_channel_name_pattern")
+            # Slugifying the pattern to compare with slug might be needed if patterns are complex
+            # For simple "{base_name}" or "prefix_{base_name}" it might work directly if base_name is slug-compatible
+            if mm_adm_pattern and slugify(mm_adm_pattern.format(base_name="test-slug")) == mm_adm_pattern.format(base_name="test-slug").lower(): # Simple pattern check
+                base_name = _extract_base_name(mm_channel_slug, mm_adm_pattern.lower()) # Compare with lowercased pattern
+                if base_name is not None: return entity_key, base_name
+        std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
+        if std_pattern and slugify(std_pattern.format(base_name="test-slug")) == std_pattern.format(base_name="test-slug").lower():
+            base_name = _extract_base_name(mm_channel_slug, std_pattern.lower())
+            if base_name is not None: return entity_key, base_name
+
+    return None, None
+
+
+def _extract_base_name(actual_name: str, pattern_with_placeholder: str) -> Optional[str]:
+    """
+    Extracts the base_name from an actual_name given a pattern string like "prefix_{base_name}_suffix".
+    Returns the extracted base_name (can be an empty string), or None if the actual_name doesn't match
+    the pattern or if {base_name} is not in the pattern.
+    """
+    placeholder = "{base_name}"
+    if placeholder not in pattern_with_placeholder:
+        return None
+
+    parts = pattern_with_placeholder.split(placeholder)
+    prefix = parts[0]
+    suffix = parts[1] if len(parts) > 1 else ""
+
+    if actual_name.startswith(prefix) and actual_name.endswith(suffix):
+        if len(actual_name) < len(prefix) + len(suffix):
+            return None
+
+        if suffix:
+            base_name_part = actual_name[len(prefix):-len(suffix)]
+        else:
+            base_name_part = actual_name[len(prefix):]
+
+        return base_name_part
+    return None

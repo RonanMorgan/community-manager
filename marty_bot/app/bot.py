@@ -267,6 +267,7 @@ class MartyBot:
                 self.outline_client,  # Peut être None, géré par l'orchestrateur
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True, # Assure la suppression
+                fetch_remote_members=True # Mode complet pour remove_user_rights
             )
 
             if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
@@ -544,6 +545,7 @@ class MartyBot:
                 self.outline_client,
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False, # Ne pas supprimer d'utilisateurs
+                fetch_remote_members=False # Mode "upsert pur" basé sur Mattermost
             )
 
             if not orchestration_success:
