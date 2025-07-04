@@ -960,16 +960,25 @@ class MartyBot:
             if handler_method:
                 # Pass user_id_who_posted to command handlers that need it
                 # For lambdas, arguments must be positional if not explicitly defined with same name.
-                if command_verb in ["create_projet", "create_antenne", "create_pole"]:
-                    # The lambda expects (channel_id, arg_string, user_id_who_posted)
+                if command_verb in [
+                    "create_projet",
+                    "create_antenne",
+                    "create_pole",
+                    "send_email",
+                ]:  # Added 'send_email'
+                    # These handlers expect (channel_id, arg_string, user_id_who_posted)
                     await handler_method(channel_id, arg_string, user_id_who_posted)
-                elif command_verb in ["sync_user_channels", "update_user_rights", "help"]:
+                elif command_verb in [
+                    "update_all_user_rights",
+                    "update_user_rights_and_remove",
+                    "help",
+                ]:  # Removed sync_user_channels and update_user_rights as they were older names
                     # These handlers are defined to accept (self, channel_id, arg_string)
                     # user_id_who_posted is not passed or needed by their current definition.
                     await handler_method(channel_id, arg_string)
-                else:
-                    # Fallback for any other command type if they were to be added without specific handling
-                    await handler_method(channel_id, arg_string)
+                # else: # No other command types currently defined that would fall here without specific handling.
+                # Fallback for any other command type if they were to be added without specific handling
+                # await handler_method(channel_id, arg_string)
             else:
                 message = f":question: Commande inconnue : **`{command_verb}`**. Essayez `{self.bot_name_mention} help` pour une liste des commandes disponibles."
                 await asyncio.to_thread(self.envoyer_message, channel_id, message)
