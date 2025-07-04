@@ -26,6 +26,8 @@ OUTLINE_TOKEN = os.getenv("OUTLINE_TOKEN")
 # Brevo settings
 BREVO_API_URL = os.getenv("BREVO_API_URL", "https://api.brevo.com/v3")
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+BREVO_DEFAULT_SENDER_EMAIL = os.getenv("BREVO_DEFAULT_SENDER_EMAIL")
+BREVO_DEFAULT_SENDER_NAME = os.getenv("BREVO_DEFAULT_SENDER_NAME", "Marty Bot")
 
 # General Configuration
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"

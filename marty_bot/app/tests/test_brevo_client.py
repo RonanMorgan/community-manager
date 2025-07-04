@@ -316,6 +316,56 @@ class TestBrevoClient(unittest.TestCase):
         success = self.client.delete_list(list_id)
         self.assertFalse(success)
 
+    @patch("requests.request")
+    def test_send_transactional_email_success(self, mock_request):
+        """Test sending a transactional email successfully."""
+        subject = "Test Subject"
+        text_content = "Hello, this is a test email."
+        sender_email = "sender@example.com"
+        sender_name = "Test Sender"
+        to_contacts = [{"email": "recipient1@example.com"}, {"email": "recipient2@example.com"}]
+
+        mock_response_data = {"messageId": "some-message-id-123"}
+        mock_request.return_value = mock_brevo_response(201, json_data=mock_response_data)
+
+        success = self.client.send_transactional_email(subject, text_content, sender_email, sender_name, to_contacts)
+        self.assertTrue(success)
+
+        expected_payload = {
+            "sender": {"email": sender_email, "name": sender_name},
+            "to": to_contacts,
+            "subject": subject,
+            "textContent": text_content,
+        }
+        mock_request.assert_called_once_with(
+            "POST", f"{FAKE_API_URL}/smtp/email", headers=self.client.headers, json=expected_payload, params=None
+        )
+
+    @patch("requests.request")
+    def test_send_transactional_email_failure_api_error(self, mock_request):
+        """Test failure when sending a transactional email due to API error."""
+        mock_request.return_value = mock_brevo_response(400, json_data={"code": "api_error", "message": "Bad request"})
+
+        success = self.client.send_transactional_email(
+            "Subject", "Content", "s@e.com", "Sender", [{"email": "r@e.com"}]
+        )
+        self.assertFalse(success)
+
+    @patch("requests.request")
+    def test_send_transactional_email_missing_params(self, mock_request):
+        """Test that sending fails if essential parameters are missing."""
+        self.assertFalse(
+            self.client.send_transactional_email("", "Content", "s@e.com", "Sender", [{"email": "r@e.com"}])
+        )
+        self.assertFalse(
+            self.client.send_transactional_email("Subject", "", "s@e.com", "Sender", [{"email": "r@e.com"}])
+        )
+        self.assertFalse(
+            self.client.send_transactional_email("Subject", "Content", "", "Sender", [{"email": "r@e.com"}])
+        )
+        self.assertFalse(self.client.send_transactional_email("Subject", "Content", "s@e.com", "Sender", []))
+        mock_request.assert_not_called()
+
 
 if __name__ == "__main__":
     # This allows running the tests directly with `python -m unittest path/to/test_brevo_client.py`

@@ -91,7 +91,7 @@ class BrevoClient:
         Adds a contact to a specific list.
         Optionally allows setting contact attributes and enabling/disabling contact update.
         """
-        logging.info(f"Adding contact '{email}' to Brevo list ID {list_id}")
+        logging.info(f"Adding contact '{email}' to Brevo list ID {list_id}")  # noqa: E501
         payload = {"email": email, "listIds": [list_id], "updateEnabled": update_enabled}
         if attributes:
             payload["attributes"] = attributes
@@ -169,6 +169,46 @@ class BrevoClient:
             return True
         logging.error(f"Failed to delete Brevo list ID {list_id}. Status: {status_code}")
         return False
+
+    def send_transactional_email(
+        self, subject: str, text_content: str, sender_email: str, sender_name: str, to_contacts: list[dict]
+    ) -> bool:
+        """
+        Sends a transactional email.
+        :param subject: Subject of the email.
+        :param text_content: Plain text content of the email.
+        :param sender_email: Email address of the sender.
+        :param sender_name: Name of the sender.
+        :param to_contacts: List of recipient dicts, e.g., [{'email': 'recipient1@example.com'}]
+        :return: True if email was sent successfully (API accepted the request), False otherwise.
+        """
+        if not all([subject, text_content, sender_email, to_contacts]):
+            logging.error("Send email failed: Missing subject, text_content, sender_email, or to_contacts.")
+            return False
+
+        # For pure text emails, Brevo API expects 'textContent'.
+        # If HTML is desired, 'htmlContent' would be used.
+        # The API can handle both, or one of them.
+        payload = {
+            "sender": {"email": sender_email, "name": sender_name},
+            "to": to_contacts,
+            "subject": subject,
+            "textContent": text_content,
+        }
+
+        logging.info(
+            f"Attempting to send transactional email. Subject: '{subject}', To: {len(to_contacts)} recipients."
+        )
+        status_code, data = self._make_request("POST", "smtp/email", json_data=payload)
+
+        # Brevo API returns 201 Created if the email is accepted for sending
+        if status_code == 201 and data and (data.get("messageId") or data.get("messageIds")):
+            msg_id = data.get("messageId") or data.get("messageIds")
+            logging.info(f"Transactional email accepted for sending. Message ID(s): {msg_id}")
+            return True
+        else:
+            logging.error(f"Failed to send transactional email. Status: {status_code}, Response: {data}")
+            return False
 
 
 if __name__ == "__main__":
@@ -253,7 +293,7 @@ if __name__ == "__main__":
                 if client.delete_list(created_list_id):
                     print(f"Successfully deleted list ID {created_list_id}.")
                 else:
-                    print(f"Failed to delete list ID {created_list_id}.")
+                    print(f"Failed to delete list ID {created_list_id}.")  # noqa: E501
             # Cleanup: Delete test contacts if they exist (optional, Brevo might handle this when list is deleted or if they are test contacts)
             # This part is more complex as contacts exist independently of lists.
             # For this example, we'll skip explicit contact deletion.

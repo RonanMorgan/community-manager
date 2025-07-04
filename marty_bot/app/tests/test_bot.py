@@ -29,9 +29,10 @@ class TestMartyBot(unittest.TestCase):
         self.mock_config.OUTLINE_TOKEN = "fake_outline_token"
         self.mock_config.BREVO_API_URL = "http://fake-brevo.com"
         self.mock_config.BREVO_API_KEY = "fake_brevo_key"
+        self.mock_config.BREVO_DEFAULT_SENDER_EMAIL = "sender@example.com"
+        self.mock_config.BREVO_DEFAULT_SENDER_NAME = "Marty Test Sender"
         self.mock_config.DEBUG = False
 
-        # Directly set PERMISSIONS_MATRIX on the mock_config object
         self.mock_config.PERMISSIONS_MATRIX = {
             "PROJET": {
                 "standard": {
@@ -95,7 +96,6 @@ class TestMartyBot(unittest.TestCase):
         self.bot.mattermost_api_client = MagicMock()
         self.bot.brevo_client = MagicMock()
         self.bot.envoyer_message = MagicMock(return_value="mock_post_id")
-
         self.test_user_id = "test_user_who_posted"
 
     async def _send_test_message(self, message_text, channel_id="test_channel", user_id=None):
@@ -108,7 +108,6 @@ class TestMartyBot(unittest.TestCase):
             self.bot.mattermost_api_client.reset_mock()
         if self.bot.brevo_client:
             self.bot.brevo_client.reset_mock()
-
         post_content = {
             "message": message_text,
             "channel_id": channel_id,
@@ -121,20 +120,16 @@ class TestMartyBot(unittest.TestCase):
     async def test_handle_help_command(self):
         original_envoyer_message = self.bot.envoyer_message
         self.bot.envoyer_message = MagicMock(return_value="post_id_help")
-
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} help")
-
         self.bot.envoyer_message.assert_called_once()
         args, _ = self.bot.envoyer_message.call_args
         self.assertEqual(args[0], "test_channel")
-
         help_text_content = args[1]
         self.assertIn("### Commandes disponibles pour MartyBot", help_text_content)
         self.assertIn("* **`create_projet`**", help_text_content)
         self.assertIn(f"* `{self.bot.bot_name_mention} create_projet MonProjet1 MonProjet2`", help_text_content)
         self.assertIn(f"* **`{self.bot.bot_name_mention} update_all_user_rights`**", help_text_content)
         self.assertIn("Rôle : S'assure que les utilisateurs présents dans les canaux Mattermost", help_text_content)
-
         self.bot.envoyer_message = original_envoyer_message
 
     @async_test
@@ -147,12 +142,10 @@ class TestMartyBot(unittest.TestCase):
         expected_outline_coll_name = f"projet_{project_name}"
         mock_channel_data_std = {"id": "std_channel_id_123", "name": slugify(expected_std_mm_name)}
         mock_channel_data_adm = {"id": "adm_channel_id_456", "name": slugify(expected_adm_mm_name)}
-
         self.bot.authentik_client.create_group.return_value = {"name": expected_std_auth_name, "pk": "fake_pk"}
         self.bot.outline_client.create_group.return_value = {"name": expected_outline_coll_name, "id": "fake_id"}
-        # Setup Brevo client mocks for this test
-        expected_brevo_list_name = f"brevo_projet_{project_name}"  # Matches PERMISSIONS_MATRIX
-        self.bot.brevo_client.get_list_by_name.return_value = None  # Simulate list does not exist
+        expected_brevo_list_name = f"brevo_projet_{project_name}"
+        self.bot.brevo_client.get_list_by_name.return_value = None
         self.bot.brevo_client.create_list.return_value = {"name": expected_brevo_list_name, "id": "fake_brevo_id"}
 
         def create_channel_side_effect(name, channel_type):
@@ -164,12 +157,12 @@ class TestMartyBot(unittest.TestCase):
 
         self.bot.mattermost_api_client.create_channel.side_effect = create_channel_side_effect
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
-
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name}")
-
         self.bot.authentik_client.create_group.assert_any_call(expected_std_auth_name)
         self.bot.authentik_client.create_group.assert_any_call(expected_adm_auth_name)
         self.bot.outline_client.create_group.assert_called_once_with(expected_outline_coll_name)
+        self.bot.brevo_client.get_list_by_name.assert_called_with(expected_brevo_list_name)
+        self.bot.brevo_client.create_list.assert_called_with(expected_brevo_list_name)
         self.bot.mattermost_api_client.create_channel.assert_any_call(expected_std_mm_name, channel_type="O")
         self.bot.mattermost_api_client.create_channel.assert_any_call(expected_adm_mm_name, channel_type="P")
         self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
@@ -179,7 +172,6 @@ class TestMartyBot(unittest.TestCase):
             mock_channel_data_adm["id"], self.test_user_id
         )
         self.assertEqual(self.bot.mattermost_api_client.add_user_to_channel.call_count, 2)
-
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         self.assertIn(f"Création pour projet **`{project_name}`** (entité: *PROJET*)", summary_text)
@@ -197,13 +189,6 @@ class TestMartyBot(unittest.TestCase):
             f"Outline Collection `{expected_outline_coll_name}`: :white_check_mark: Collection assurée (créée ou existante).",
             summary_text,
         )
-        # Assert Brevo list creation
-        expected_brevo_list_name = f"brevo_projet_{project_name}"  # Based on PERMISSIONS_MATRIX in setUp
-        self.bot.brevo_client.get_list_by_name.assert_called_with(expected_brevo_list_name)
-        # Check if create_list was called (if get_list_by_name returned None) or not (if list existed)
-        # For this test, assume list does not exist initially, so create_list is called.
-        # To make it more robust, we could mock get_list_by_name to return None.
-        self.bot.brevo_client.create_list.assert_called_with(expected_brevo_list_name)
         self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
 
     @async_test
@@ -211,25 +196,19 @@ class TestMartyBot(unittest.TestCase):
         project_names_input = ["ProjetAlpha", "ProjetBeta"]
         self.bot.authentik_client.create_group.return_value = {"name": "mocked_auth_group", "pk": "mocked_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "mocked_outline_coll", "id": "mocked_id"}
-        self.bot.brevo_client.get_list_by_name.return_value = None  # Simulate lists do not exist
-        self.bot.brevo_client.create_list.side_effect = lambda name: {
-            "name": name,
-            "id": f"brevo_id_{name}",
-        }  # Dynamic ID
+        self.bot.brevo_client.get_list_by_name.return_value = None
+        self.bot.brevo_client.create_list.side_effect = lambda name: {"name": name, "id": f"brevo_id_{name}"}
         self.bot.mattermost_api_client.create_channel.return_value = {
             "id": "mock_channel_id",
             "name": "mock_channel_name",
         }
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
-
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {' '.join(project_names_input)}")
-
         self.assertEqual(self.bot.authentik_client.create_group.call_count, len(project_names_input) * 2)
         self.assertEqual(self.bot.outline_client.create_group.call_count, len(project_names_input))
         self.assertEqual(self.bot.brevo_client.create_list.call_count, len(project_names_input))
         self.assertEqual(self.bot.mattermost_api_client.create_channel.call_count, len(project_names_input) * 2)
         self.assertEqual(self.bot.mattermost_api_client.add_user_to_channel.call_count, len(project_names_input) * 2)
-
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         for name_input in project_names_input:
@@ -256,7 +235,7 @@ class TestMartyBot(unittest.TestCase):
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         for name_input in antenne_names_input:
-            expected_brevo_list_name = f"brevo_antenne_{name_input}"  # From PERMISSIONS_MATRIX
+            expected_brevo_list_name = f"brevo_antenne_{name_input}"
             self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
 
     @async_test
@@ -274,7 +253,7 @@ class TestMartyBot(unittest.TestCase):
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         for name_input in pole_names_input:
-            expected_brevo_list_name = f"brevo_pole_{name_input}"  # From PERMISSIONS_MATRIX
+            expected_brevo_list_name = f"brevo_pole_{name_input}"
             self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
 
     @async_test
@@ -310,20 +289,17 @@ class TestMartyBot(unittest.TestCase):
         project_name_input = "ClientFailProjet"
         self.bot.authentik_client.create_group.return_value = None
         self.bot.outline_client.create_group.return_value = None
-        self.bot.brevo_client.get_list_by_name.return_value = None  # Simulate list not found
-        self.bot.brevo_client.create_list.return_value = None  # Simulate creation failure
+        self.bot.brevo_client.get_list_by_name.return_value = None
+        self.bot.brevo_client.create_list.return_value = None
         self.bot.mattermost_api_client.create_channel.return_value = None
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name_input}")
-
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
-
         expected_std_auth_name = f"projet_{project_name_input}"
         expected_std_mm_name = f"projet_{project_name_input}"
         expected_adm_auth_name = f"projet_{project_name_input} Admin"
         expected_adm_mm_name = f"projet_{project_name_input} Admin"
         expected_outline_coll_name = f"projet_{project_name_input}"
-
         self.assertIn(f"Authentik Groupe `{expected_std_auth_name}`: :warning: Échec/Existe déjà.", summary_text)
         self.assertIn(
             f"Mattermost Canal `{expected_std_mm_name}` (type: O): :warning: Échec/Existe déjà.", summary_text
@@ -335,7 +311,6 @@ class TestMartyBot(unittest.TestCase):
         self.assertIn(
             f"Outline Collection `{expected_outline_coll_name}`: :warning: Échec création/vérification.", summary_text
         )
-        # Assert Brevo list creation failure
         expected_brevo_list_name = f"brevo_projet_{project_name_input}"
         self.assertIn(
             f"Brevo Liste `{expected_brevo_list_name}`: :warning: Échec création/vérification.", summary_text
@@ -397,7 +372,7 @@ class TestMartyBot(unittest.TestCase):
         self.assertEqual(self.bot._parse_command_from_mention("   "), (None, None))
 
     @patch("app.bot.orchestrate_group_synchronization")
-    def test_handle_update_all_user_rights_command_success(self, mock_orchestrate_sync):  # Removed @async_test
+    def test_handle_update_all_user_rights_command_success(self, mock_orchestrate_sync):
         async def actual_test_logic():
             command_name = "update_all_user_rights"
             mock_orchestrate_sync.return_value = (
@@ -412,9 +387,7 @@ class TestMartyBot(unittest.TestCase):
                     }
                 ],
             )
-
             await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
-
             mock_orchestrate_sync.assert_called_once_with(
                 self.bot.authentik_client,
                 self.bot.mattermost_api_client,
@@ -425,7 +398,6 @@ class TestMartyBot(unittest.TestCase):
                 fetch_remote_members=False,
             )
             self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
-
             summary_call_found = False
             for call_args_tuple in self.bot.envoyer_message.call_args_list:
                 message_text = call_args_tuple[0][1]
@@ -437,7 +409,7 @@ class TestMartyBot(unittest.TestCase):
         asyncio.run(actual_test_logic())
 
     @patch("app.bot.orchestrate_group_synchronization")
-    def test_handle_update_user_rights_and_remove_command_success(self, mock_orchestrate_sync):  # Removed @async_test
+    def test_handle_update_user_rights_and_remove_command_success(self, mock_orchestrate_sync):
         async def actual_test_logic():
             command_name = "update_user_rights_and_remove"
             mock_orchestrate_sync.return_value = (
@@ -452,9 +424,7 @@ class TestMartyBot(unittest.TestCase):
                     }
                 ],
             )
-
             await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
-
             mock_orchestrate_sync.assert_called_once_with(
                 self.bot.authentik_client,
                 self.bot.mattermost_api_client,
@@ -465,7 +435,6 @@ class TestMartyBot(unittest.TestCase):
                 fetch_remote_members=True,
             )
             self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
-
             summary_call_found = False
             for call_args_tuple in self.bot.envoyer_message.call_args_list:
                 message_text = call_args_tuple[0][1]
@@ -487,13 +456,10 @@ class TestMartyBot(unittest.TestCase):
                 self.bot.envoyer_message.reset_mock()
                 with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
                     mock_orchestrate.return_value = (False, [])
-                    # These handlers are now synchronous, but they call asyncio.run on an async inner function
-                    # So, we call them directly.
                     if asyncio.iscoroutinefunction(handler_method):
                         await handler_method(channel_id="test_channel", arg_string=None)
                     else:
-                        handler_method(channel_id="test_channel", arg_string=None)  # Call synchronous wrapper
-
+                        handler_method(channel_id="test_channel", arg_string=None)
                     self.assertEqual(self.bot.envoyer_message.call_count, 2)
                     final_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                     self.assertIn("échoué de manière critique durant l'orchestration", final_message_text)
@@ -506,7 +472,6 @@ class TestMartyBot(unittest.TestCase):
         }
         original_auth_client = self.bot.authentik_client
         self.bot.authentik_client = None
-
         for command_key, handler_method in commands_to_test.items():
             with self.subTest(command=command_key):
                 self.bot.envoyer_message.reset_mock()
@@ -514,13 +479,272 @@ class TestMartyBot(unittest.TestCase):
                     await handler_method(channel_id="test_channel", arg_string=None)
                 else:
                     handler_method(channel_id="test_channel", arg_string=None)
-
                 self.assertEqual(self.bot.envoyer_message.call_count, 2)
                 error_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                 self.assertIn("Le bot n'est pas correctement configuré", error_message_text)
-
         self.bot.authentik_client = original_auth_client
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Tests for _handle_send_email_command
+class TestSendEmailCommand(TestMartyBot):
+
+    def setUp(self):
+        super().setUp()
+        self.mock_config.BREVO_DEFAULT_SENDER_EMAIL = "marty.sender@example.com"
+        self.mock_config.BREVO_DEFAULT_SENDER_NAME = "Marty Test Bot"
+
+    @patch("libraries.group_sync_services.slugify", wraps=slugify)  # Wrap real slugify
+    @patch("libraries.group_sync_services._map_mm_channel_to_entity_and_base_name")
+    def test_handle_send_email_success(self, mock_map_channel, mock_slugify_call):
+        async def actual_test_logic():
+            channel_id = "admin_channel_projet_test"
+            user_id = "test_user_admin"
+            subject = "Test Email Subject"
+            body = "This is the email body."
+            arg_string = f"{subject} /// {body}"
+            base_name_for_test = "Test Projet"
+            entity_key_for_test = "PROJET"
+
+            admin_channel_config = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["admin"]
+            admin_channel_display_name = admin_channel_config["mattermost_channel_name_pattern"].format(
+                base_name=base_name_for_test
+            )
+            admin_channel_slug = slugify(admin_channel_display_name)  # Use real slugify via wrap
+
+            def map_channel_side_effect(ch_slug_arg, ch_display_name_arg, entity_config_slice_arg):
+                iter_entity_key = list(entity_config_slice_arg.keys())[0]
+                if (
+                    iter_entity_key == entity_key_for_test
+                    and ch_slug_arg == admin_channel_slug
+                    and ch_display_name_arg == admin_channel_display_name
+                ):
+                    return (entity_key_for_test, base_name_for_test)
+                return (None, None)
+
+            mock_map_channel.side_effect = map_channel_side_effect
+
+            self.bot.mattermost_api_client.get_channel.return_value = {
+                "id": channel_id,
+                "name": admin_channel_slug,
+                "display_name": admin_channel_display_name,
+            }
+            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": user_id}]
+
+            brevo_list_name_pattern_from_config = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
+                "list_name_pattern"
+            ]
+            expected_brevo_list_name = brevo_list_name_pattern_from_config.format(base_name=base_name_for_test)
+            self.bot.brevo_client.get_list_by_name.return_value = {
+                "id": "brevo_list_123",
+                "name": expected_brevo_list_name,
+            }
+            contacts_on_list = [{"email": "contact1@example.com"}, {"email": "contact2@example.com"}]
+            expected_to_contacts = [{"email": "contact1@example.com"}, {"email": "contact2@example.com"}]
+            self.bot.brevo_client.get_contacts_from_list.return_value = contacts_on_list
+            self.bot.brevo_client.send_transactional_email.return_value = True
+
+            await self.bot._handle_send_email_command(channel_id, arg_string, user_id)
+
+            self.assertGreaterEqual(mock_map_channel.call_count, 1)
+            projet_config_slice = {"PROJET": self.mock_config.PERMISSIONS_MATRIX["PROJET"]}
+            mock_map_channel.assert_any_call(admin_channel_slug, admin_channel_display_name, projet_config_slice)
+
+            self.bot.brevo_client.get_list_by_name.assert_called_once_with(expected_brevo_list_name)
+            self.bot.brevo_client.get_contacts_from_list.assert_called_once_with("brevo_list_123")
+            self.bot.brevo_client.send_transactional_email.assert_called_once_with(
+                subject,
+                body,
+                self.mock_config.BREVO_DEFAULT_SENDER_EMAIL,
+                self.mock_config.BREVO_DEFAULT_SENDER_NAME,
+                expected_to_contacts,
+            )
+            self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
+            last_call_args = self.bot.envoyer_message.call_args[0]
+            self.assertIn(":white_check_mark: Email avec sujet 'Test Email Subject' envoyé", last_call_args[1])
+
+        asyncio.run(actual_test_logic())
+
+    @patch("libraries.group_sync_services._map_mm_channel_to_entity_and_base_name")
+    def test_handle_send_email_not_admin_channel(self, mock_map_channel):
+        async def actual_test_logic():
+            # This mock will ensure that the channel is not identified as any admin channel
+            mock_map_channel.return_value = (None, None)
+
+            channel_id = "some_other_channel"
+            channel_display_name = "Not An Admin Channel"
+            channel_slug = "not-an-admin-channel"
+            self.bot.mattermost_api_client.get_channel.return_value = {
+                "id": channel_id,
+                "name": channel_slug,
+                "display_name": channel_display_name,
+            }
+            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": "test_user"}]
+
+            await self.bot._handle_send_email_command(channel_id, "Subject /// Body", "test_user")
+
+            self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
+            last_call_args = self.bot.envoyer_message.call_args[0]
+            self.assertIn("Cette commande doit être lancée depuis un canal admin", last_call_args[1])
+            self.bot.brevo_client.send_transactional_email.assert_not_called()
+
+        asyncio.run(actual_test_logic())
+
+    @patch("libraries.group_sync_services._map_mm_channel_to_entity_and_base_name")
+    def test_handle_send_email_brevo_list_not_found(self, mock_map_channel):
+        async def actual_test_logic():
+            base_name_for_test = "NoListProjet"
+            entity_key_for_test = "PROJET"
+            admin_display_name = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["admin"][
+                "mattermost_channel_name_pattern"
+            ].format(base_name=base_name_for_test)
+            admin_slug = slugify(admin_display_name)
+
+            def map_channel_side_effect(ch_slug_arg, ch_display_name_arg, entity_config_slice_arg):
+                iter_entity_key = list(entity_config_slice_arg.keys())[0]
+                if iter_entity_key == entity_key_for_test and ch_display_name_arg == admin_display_name:
+                    return (entity_key_for_test, base_name_for_test)
+                return (None, None)
+
+            mock_map_channel.side_effect = map_channel_side_effect
+
+            self.bot.mattermost_api_client.get_channel.return_value = {
+                "id": "admin_no_list",
+                "name": admin_slug,
+                "display_name": admin_display_name,
+            }
+            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": "test_user"}]
+            self.bot.brevo_client.get_list_by_name.return_value = None
+
+            await self.bot._handle_send_email_command("admin_no_list", "Sujet /// Corps", "test_user")
+
+            self.bot.envoyer_message.assert_called_with("admin_no_list", unittest.mock.ANY)
+            last_call_args = self.bot.envoyer_message.call_args[0]
+            expected_brevo_list_name = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
+                "list_name_pattern"
+            ].format(base_name=base_name_for_test)
+            self.assertIn(f"Liste Brevo '{expected_brevo_list_name}' non trouvée.", last_call_args[1])
+            self.bot.brevo_client.send_transactional_email.assert_not_called()
+
+        asyncio.run(actual_test_logic())
+
+    @patch("libraries.group_sync_services._map_mm_channel_to_entity_and_base_name")
+    def test_handle_send_email_no_recipients_in_list(self, mock_map_channel):
+        async def actual_test_logic():
+            base_name_for_test = "EmptyListProjet"
+            entity_key_for_test = "PROJET"
+            admin_display_name = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["admin"][
+                "mattermost_channel_name_pattern"
+            ].format(base_name=base_name_for_test)
+            admin_slug = slugify(admin_display_name)
+
+            def map_channel_side_effect(ch_slug_arg, ch_display_name_arg, entity_config_slice_arg):
+                iter_entity_key = list(entity_config_slice_arg.keys())[0]
+                if iter_entity_key == entity_key_for_test and ch_display_name_arg == admin_display_name:
+                    return (entity_key_for_test, base_name_for_test)
+                return (None, None)
+
+            mock_map_channel.side_effect = map_channel_side_effect
+
+            self.bot.mattermost_api_client.get_channel.return_value = {
+                "id": "admin_empty_list",
+                "name": admin_slug,
+                "display_name": admin_display_name,
+            }
+            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": "test_user"}]
+            brevo_list_name_pattern = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
+                "list_name_pattern"
+            ]
+            expected_brevo_list_name = brevo_list_name_pattern.format(base_name=base_name_for_test)
+            self.bot.brevo_client.get_list_by_name.return_value = {
+                "id": "brevo_empty_list_id",
+                "name": expected_brevo_list_name,
+            }
+            self.bot.brevo_client.get_contacts_from_list.return_value = []
+
+            await self.bot._handle_send_email_command("admin_empty_list", "Sujet /// Corps", "test_user")
+
+            self.bot.envoyer_message.assert_called_with("admin_empty_list", unittest.mock.ANY)
+            last_call_args = self.bot.envoyer_message.call_args[0]
+            self.assertIn(f"La liste Brevo '{expected_brevo_list_name}' ne contient aucun contact", last_call_args[1])
+            self.bot.brevo_client.send_transactional_email.assert_not_called()
+
+        asyncio.run(actual_test_logic())
+
+    @patch("libraries.group_sync_services._map_mm_channel_to_entity_and_base_name")
+    def test_handle_send_email_brevo_send_fails(self, mock_map_channel):
+        async def actual_test_logic():
+            base_name_for_test = "SendFailProjet"
+            entity_key_for_test = "PROJET"
+            admin_display_name = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["admin"][
+                "mattermost_channel_name_pattern"
+            ].format(base_name=base_name_for_test)
+            admin_slug = slugify(admin_display_name)
+
+            def map_channel_side_effect(ch_slug_arg, ch_display_name_arg, entity_config_slice_arg):
+                iter_entity_key = list(entity_config_slice_arg.keys())[0]
+                if iter_entity_key == entity_key_for_test and ch_display_name_arg == admin_display_name:
+                    return (entity_key_for_test, base_name_for_test)
+                return (None, None)
+
+            mock_map_channel.side_effect = map_channel_side_effect
+
+            self.bot.mattermost_api_client.get_channel.return_value = {
+                "id": "admin_send_fail",
+                "name": admin_slug,
+                "display_name": admin_display_name,
+            }
+            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": "test_user"}]
+            brevo_list_name_pattern = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
+                "list_name_pattern"
+            ]
+            expected_brevo_list_name = brevo_list_name_pattern.format(base_name=base_name_for_test)
+            self.bot.brevo_client.get_list_by_name.return_value = {
+                "id": "brevo_sendfail_list_id",
+                "name": expected_brevo_list_name,
+            }
+            self.bot.brevo_client.get_contacts_from_list.return_value = [{"email": "contact@example.com"}]
+            self.bot.brevo_client.send_transactional_email.return_value = False
+
+            await self.bot._handle_send_email_command("admin_send_fail", "Sujet /// Corps", "test_user")
+
+            self.bot.envoyer_message.assert_called_with("admin_send_fail", unittest.mock.ANY)
+            last_call_args = self.bot.envoyer_message.call_args[0]
+            self.assertIn("Échec de l'envoi de l'email", last_call_args[1])
+            self.bot.brevo_client.send_transactional_email.assert_called_once()
+
+        asyncio.run(actual_test_logic())
+
+    def test_handle_send_email_bad_syntax(self):
+        async def actual_test_logic():
+            channel_id = "admin_channel_syntax"
+            # For syntax checks, the mapping function might not even be called if parsing fails first.
+            # We still need to mock get_channel and get_channel_members for the initial checks.
+            self.bot.mattermost_api_client.get_channel.return_value = {
+                "id": channel_id,
+                "name": "projet-syntax-admin",
+                "display_name": "Projet Syntax Admin",
+            }
+            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": "test_user"}]
+
+            await self.bot._handle_send_email_command(channel_id, "Just subject no body", "test_user")
+            self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
+            last_call_args = self.bot.envoyer_message.call_args[0]
+            self.assertIn("Syntaxe incorrecte.", last_call_args[1])
+
+            self.bot.envoyer_message.reset_mock()
+            await self.bot._handle_send_email_command(channel_id, "Subject /// ", "test_user")
+            self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
+            last_call_args = self.bot.envoyer_message.call_args[0]
+            self.assertIn("Le sujet et le contenu ne peuvent pas être vides.", last_call_args[1])
+
+            self.bot.envoyer_message.reset_mock()
+            await self.bot._handle_send_email_command(channel_id, " /// Body", "test_user")
+            self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
+            last_call_args = self.bot.envoyer_message.call_args[0]
+            self.assertIn("Le sujet et le contenu ne peuvent pas être vides.", last_call_args[1])
+
+        asyncio.run(actual_test_logic())
