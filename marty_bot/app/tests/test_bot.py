@@ -131,11 +131,7 @@ class TestMartyBot(unittest.TestCase):
         help_text_content = args[1]
         self.assertIn("### Commandes disponibles pour MartyBot", help_text_content)
         self.assertIn("* **`create_projet`**", help_text_content)
-        # This line was previously f-string, Flake8 F541 if {self.bot.bot_name_mention} is not used
-        # But the example in help message is static, so it should be:
-        self.assertIn(
-            f"* `{self.bot.bot_name_mention} create_projet MonProjet1 MonProjet2`", help_text_content
-        )  # Corrected: Removed bold around star
+        self.assertIn(f"* `{self.bot.bot_name_mention} create_projet MonProjet1 MonProjet2`", help_text_content)
         self.assertIn(f"* **`{self.bot.bot_name_mention} update_all_user_rights`**", help_text_content)
         self.assertIn("Rôle : S'assure que les utilisateurs présents dans les canaux Mattermost", help_text_content)
 
@@ -360,80 +356,84 @@ class TestMartyBot(unittest.TestCase):
         self.assertEqual(self.bot._parse_command_from_mention("   "), (None, None))
 
     @patch("app.bot.orchestrate_group_synchronization")
-    async def test_handle_update_all_user_rights_command_success(self, mock_orchestrate_sync):
-        command_name = "update_all_user_rights"
-        mock_orchestrate_sync.return_value = (
-            True,
-            [
-                {
-                    "mm_username": "testuser",
-                    "service": "AUTHENTIK",
-                    "action": "USER_ADDED_TO_AUTHENTIK_GROUP",
-                    "status": "SUCCESS",
-                    "target_resource_name": "TestGroup",
-                }
-            ],
-        )
+    def test_handle_update_all_user_rights_command_success(self, mock_orchestrate_sync):  # Removed @async_test
+        async def actual_test_logic():
+            command_name = "update_all_user_rights"
+            mock_orchestrate_sync.return_value = (
+                True,
+                [
+                    {
+                        "mm_username": "testuser",
+                        "service": "AUTHENTIK",
+                        "action": "USER_ADDED_TO_AUTHENTIK_GROUP",
+                        "status": "SUCCESS",
+                        "target_resource_name": "TestGroup",
+                    }
+                ],
+            )
 
-        await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
 
-        mock_orchestrate_sync.assert_called_once_with(
-            self.bot.authentik_client,
-            self.bot.mattermost_api_client,
-            self.bot.outline_client,
-            self.bot.brevo_client,
-            self.bot.config.MATTERMOST_TEAM_ID,
-            perform_deletions=False,
-            fetch_remote_members=False,
-        )
-        self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
+            mock_orchestrate_sync.assert_called_once_with(
+                self.bot.authentik_client,
+                self.bot.mattermost_api_client,
+                self.bot.outline_client,
+                self.bot.brevo_client,
+                self.bot.config.MATTERMOST_TEAM_ID,
+                perform_deletions=False,
+                fetch_remote_members=False,
+            )
+            self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
 
-        summary_call_found = False
-        for call_args_tuple in self.bot.envoyer_message.call_args_list:
-            # call_args_tuple can be ((channel_id, message_text), {'thread_id': ...}) or ((channel_id, message_text), {})
-            # We are interested in message_text which is call_args_tuple[0][1]
-            message_text = call_args_tuple[0][1]  # Access the message text correctly
-            if "Résumé de Mise à jour (upsert) des droits" in message_text:
-                summary_call_found = True
-                break
-        self.assertTrue(summary_call_found, "Summary message for upsert not found.")
+            summary_call_found = False
+            for call_args_tuple in self.bot.envoyer_message.call_args_list:
+                message_text = call_args_tuple[0][1]
+                if "Résumé de Mise à jour (upsert) des droits" in message_text:
+                    summary_call_found = True
+                    break
+            self.assertTrue(summary_call_found, "Summary message for upsert not found.")
+
+        asyncio.run(actual_test_logic())
 
     @patch("app.bot.orchestrate_group_synchronization")
-    async def test_handle_update_user_rights_and_remove_command_success(self, mock_orchestrate_sync):
-        command_name = "update_user_rights_and_remove"
-        mock_orchestrate_sync.return_value = (
-            True,
-            [
-                {
-                    "mm_username": "testuser",
-                    "service": "AUTHENTIK",
-                    "action": "USER_REMOVED_FROM_AUTHENTIK_GROUP",
-                    "status": "SUCCESS",
-                    "target_resource_name": "TestGroupRemove",
-                }
-            ],
-        )
+    def test_handle_update_user_rights_and_remove_command_success(self, mock_orchestrate_sync):  # Removed @async_test
+        async def actual_test_logic():
+            command_name = "update_user_rights_and_remove"
+            mock_orchestrate_sync.return_value = (
+                True,
+                [
+                    {
+                        "mm_username": "testuser",
+                        "service": "AUTHENTIK",
+                        "action": "USER_REMOVED_FROM_AUTHENTIK_GROUP",
+                        "status": "SUCCESS",
+                        "target_resource_name": "TestGroupRemove",
+                    }
+                ],
+            )
 
-        await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
 
-        mock_orchestrate_sync.assert_called_once_with(
-            self.bot.authentik_client,
-            self.bot.mattermost_api_client,
-            self.bot.outline_client,
-            self.bot.brevo_client,
-            self.bot.config.MATTERMOST_TEAM_ID,
-            perform_deletions=True,
-            fetch_remote_members=True,
-        )
-        self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
+            mock_orchestrate_sync.assert_called_once_with(
+                self.bot.authentik_client,
+                self.bot.mattermost_api_client,
+                self.bot.outline_client,
+                self.bot.brevo_client,
+                self.bot.config.MATTERMOST_TEAM_ID,
+                perform_deletions=True,
+                fetch_remote_members=True,
+            )
+            self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
 
-        summary_call_found = False
-        for call_args_tuple in self.bot.envoyer_message.call_args_list:
-            message_text = call_args_tuple[0][1]
-            if "Résumé de Suppression/synchronisation des droits" in message_text:
-                summary_call_found = True
-                break
-        self.assertTrue(summary_call_found, "Summary message for full sync/remove not found.")
+            summary_call_found = False
+            for call_args_tuple in self.bot.envoyer_message.call_args_list:
+                message_text = call_args_tuple[0][1]
+                if "Résumé de Suppression/synchronisation des droits" in message_text:
+                    summary_call_found = True
+                    break
+            self.assertTrue(summary_call_found, "Summary message for full sync/remove not found.")
+
+        asyncio.run(actual_test_logic())
 
     @async_test
     async def test_sync_commands_orchestration_failure(self):
@@ -446,7 +446,13 @@ class TestMartyBot(unittest.TestCase):
                 self.bot.envoyer_message.reset_mock()
                 with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
                     mock_orchestrate.return_value = (False, [])
-                    await handler_method(channel_id="test_channel", arg_string=None)
+                    # These handlers are now synchronous, but they call asyncio.run on an async inner function
+                    # So, we call them directly.
+                    if asyncio.iscoroutinefunction(handler_method):
+                        await handler_method(channel_id="test_channel", arg_string=None)
+                    else:
+                        handler_method(channel_id="test_channel", arg_string=None)  # Call synchronous wrapper
+
                     self.assertEqual(self.bot.envoyer_message.call_count, 2)
                     final_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                     self.assertIn("échoué de manière critique durant l'orchestration", final_message_text)
@@ -463,7 +469,11 @@ class TestMartyBot(unittest.TestCase):
         for command_key, handler_method in commands_to_test.items():
             with self.subTest(command=command_key):
                 self.bot.envoyer_message.reset_mock()
-                await handler_method(channel_id="test_channel", arg_string=None)
+                if asyncio.iscoroutinefunction(handler_method):
+                    await handler_method(channel_id="test_channel", arg_string=None)
+                else:
+                    handler_method(channel_id="test_channel", arg_string=None)
+
                 self.assertEqual(self.bot.envoyer_message.call_count, 2)
                 error_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                 self.assertIn("Le bot n'est pas correctement configuré", error_message_text)

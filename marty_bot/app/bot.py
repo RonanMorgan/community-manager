@@ -272,6 +272,7 @@ class MartyBot:
                 self.authentik_client,
                 self.mattermost_api_client,
                 self.outline_client,  # Peut être None, géré par l'orchestrateur
+                self.brevo_client,  # Pass Brevo client
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,  # Assure la suppression
                 fetch_remote_members=True,  # Mode complet pour remove_user_rights
@@ -553,6 +554,7 @@ class MartyBot:
                 self.authentik_client,
                 self.mattermost_api_client,
                 self.outline_client,
+                self.brevo_client,  # Pass Brevo client
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,  # Ne pas supprimer d'utilisateurs
                 fetch_remote_members=False,  # Mode "upsert pur" basé sur Mattermost
