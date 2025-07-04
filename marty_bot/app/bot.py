@@ -101,6 +101,28 @@ class MartyBot:
                 "Mattermost URL, Bot Token, or Team ID not fully configured for MattermostClient instance. Mattermost API operations may fail or be disabled."
             )
 
+        self.brevo_client = None  # Initialize brevo_client attribute
+        if (
+            hasattr(self.config, "BREVO_API_URL")
+            and hasattr(self.config, "BREVO_API_KEY")
+            and self.config.BREVO_API_URL
+            and self.config.BREVO_API_KEY
+        ):
+            try:
+                # Ensure BrevoClient is imported
+                from clients.brevo_client import BrevoClient
+
+                self.brevo_client = BrevoClient(self.config.BREVO_API_URL, self.config.BREVO_API_KEY)
+                logging.info("BrevoClient initialized successfully for MartyBot instance.")
+            except ValueError as e:
+                logging.warning(f"Failed to initialize BrevoClient for MartyBot instance: {e}")
+            except ImportError:
+                logging.error("Failed to import BrevoClient. Brevo features will be disabled.")
+        else:
+            logging.warning(
+                "Brevo API URL or Key not configured for MartyBot instance. Brevo features will be disabled."
+            )
+
         self.websocket = None  # Represents the active WebSocket connection object
 
         # For graceful shutdown
