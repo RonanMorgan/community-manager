@@ -127,7 +127,11 @@ class MartyBot:
         }
 
     async def _format_and_send_sync_results(
-        self, channel_id: str, initial_post_id: str | None, detailed_results: list[dict], command_name: str = "synchronisation"
+        self,
+        channel_id: str,
+        initial_post_id: str | None,
+        detailed_results: list[dict],
+        command_name: str = "synchronisation",
     ):
         """Helper function to format and send detailed synchronization results."""
         if not detailed_results:
@@ -222,7 +226,8 @@ class MartyBot:
             summary_lines.insert(1, f":rocket: {command_name.capitalize()} terminée avec succès.")
         else:  # No ops or only skips like NO_MM_EMAIL
             summary_lines.insert(
-                1, f":information_source: {command_name.capitalize()} terminée. Peu ou pas d'opérations significatives effectuées."
+                1,
+                f":information_source: {command_name.capitalize()} terminée. Peu ou pas d'opérations significatives effectuées.",
             )
 
         final_summary_message = "\n".join(summary_lines)
@@ -231,7 +236,9 @@ class MartyBot:
 
     async def _handle_update_user_rights_and_remove_command(self, channel_id, arg_string=None):
         """Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes."""
-        logging.info(f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id}.")
+        logging.info(
+            f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id}."
+        )
 
         initial_message_text = (
             ":hourglass_flowing_sand: Démarrage de la synchronisation complète des droits (avec suppressions)... "
@@ -266,8 +273,8 @@ class MartyBot:
                 self.mattermost_api_client,
                 self.outline_client,  # Peut être None, géré par l'orchestrateur
                 self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=True, # Assure la suppression
-                fetch_remote_members=True # Mode complet pour remove_user_rights
+                perform_deletions=True,  # Assure la suppression
+                fetch_remote_members=True,  # Mode complet pour remove_user_rights
             )
 
             if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
@@ -283,11 +290,14 @@ class MartyBot:
                 logging.info(
                     f"Group synchronization task (for rights removal) orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
-                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results, command_name="Suppression/synchronisation")
+                await self._format_and_send_sync_results(
+                    channel_id, initial_post_id, detailed_results, command_name="Suppression/synchronisation"
+                )
 
         except Exception as e:
             logging.error(
-                f"An unexpected error occurred while dispatching or running the rights removal task: {e}", exc_info=True
+                f"An unexpected error occurred while dispatching or running the rights removal task: {e}",
+                exc_info=True,
             )
             error_response_msg = (
                 ":boom: Une erreur serveur inattendue s'est produite lors de la tentative "
@@ -511,11 +521,11 @@ class MartyBot:
     #         channel_id, arg_string, "pôle", "POLES", user_id_who_posted
     #     )
 
-    async def _handle_update_all_user_rights_command(
-        self, channel_id, arg_string=None
-    ):
+    async def _handle_update_all_user_rights_command(self, channel_id, arg_string=None):
         """S'assure que les utilisateurs Mattermost ont les bons droits (ajouts/mises à jour uniquement)."""
-        logging.info(f"'{self.bot_name_mention} update_all_user_rights' (upsert) command received in channel {channel_id}.")
+        logging.info(
+            f"'{self.bot_name_mention} update_all_user_rights' (upsert) command received in channel {channel_id}."
+        )
 
         initial_message_text = ":hourglass_flowing_sand: Démarrage de la mise à jour des droits utilisateurs (ajouts/modifications uniquement)... Ceci peut prendre un moment."
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
@@ -544,12 +554,14 @@ class MartyBot:
                 self.mattermost_api_client,
                 self.outline_client,
                 self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=False, # Ne pas supprimer d'utilisateurs
-                fetch_remote_members=False # Mode "upsert pur" basé sur Mattermost
+                perform_deletions=False,  # Ne pas supprimer d'utilisateurs
+                fetch_remote_members=False,  # Mode "upsert pur" basé sur Mattermost
             )
 
             if not orchestration_success:
-                logging.warning("Group synchronization task (upsert mode) reported critical failure during orchestration.")
+                logging.warning(
+                    "Group synchronization task (upsert mode) reported critical failure during orchestration."
+                )
                 summary_msg = (
                     ":x: La mise à jour des droits (upsert) a échoué de manière critique durant l'orchestration. "
                     "Veuillez consulter les logs du serveur pour plus de détails."
@@ -559,7 +571,9 @@ class MartyBot:
                 logging.info(
                     f"Group synchronization task (upsert mode) orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
-                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results, command_name="Mise à jour (upsert)")
+                await self._format_and_send_sync_results(
+                    channel_id, initial_post_id, detailed_results, command_name="Mise à jour (upsert)"
+                )
 
         except Exception as e:
             logging.error(
@@ -651,13 +665,21 @@ class MartyBot:
         help_lines.append(f"* `{self.bot_name_mention} create_pole PoleTechnique AutrePole`")
         help_lines.append("\n**Commandes de synchronisation des droits utilisateurs :**")
         help_lines.append(f"* **`{self.bot_name_mention} update_all_user_rights`**")
-        help_lines.append(f"  - _Rôle : S'assure que les utilisateurs présents dans les canaux Mattermost ont bien les accès correspondants dans Authentik et Outline._")
-        help_lines.append(f"  - _Logique : Part des canaux Mattermost. Ajoute les utilisateurs aux groupes/collections distants si nécessaire, ou met à jour leurs permissions. **Ne supprime jamais d'accès.** Idéal pour ajouter rapidement des droits suite à l'ajout d'un utilisateur à un canal Mattermost._")
-        help_lines.append(f"* **`{self.bot_name_mention} update_user_rights_and_remove`**")
-        help_lines.append(f"  - _Rôle : Effectue une synchronisation complète des droits. Garantit que les accès dans Authentik/Outline reflètent exactement la composition des canaux Mattermost._")
-        help_lines.append(f"  - _Logique : Combine les actions de `update_all_user_rights` (ajouts/mises à jour depuis Mattermost) ET **supprime les accès** des utilisateurs dans Authentik/Outline s'ils ne sont plus présents dans les canaux Mattermost correspondants (ou si leurs droits ont changé). C'est la commande à utiliser pour une remise en cohérence complète._")
         help_lines.append(
-            f"\n**Note :** La commande `update_user_rights_and_remove` est plus complète mais peut prendre plus de temps car elle vérifie tous les membres des services distants."
+            "  - _Rôle : S'assure que les utilisateurs présents dans les canaux Mattermost ont bien les accès correspondants dans Authentik et Outline._"
+        )
+        help_lines.append(
+            "  - _Logique : Part des canaux Mattermost. Ajoute les utilisateurs aux groupes/collections distants si nécessaire, ou met à jour leurs permissions. **Ne supprime jamais d'accès.** Idéal pour ajouter rapidement des droits suite à l'ajout d'un utilisateur à un canal Mattermost._"
+        )
+        help_lines.append(f"* **`{self.bot_name_mention} update_user_rights_and_remove`**")
+        help_lines.append(
+            "  - _Rôle : Effectue une synchronisation complète des droits. Garantit que les accès dans Authentik/Outline reflètent exactement la composition des canaux Mattermost._"
+        )
+        help_lines.append(
+            "  - _Logique : Combine les actions de `update_all_user_rights` (ajouts/mises à jour depuis Mattermost) ET **supprime les accès** des utilisateurs dans Authentik/Outline s'ils ne sont plus présents dans les canaux Mattermost correspondants (ou si leurs droits ont changé). C'est la commande à utiliser pour une remise en cohérence complète._"
+        )
+        help_lines.append(
+            "\n**Note :** La commande `update_user_rights_and_remove` est plus complète mais peut prendre plus de temps car elle vérifie tous les membres des services distants."
         )
         help_lines.append(f"\nMentionnez-moi avec une commande, comme `{self.bot_name_mention} help`.")
         help_text = "\n".join(help_lines)

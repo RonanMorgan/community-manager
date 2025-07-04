@@ -438,7 +438,9 @@ class MattermostClient:
                 logging.info(f"Successfully fetched {len(channels_data)} channels for team {current_team_id}.")
                 return channels_data
             else:
-                logging.error(f"Unexpected response format when fetching channels for team {current_team_id}: {channels_data}")
+                logging.error(
+                    f"Unexpected response format when fetching channels for team {current_team_id}: {channels_data}"
+                )
                 return []
         except requests.exceptions.HTTPError as e:
             logging.error(

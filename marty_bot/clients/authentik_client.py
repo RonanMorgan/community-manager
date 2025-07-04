@@ -1,7 +1,7 @@
 import requests
 import logging  # Added logging
 import json  # Added json
-from typing import Optional # Added for type hinting
+from typing import Optional  # Added for type hinting
 
 # Removed direct import of config, will be passed during instantiation
 
@@ -43,7 +43,7 @@ class AuthentikClient:
             logging.info(
                 f"Authentik group '{project_name}' created successfully. Group ID: {response.json().get('pk')}"
             )
-            return response.json() # Return the created group object
+            return response.json()  # Return the created group object
         except requests.exceptions.HTTPError as e:
             # Log specific HTTP errors, e.g. if group already exists (often a 400 or 409)
             error_msg = (  # noqa: E501
@@ -143,7 +143,7 @@ class AuthentikClient:
         # Note: URL encoding for group_name might be necessary if names can contain special characters.
         # requests usually handles this for query parameters.
         api_url = f"{self.base_url}/api/v3/core/groups/"
-        params = {"name": group_name, "include_users": "true"} # Ensure users_obj is included
+        params = {"name": group_name, "include_users": "true"}  # Ensure users_obj is included
 
         logging.info(f"Fetching Authentik group by name '{group_name}' from {api_url} with params {params}")
         try:
@@ -159,8 +159,8 @@ class AuthentikClient:
                 group_obj = results[0]
                 # Ensure the returned object has the expected structure, especially for users,
                 # similar to how get_groups_with_users structures it for consistency.
-                if 'users' not in group_obj: # List of user PKs
-                    group_obj['users'] = [user['pk'] for user in group_obj.get('users_obj', [])]
+                if "users" not in group_obj:  # List of user PKs
+                    group_obj["users"] = [user["pk"] for user in group_obj.get("users_obj", [])]
 
                 return group_obj
             else:

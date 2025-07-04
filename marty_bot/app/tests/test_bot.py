@@ -27,14 +27,11 @@ class TestMartyBot(unittest.TestCase):
         self.mock_config.AUTHENTIK_TOKEN = "fake_auth_token"
         self.mock_config.OUTLINE_URL = "http://fake-outline.com"
         self.mock_config.OUTLINE_TOKEN = "fake_outline_token"
+        self.mock_config.BREVO_API_URL = "http://fake-brevo.com"
+        self.mock_config.BREVO_API_KEY = "fake_brevo_key"
         self.mock_config.DEBUG = False
 
-        self.bot = MartyBot(self.mock_config)
-        self.bot.authentik_client = MagicMock()
-        self.bot.outline_client = MagicMock()
-        self.bot.mattermost_api_client = MagicMock()
-        self.bot.envoyer_message = MagicMock()
-
+        # Directly set PERMISSIONS_MATRIX on the mock_config object
         self.mock_config.PERMISSIONS_MATRIX = {
             "PROJET": {
                 "standard": {
@@ -52,6 +49,7 @@ class TestMartyBot(unittest.TestCase):
                     "default_access": "read",
                     "admin_access": "read_write",
                 },
+                "brevo": {"list_name_pattern": "brevo_projet_{base_name}"},
             },
             "ANTENNE": {
                 "standard": {
@@ -69,6 +67,7 @@ class TestMartyBot(unittest.TestCase):
                     "default_access": "read",
                     "admin_access": "read_write",
                 },
+                "brevo": {"list_name_pattern": "brevo_antenne_{base_name}"},
             },
             "POLES": {
                 "standard": {
@@ -86,9 +85,17 @@ class TestMartyBot(unittest.TestCase):
                     "default_access": "read",
                     "admin_access": "read_write",
                 },
+                "brevo": {"list_name_pattern": "brevo_pole_{base_name}"},
             },
         }
-        self.bot.config = self.mock_config
+
+        self.bot = MartyBot(self.mock_config)
+        self.bot.authentik_client = MagicMock()
+        self.bot.outline_client = MagicMock()
+        self.bot.mattermost_api_client = MagicMock()
+        self.bot.brevo_client = MagicMock()
+        self.bot.envoyer_message = MagicMock(return_value="mock_post_id")
+
         self.test_user_id = "test_user_who_posted"
 
     async def _send_test_message(self, message_text, channel_id="test_channel", user_id=None):
@@ -99,6 +106,9 @@ class TestMartyBot(unittest.TestCase):
             self.bot.outline_client.reset_mock()
         if self.bot.mattermost_api_client:
             self.bot.mattermost_api_client.reset_mock()
+        if self.bot.brevo_client:
+            self.bot.brevo_client.reset_mock()
+
         post_content = {
             "message": message_text,
             "channel_id": channel_id,
@@ -106,6 +116,30 @@ class TestMartyBot(unittest.TestCase):
         }
         mock_message_data = {"event": "posted", "data": {"post": json.dumps(post_content)}}
         await self.bot.on_message(None, json.dumps(mock_message_data))
+
+    @async_test
+    async def test_handle_help_command(self):
+        original_envoyer_message = self.bot.envoyer_message
+        self.bot.envoyer_message = MagicMock(return_value="post_id_help")
+
+        await self._send_test_message(f"@{self.mock_config.BOT_NAME} help")
+
+        self.bot.envoyer_message.assert_called_once()
+        args, _ = self.bot.envoyer_message.call_args
+        self.assertEqual(args[0], "test_channel")
+
+        help_text_content = args[1]
+        self.assertIn("### Commandes disponibles pour MartyBot", help_text_content)
+        self.assertIn("* **`create_projet`**", help_text_content)
+        # This line was previously f-string, Flake8 F541 if {self.bot.bot_name_mention} is not used
+        # But the example in help message is static, so it should be:
+        self.assertIn(
+            f"* `{self.bot.bot_name_mention} create_projet MonProjet1 MonProjet2`", help_text_content
+        )  # Corrected: Removed bold around star
+        self.assertIn(f"* **`{self.bot.bot_name_mention} update_all_user_rights`**", help_text_content)
+        self.assertIn("Rôle : S'assure que les utilisateurs présents dans les canaux Mattermost", help_text_content)
+
+        self.bot.envoyer_message = original_envoyer_message
 
     @async_test
     async def test_handle_create_projet_command_single_item_success_and_user_added(self):
@@ -117,6 +151,7 @@ class TestMartyBot(unittest.TestCase):
         expected_outline_coll_name = f"projet_{project_name}"
         mock_channel_data_std = {"id": "std_channel_id_123", "name": slugify(expected_std_mm_name)}
         mock_channel_data_adm = {"id": "adm_channel_id_456", "name": slugify(expected_adm_mm_name)}
+
         self.bot.authentik_client.create_group.return_value = {"name": expected_std_auth_name, "pk": "fake_pk"}
         self.bot.outline_client.create_group.return_value = {"name": expected_outline_coll_name, "id": "fake_id"}
 
@@ -129,7 +164,9 @@ class TestMartyBot(unittest.TestCase):
 
         self.bot.mattermost_api_client.create_channel.side_effect = create_channel_side_effect
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
+
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name}")
+
         self.bot.authentik_client.create_group.assert_any_call(expected_std_auth_name)
         self.bot.authentik_client.create_group.assert_any_call(expected_adm_auth_name)
         self.bot.outline_client.create_group.assert_called_once_with(expected_outline_coll_name)
@@ -142,6 +179,8 @@ class TestMartyBot(unittest.TestCase):
             mock_channel_data_adm["id"], self.test_user_id
         )
         self.assertEqual(self.bot.mattermost_api_client.add_user_to_channel.call_count, 2)
+
+        self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         self.assertIn(f"Création pour projet **`{project_name}`** (entité: *PROJET*)", summary_text)
         self.assertIn(f"Authentik Groupe `{expected_std_auth_name}`: :white_check_mark: Créé.", summary_text)
@@ -154,65 +193,59 @@ class TestMartyBot(unittest.TestCase):
             f"Mattermost Canal `{expected_adm_mm_name}` (type: P): :white_check_mark: Créé (ID: {mock_channel_data_adm['id']}). Demandeur ajouté.",
             summary_text,
         )
-        self.assertIn(f"Outline Collection `{expected_outline_coll_name}`: :white_check_mark: Collection assurée (créée ou existante).", summary_text)
-
+        self.assertIn(
+            f"Outline Collection `{expected_outline_coll_name}`: :white_check_mark: Collection assurée (créée ou existante).",
+            summary_text,
+        )
 
     @async_test
     async def test_handle_create_projet_command_multiple_items_success(self):
         project_names_input = ["ProjetAlpha", "ProjetBeta"]
-        created_channel_ids = {}
-
-        def create_channel_side_effect_multi(name, channel_type):
-            channel_id = f"channel_for_{slugify(name)}"
-            created_channel_ids[name] = channel_id
-            return {"id": channel_id, "name": slugify(name)}
-
         self.bot.authentik_client.create_group.return_value = {"name": "mocked_auth_group", "pk": "mocked_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "mocked_outline_coll", "id": "mocked_id"}
-        self.bot.mattermost_api_client.create_channel.side_effect = create_channel_side_effect_multi
+        self.bot.mattermost_api_client.create_channel.return_value = {
+            "id": "mock_channel_id",
+            "name": "mock_channel_name",
+        }
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
+
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {' '.join(project_names_input)}")
+
         self.assertEqual(self.bot.authentik_client.create_group.call_count, len(project_names_input) * 2)
         self.assertEqual(self.bot.outline_client.create_group.call_count, len(project_names_input))
         self.assertEqual(self.bot.mattermost_api_client.create_channel.call_count, len(project_names_input) * 2)
         self.assertEqual(self.bot.mattermost_api_client.add_user_to_channel.call_count, len(project_names_input) * 2)
+
+        self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         for name_input in project_names_input:
             self.assertIn(f"Création pour projet **`{name_input}`** (entité: *PROJET*)", summary_text)
-            self.assertIn(f"Outline Collection `projet_{name_input}`: :white_check_mark: Collection assurée (créée ou existante).", summary_text)
-
+            self.assertIn(
+                f"Outline Collection `projet_{name_input}`: :white_check_mark: Collection assurée (créée ou existante).",
+                summary_text,
+            )
 
     @async_test
     async def test_handle_create_antenne_command_multiple_items(self):
         antenne_names_input = ["AntenneEst", "AntenneOuest"]
         self.bot.authentik_client.create_group.return_value = {"name": "mocked_auth_group", "pk": "mocked_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "mocked_outline_coll", "id": "mocked_id"}
-        created_channel_ids = {}
-        def create_channel_side_effect_multi(name, channel_type):
-            channel_id = f"channel_for_{slugify(name)}"
-            created_channel_ids[name] = channel_id
-            return {"id": channel_id, "name": slugify(name)}
-        self.bot.mattermost_api_client.create_channel.side_effect = create_channel_side_effect_multi
+        self.bot.mattermost_api_client.create_channel.return_value = {"id": "mock_channel_id"}
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_antenne {' '.join(antenne_names_input)}")
         self.assertEqual(self.bot.authentik_client.create_group.call_count, len(antenne_names_input) * 2)
-
+        self.assertEqual(self.bot.envoyer_message.call_count, 2)
 
     @async_test
     async def test_handle_create_pole_command_multiple_items(self):
         pole_names_input = ["PoleAlpha", "PoleBeta", "PoleGamma"]
         self.bot.authentik_client.create_group.return_value = {"name": "mocked_auth_group", "pk": "mocked_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "mocked_outline_coll", "id": "mocked_id"}
-        created_channel_ids = {}
-        def create_channel_side_effect_multi(name, channel_type):
-            channel_id = f"channel_for_{slugify(name)}"
-            created_channel_ids[name] = channel_id
-            return {"id": channel_id, "name": slugify(name)}
-        self.bot.mattermost_api_client.create_channel.side_effect = create_channel_side_effect_multi
+        self.bot.mattermost_api_client.create_channel.return_value = {"id": "mock_channel_id"}
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_pole {' '.join(pole_names_input)}")
         self.assertEqual(self.bot.authentik_client.create_group.call_count, len(pole_names_input) * 2)
-
+        self.assertEqual(self.bot.envoyer_message.call_count, 2)
 
     @async_test
     async def test_create_commands_no_arg_provided(self):
@@ -225,22 +258,22 @@ class TestMartyBot(unittest.TestCase):
             self.assertIn(f":warning: Au moins un nom de {item_type} est requis.", sent_message)
             expected_cmd_in_usage = "create_pôle" if cmd == "create_pole" else cmd
             self.assertIn(
-                "Usage: `" + self.bot.bot_name_mention + " " + expected_cmd_in_usage + " <Nom1> [Nom2 ...]`",
-                sent_message,
+                f"Usage: `{self.bot.bot_name_mention} {expected_cmd_in_usage} <Nom1> [Nom2 ...]`", sent_message
             )
 
     @async_test
     async def test_create_command_matrix_not_loaded(self):
+        original_matrix = self.bot.config.PERMISSIONS_MATRIX
         self.bot.config.PERMISSIONS_MATRIX = {}
         project_name = "TestProjetNoMatrix"
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name}")
         self.assertEqual(self.bot.envoyer_message.call_count, 2)
         final_summary_message = self.bot.envoyer_message.call_args_list[1][0][1]
         self.assertIn(
-            f":x: Erreur: Configuration pour l'entité 'PROJET' non trouvée dans la matrice des permissions.",
+            ":x: Erreur: Configuration pour l'entité 'PROJET' non trouvée dans la matrice des permissions.",
             final_summary_message,
         )
-        self.setUp()
+        self.bot.config.PERMISSIONS_MATRIX = original_matrix
 
     @async_test
     async def test_create_resources_for_category_client_errors(self):
@@ -249,18 +282,27 @@ class TestMartyBot(unittest.TestCase):
         self.bot.outline_client.create_group.return_value = None
         self.bot.mattermost_api_client.create_channel.return_value = None
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name_input}")
+
+        self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
+
         expected_std_auth_name = f"projet_{project_name_input}"
         expected_std_mm_name = f"projet_{project_name_input}"
         expected_adm_auth_name = f"projet_{project_name_input} Admin"
         expected_adm_mm_name = f"projet_{project_name_input} Admin"
         expected_outline_coll_name = f"projet_{project_name_input}"
-        self.assertIn(f"Authentik Groupe `{expected_std_auth_name}`: :warning: Échec/Existe déjà.", summary_text)
-        self.assertIn(f"Mattermost Canal `{expected_std_mm_name}` (type: O): :warning: Échec/Existe déjà.", summary_text)
-        self.assertIn(f"Authentik Groupe `{expected_adm_auth_name}`: :warning: Échec/Existe déjà.", summary_text)
-        self.assertIn(f"Mattermost Canal `{expected_adm_mm_name}` (type: P): :warning: Échec/Existe déjà.", summary_text)
-        self.assertIn(f"Outline Collection `{expected_outline_coll_name}`: :warning: Échec création/vérification.", summary_text)
 
+        self.assertIn(f"Authentik Groupe `{expected_std_auth_name}`: :warning: Échec/Existe déjà.", summary_text)
+        self.assertIn(
+            f"Mattermost Canal `{expected_std_mm_name}` (type: O): :warning: Échec/Existe déjà.", summary_text
+        )
+        self.assertIn(f"Authentik Groupe `{expected_adm_auth_name}`: :warning: Échec/Existe déjà.", summary_text)
+        self.assertIn(
+            f"Mattermost Canal `{expected_adm_mm_name}` (type: P): :warning: Échec/Existe déjà.", summary_text
+        )
+        self.assertIn(
+            f"Outline Collection `{expected_outline_coll_name}`: :warning: Échec création/vérification.", summary_text
+        )
 
     @async_test
     async def test_handle_simple_mention_unknown_command(self):
@@ -280,14 +322,19 @@ class TestMartyBot(unittest.TestCase):
 
     @async_test
     async def test_ignore_non_mention_message(self):
-        self.bot.envoyer_message.reset_mock()
-        mock_message_data = {"event": "posted", "data": {"post": json.dumps( {"message": "Hello world, just a regular message.", "channel_id": "random", "user_id": "user111"})}}
+        mock_message_data = {
+            "event": "posted",
+            "data": {
+                "post": json.dumps(
+                    {"message": "Hello world, just a regular message.", "channel_id": "random", "user_id": "user111"}
+                )
+            },
+        }
         await self.bot.on_message(None, json.dumps(mock_message_data))
         self.bot.envoyer_message.assert_not_called()
 
     @async_test
     async def test_ignore_message_not_posted_event(self):
-        self.bot.envoyer_message.reset_mock()
         mock_message_data = {"event": "typing", "data": {"user_id": "user123"}}
         await self.bot.on_message(None, json.dumps(mock_message_data))
         self.bot.envoyer_message.assert_not_called()
@@ -295,69 +342,98 @@ class TestMartyBot(unittest.TestCase):
     def test_parse_command_from_mention_logic(self):
         self.assertEqual(self.bot._parse_command_from_mention("help"), ("help", None))
         self.assertEqual(self.bot._parse_command_from_mention("help   "), ("help", None))
-        self.assertEqual(self.bot._parse_command_from_mention("create_projet MyNew Project"), ("create_projet", "MyNew Project"))
-        self.assertEqual(self.bot._parse_command_from_mention("create_projet    MyNew Project"), ("create_projet", "MyNew Project"))
+        self.assertEqual(
+            self.bot._parse_command_from_mention("create_projet MyNew Project"), ("create_projet", "MyNew Project")
+        )
+        self.assertEqual(
+            self.bot._parse_command_from_mention("create_projet    MyNew Project"), ("create_projet", "MyNew Project")
+        )
         self.assertEqual(self.bot._parse_command_from_mention("create_projet"), ("create_projet", None))
-        self.assertEqual(self.bot._parse_command_from_mention("create_projet  My Project  "), ("create_projet", "My Project"))
-        self.assertEqual(self.bot._parse_command_from_mention("Create_Projet MyCapsProject"), ("create_projet", "MyCapsProject"))
+        self.assertEqual(
+            self.bot._parse_command_from_mention("create_projet  My Project  "), ("create_projet", "My Project")
+        )
+        self.assertEqual(
+            self.bot._parse_command_from_mention("Create_Projet MyCapsProject"), ("create_projet", "MyCapsProject")
+        )
         self.assertEqual(self.bot._parse_command_from_mention("   anotherCommand"), ("anothercommand", None))
         self.assertEqual(self.bot._parse_command_from_mention(""), (None, None))
         self.assertEqual(self.bot._parse_command_from_mention("   "), (None, None))
 
-    @async_test
-    async def test_handle_update_all_user_rights_command_success(self):
-        """Tests update_all_user_rights (upsert) command success."""
+    @patch("app.bot.orchestrate_group_synchronization")
+    async def test_handle_update_all_user_rights_command_success(self, mock_orchestrate_sync):
         command_name = "update_all_user_rights"
-        self.bot.envoyer_message.reset_mock()
-        with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
-            mock_orchestrate.return_value = (True, [{"mm_username": "testuser", "service": "AUTHENTIK", "action": "USER_ADDED_TO_AUTHENTIK_GROUP", "status": "SUCCESS", "target_resource_name": "TestGroup",}])
-            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+        mock_orchestrate_sync.return_value = (
+            True,
+            [
+                {
+                    "mm_username": "testuser",
+                    "service": "AUTHENTIK",
+                    "action": "USER_ADDED_TO_AUTHENTIK_GROUP",
+                    "status": "SUCCESS",
+                    "target_resource_name": "TestGroup",
+                }
+            ],
+        )
 
-            self.bot.envoyer_message.assert_any_call("test_channel", unittest.mock.ANY)
-            mock_orchestrate.assert_called_once_with(
-                self.bot.authentik_client,
-                self.bot.mattermost_api_client,
-                self.bot.outline_client,
-                self.bot.config.MATTERMOST_TEAM_ID,
-                perform_deletions=False,
-                fetch_remote_members=False
-            )
-            self.assertGreaterEqual(self.bot.envoyer_message.call_count, 3)
-            found_summary_message = False
-            for call_args in self.bot.envoyer_message.call_args_list:
-                message_text = call_args[0][1]
-                if "Résumé de Mise à jour (upsert) des droits" in message_text:
-                    found_summary_message = True
-                    break
-            self.assertTrue(found_summary_message, f"Summary message not found for command {command_name}")
+        await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
 
+        mock_orchestrate_sync.assert_called_once_with(
+            self.bot.authentik_client,
+            self.bot.mattermost_api_client,
+            self.bot.outline_client,
+            self.bot.brevo_client,
+            self.bot.config.MATTERMOST_TEAM_ID,
+            perform_deletions=False,
+            fetch_remote_members=False,
+        )
+        self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
 
-    @async_test
-    async def test_handle_update_user_rights_and_remove_command_success(self):
-        """Tests update_user_rights_and_remove command success."""
+        summary_call_found = False
+        for call_args_tuple in self.bot.envoyer_message.call_args_list:
+            # call_args_tuple can be ((channel_id, message_text), {'thread_id': ...}) or ((channel_id, message_text), {})
+            # We are interested in message_text which is call_args_tuple[0][1]
+            message_text = call_args_tuple[0][1]  # Access the message text correctly
+            if "Résumé de Mise à jour (upsert) des droits" in message_text:
+                summary_call_found = True
+                break
+        self.assertTrue(summary_call_found, "Summary message for upsert not found.")
+
+    @patch("app.bot.orchestrate_group_synchronization")
+    async def test_handle_update_user_rights_and_remove_command_success(self, mock_orchestrate_sync):
         command_name = "update_user_rights_and_remove"
-        self.bot.envoyer_message.reset_mock()
-        with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
-            mock_orchestrate.return_value = (True, [{"mm_username": "testuser", "service": "AUTHENTIK", "action": "USER_REMOVED_FROM_AUTHENTIK_GROUP", "status": "SUCCESS", "target_resource_name": "TestGroupRemove"}])
-            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
-            self.bot.envoyer_message.assert_any_call("test_channel", unittest.mock.ANY)
-            mock_orchestrate.assert_called_once_with(
-                self.bot.authentik_client,
-                self.bot.mattermost_api_client,
-                self.bot.outline_client,
-                self.bot.config.MATTERMOST_TEAM_ID,
-                perform_deletions=True,
-                fetch_remote_members=True
-            )
-            self.assertGreaterEqual(self.bot.envoyer_message.call_count, 3)
-            found_summary_message = False
-            for call_args in self.bot.envoyer_message.call_args_list:
-                message_text = call_args[0][1]
-                if "Résumé de Suppression/synchronisation des droits" in message_text:
-                    found_summary_message = True
-                    break
-            self.assertTrue(found_summary_message, f"Summary message not found for command {command_name}")
+        mock_orchestrate_sync.return_value = (
+            True,
+            [
+                {
+                    "mm_username": "testuser",
+                    "service": "AUTHENTIK",
+                    "action": "USER_REMOVED_FROM_AUTHENTIK_GROUP",
+                    "status": "SUCCESS",
+                    "target_resource_name": "TestGroupRemove",
+                }
+            ],
+        )
 
+        await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+
+        mock_orchestrate_sync.assert_called_once_with(
+            self.bot.authentik_client,
+            self.bot.mattermost_api_client,
+            self.bot.outline_client,
+            self.bot.brevo_client,
+            self.bot.config.MATTERMOST_TEAM_ID,
+            perform_deletions=True,
+            fetch_remote_members=True,
+        )
+        self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
+
+        summary_call_found = False
+        for call_args_tuple in self.bot.envoyer_message.call_args_list:
+            message_text = call_args_tuple[0][1]
+            if "Résumé de Suppression/synchronisation des droits" in message_text:
+                summary_call_found = True
+                break
+        self.assertTrue(summary_call_found, "Summary message for full sync/remove not found.")
 
     @async_test
     async def test_sync_commands_orchestration_failure(self):

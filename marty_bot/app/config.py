@@ -23,6 +23,10 @@ AUTHENTIK_TOKEN = os.getenv("AUTHENTIK_TOKEN")
 OUTLINE_URL = os.getenv("OUTLINE_URL")
 OUTLINE_TOKEN = os.getenv("OUTLINE_TOKEN")
 
+# Brevo settings
+BREVO_API_URL = os.getenv("BREVO_API_URL", "https://api.brevo.com/v3")
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+
 # General Configuration
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
