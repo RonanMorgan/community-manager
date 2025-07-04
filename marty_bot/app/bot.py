@@ -122,8 +122,8 @@ class MartyBot:
                 c, arg_str, "pôle", "POLES", user_id_who_posted
             ),
             "help": self._send_help_message,
-            "update_user_rights": self._handle_update_user_rights_command, # Anciennement sync_user_channels
-            "remove_user_rights": self._handle_remove_user_rights_command, # Anciennement update_user_rights
+            "update_all_user_rights": self._handle_update_all_user_rights_command,
+            "update_user_rights_and_remove": self._handle_update_user_rights_and_remove_command,
         }
 
     async def _format_and_send_sync_results(
@@ -229,12 +229,12 @@ class MartyBot:
         if final_summary_message:
             await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
 
-    async def _handle_remove_user_rights_command(self, channel_id, arg_string=None): # Anciennement _handle_update_user_rights_command
-        """Supprime les accès obsolètes et synchronise les droits utilisateurs."""
-        logging.info(f"'{self.bot_name_mention} remove_user_rights' command received in channel {channel_id}.")
+    async def _handle_update_user_rights_and_remove_command(self, channel_id, arg_string=None):
+        """Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes."""
+        logging.info(f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id}.")
 
         initial_message_text = (
-            ":hourglass_flowing_sand: Démarrage de la suppression des droits utilisateurs obsolètes et synchronisation... "
+            ":hourglass_flowing_sand: Démarrage de la synchronisation complète des droits (avec suppressions)... "
             "Ceci inclut la synchronisation des groupes Authentik et des collections Outline. "
             "Cela peut prendre un moment."
         )
@@ -420,12 +420,12 @@ class MartyBot:
             outline_msg = f"  - Outline Collection `{outline_coll_name}`: "
             if self.outline_client:
                 try:
-                    status = self.outline_client.create_group(outline_coll_name)  # create_group ensures existence
-                    if status == "CREATED":
-                        outline_msg += ":white_check_mark: Créée."
-                    elif status == "EXISTS":
-                        outline_msg += ":information_source: Collection existait déjà."
-                    else:  # FAILED
+                    collection_obj = self.outline_client.create_group(outline_coll_name)
+                    if collection_obj and collection_obj.get("id"):
+                        # Simplification: On ne sait plus facilement si "CREATED" ou "EXISTS" ici sans changer plus create_group.
+                        # On logue un succès générique si on a un objet collection valide.
+                        outline_msg += ":white_check_mark: Collection assurée (créée ou existante)."
+                    else:
                         outline_msg += ":warning: Échec création/vérification."
                 except Exception as e:
                     outline_msg += f":x: Erreur ({e})."
@@ -511,13 +511,13 @@ class MartyBot:
     #         channel_id, arg_string, "pôle", "POLES", user_id_who_posted
     #     )
 
-    async def _handle_update_user_rights_command( # Anciennement _handle_sync_user_channels_command
+    async def _handle_update_all_user_rights_command(
         self, channel_id, arg_string=None
     ):
-        """Met à jour (ajoute/modifie) les droits utilisateurs sans supprimer d'accès."""
-        logging.info(f"'{self.bot_name_mention} update_user_rights' (upsert) command received in channel {channel_id}.")
+        """S'assure que les utilisateurs Mattermost ont les bons droits (ajouts/mises à jour uniquement)."""
+        logging.info(f"'{self.bot_name_mention} update_all_user_rights' (upsert) command received in channel {channel_id}.")
 
-        initial_message_text = ":hourglass_flowing_sand: Démarrage de la mise à jour (ajout/modification) des droits utilisateurs... Ceci peut prendre un moment."
+        initial_message_text = ":hourglass_flowing_sand: Démarrage de la mise à jour des droits utilisateurs (ajouts/modifications uniquement)... Ceci peut prendre un moment."
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
 
         if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
@@ -649,11 +649,15 @@ class MartyBot:
         help_lines.append(f"* `{self.bot_name_mention} create_projet MonProjet1 MonProjet2`")
         help_lines.append(f"* `{self.bot_name_mention} create_antenne AntenneRegionale`")
         help_lines.append(f"* `{self.bot_name_mention} create_pole PoleTechnique AutrePole`")
-        help_lines.append("\n**Commandes de synchronisation des droits :**")
-        help_lines.append(f"* `{self.bot_name_mention} update_user_rights` : Ajoute ou met à jour les droits des utilisateurs (Authentik, Outline) en fonction de leur présence dans les canaux Mattermost, sans supprimer d'accès existants.")
-        help_lines.append(f"* `{self.bot_name_mention} remove_user_rights` : Synchronise complètement les droits, y compris la suppression des accès pour les utilisateurs qui ne devraient plus les avoir (ex: quitté un canal).")
+        help_lines.append("\n**Commandes de synchronisation des droits utilisateurs :**")
+        help_lines.append(f"* **`{self.bot_name_mention} update_all_user_rights`**")
+        help_lines.append(f"  - _Rôle : S'assure que les utilisateurs présents dans les canaux Mattermost ont bien les accès correspondants dans Authentik et Outline._")
+        help_lines.append(f"  - _Logique : Part des canaux Mattermost. Ajoute les utilisateurs aux groupes/collections distants si nécessaire, ou met à jour leurs permissions. **Ne supprime jamais d'accès.** Idéal pour ajouter rapidement des droits suite à l'ajout d'un utilisateur à un canal Mattermost._")
+        help_lines.append(f"* **`{self.bot_name_mention} update_user_rights_and_remove`**")
+        help_lines.append(f"  - _Rôle : Effectue une synchronisation complète des droits. Garantit que les accès dans Authentik/Outline reflètent exactement la composition des canaux Mattermost._")
+        help_lines.append(f"  - _Logique : Combine les actions de `update_all_user_rights` (ajouts/mises à jour depuis Mattermost) ET **supprime les accès** des utilisateurs dans Authentik/Outline s'ils ne sont plus présents dans les canaux Mattermost correspondants (ou si leurs droits ont changé). C'est la commande à utiliser pour une remise en cohérence complète._")
         help_lines.append(
-            f"\n**Note :** Les commandes de synchronisation des droits peuvent prendre un certain temps pour s'exécuter."
+            f"\n**Note :** La commande `update_user_rights_and_remove` est plus complète mais peut prendre plus de temps car elle vérifie tous les membres des services distants."
         )
         help_lines.append(f"\nMentionnez-moi avec une commande, comme `{self.bot_name_mention} help`.")
         help_text = "\n".join(help_lines)

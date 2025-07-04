@@ -36,15 +36,16 @@ class TestOutlineClient(unittest.TestCase):
         mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 25}}
 
         # Mock for collections.create (second call)
+        expected_collection_data = {"id": "collection_id_123", "name": "new_project"}
         mock_create_response = Mock()
         mock_create_response.status_code = 200
-        mock_create_response.json.return_value = {"data": {"id": "collection_id_123", "name": "new_project"}}
+        mock_create_response.json.return_value = {"data": expected_collection_data}
 
         mock_post_request.side_effect = [mock_list_response, mock_create_response]
 
         project_name = "new_project"
         result = self.client.create_group(project_name)
-        self.assertEqual(result, "CREATED")  # Expect "CREATED" status
+        self.assertEqual(result, expected_collection_data)
 
         self.assertEqual(mock_post_request.call_count, 2)
 
@@ -58,16 +59,17 @@ class TestOutlineClient(unittest.TestCase):
     @patch("requests.post")
     def test_create_group_success_collection_already_exists(self, mock_post_request):
         project_name = "existing_project"
+        expected_existing_collection = {"id": "existing_id_456", "name": project_name}
         mock_list_response = Mock()
         mock_list_response.status_code = 200
         mock_list_response.json.return_value = {
-            "data": [{"id": "existing_id_456", "name": project_name}],
+            "data": [expected_existing_collection],
             "pagination": {"offset": 0, "limit": 25},
         }
         mock_post_request.return_value = mock_list_response
 
         result = self.client.create_group(project_name)
-        self.assertEqual(result, "EXISTS")  # Expect "EXISTS" status
+        self.assertEqual(result, expected_existing_collection)
 
         mock_post_request.assert_called_once()
         list_call_args = mock_post_request.call_args_list[0]
@@ -79,8 +81,10 @@ class TestOutlineClient(unittest.TestCase):
 
         project_name = "project_list_fail"
         result = self.client.create_group(project_name)
-        self.assertEqual(result, "FAILED")  # Expect "FAILED" status
+        self.assertIsNone(result)
+        # First call in get_collection_by_name (fails), second call for collections.create (also fails due to side_effect)
         self.assertEqual(mock_post_request.call_count, 2)
+
 
     @patch("requests.post")
     def test_create_group_failure_during_actual_creation(self, mock_post_request):
@@ -91,12 +95,15 @@ class TestOutlineClient(unittest.TestCase):
         mock_create_response = Mock()
         mock_create_response.status_code = 403
         mock_create_response.json.return_value = {"message": "Cannot create"}
+        # Simulate raise_for_status() for the failing call
+        mock_create_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_create_response)
+
 
         mock_post_request.side_effect = [mock_list_response, mock_create_response]
 
         project_name = "project_create_fail"
         result = self.client.create_group(project_name)
-        self.assertEqual(result, "FAILED")  # Expect "FAILED" status
+        self.assertIsNone(result)
         self.assertEqual(mock_post_request.call_count, 2)
 
     @patch("requests.post")
@@ -107,13 +114,13 @@ class TestOutlineClient(unittest.TestCase):
 
         mock_create_response = Mock()
         mock_create_response.status_code = 200
-        mock_create_response.json.return_value = {"data": None}
+        mock_create_response.json.return_value = {"data": None} # Malformed: 'data' is None, not a dict with 'id'
 
         mock_post_request.side_effect = [mock_list_response, mock_create_response]
 
         project_name = "test_project_malformed_success_create"
         result = self.client.create_group(project_name)
-        self.assertEqual(result, "FAILED")  # Expect "FAILED"
+        self.assertIsNone(result)
         self.assertEqual(mock_post_request.call_count, 2)
 
     @patch("requests.post")
@@ -173,26 +180,24 @@ class TestOutlineClient(unittest.TestCase):
         result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")
         self.assertTrue(result)
         expected_url = f"{self.mock_url}/api/collections.remove_user"
-        expected_payload = {"id": "coll_id_1", "userId": "user_id_1"} # Corrected: "id"
+        expected_payload = {"id": "coll_id_1", "userId": "user_id_1"}
         mock_post.assert_called_once_with(expected_url, headers=self.client.headers, json=expected_payload)
 
     @patch("requests.post")
     def test_remove_user_from_collection_success_204_no_content(self, mock_post):
         mock_response = Mock(status_code=204)
-        # For 204, .json() would typically not be called or would raise an error if called.
-        # The client logic should handle this (e.g., by not calling .json()).
         mock_post.return_value = mock_response
 
         result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")
         self.assertTrue(result)
         expected_url = f"{self.mock_url}/api/collections.remove_user"
-        expected_payload = {"id": "coll_id_1", "userId": "user_id_1"} # Corrected: "id"
+        expected_payload = {"id": "coll_id_1", "userId": "user_id_1"}
         mock_post.assert_called_once_with(expected_url, headers=self.client.headers, json=expected_payload)
 
     @patch("requests.post")
     def test_remove_user_from_collection_failure_false(self, mock_post):
         mock_response = Mock(status_code=200)
-        mock_response.json.return_value = {"success": False}  # API reports not successful
+        mock_response.json.return_value = {"success": False}
         mock_post.return_value = mock_response
 
         result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")
@@ -200,7 +205,7 @@ class TestOutlineClient(unittest.TestCase):
 
     @patch("requests.post")
     def test_remove_user_from_collection_failure_http_error(self, mock_post):
-        mock_err_response = Mock(status_code=403)  # Forbidden
+        mock_err_response = Mock(status_code=403)
         mock_err_response.text = "Forbidden action"
         mock_err_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_err_response)
         mock_post.return_value = mock_err_response

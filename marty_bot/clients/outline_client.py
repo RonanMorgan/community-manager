@@ -26,21 +26,20 @@ class OutlineClient:
         """
         Ensures a collection (space) in Outline exists, creating it if necessary.
         :param project_name: The name of the project/collection.
-        :return: "CREATED" if newly created, "EXISTS" if already there, "FAILED" otherwise.
+        :return: The collection object (dict with at least 'id' and 'name') if successful/exists, None otherwise.
         """
         # 1. Check if collection already exists
         try:
             existing_collection = self.get_collection_by_name(project_name)
             if existing_collection:
                 collection_id = existing_collection.get("id")
-                logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) already exists.")
-                return "EXISTS"
+                logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) already exists. Returning existing object.")
+                return existing_collection # Return the existing collection object
         except requests.exceptions.RequestException as e:
-            # This exception would come from get_collection_by_name if requests.post fails there
             logging.error(
                 f"Outline API >> Error during existence check for collection '{project_name}': {e}"
-            )  # noqa: E501
-            return "FAILED"  # If we can't check, we can't safely determine existence or create
+            )
+            return None # If we can't check, we can't safely determine existence or create
 
         # 2. If not found (and no error during check), try to create it
         create_api_url = f"{self.base_url}/api/collections.create"
@@ -54,36 +53,33 @@ class OutlineClient:
         try:
             response = requests.post(create_api_url, headers=self.headers, json=payload)
 
-            if response.status_code == 200:  # Outline typically returns 200 for successful creation
+            if response.status_code == 200:
                 response_data = response.json()
                 data_content = response_data.get("data")
                 if isinstance(data_content, dict) and data_content.get("id"):
                     collection_id = data_content.get("id")
                     logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) created successfully.")
-                    return "CREATED"
+                    return data_content # Return the newly created collection object
                 else:
-                    # Success status but unexpected data format
                     logging.warning(
                         f"Outline collection '{project_name}' creation reported success (200), "
-                        f"but 'id' could not be retrieved from response data: {response.text}"  # noqa: E501
+                        f"but 'id' or valid data could not be retrieved from response: {response.text}"
                     )
-                    return "FAILED"  # Treat as failure if data is not as expected
+                    return None
             else:
-                # Handle non-200 responses for collections.create
                 error_details_msg = ""
                 try:
                     error_json = response.json()
                     error_details_msg = f" (API Error: {error_json.get('message', 'No specific message')})"
                 except json.JSONDecodeError:
                     error_details_msg = " (Could not parse JSON error response)"
-
                 logging.error(
-                    f"Error creating Outline collection '{project_name}': {response.status_code} - {response.text}{error_details_msg}"  # noqa: E501
+                    f"Error creating Outline collection '{project_name}': {response.status_code} - {response.text}{error_details_msg}"
                 )
-                return "FAILED"
+                return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Request exception during Outline collection creation for '{project_name}': {e}")
-            return "FAILED"
+            return None
 
     def get_user_by_email(self, email: str) -> dict | None:
         """
