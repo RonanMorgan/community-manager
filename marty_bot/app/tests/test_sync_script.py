@@ -109,7 +109,10 @@ class TestSyncLogic(unittest.TestCase):
             {"name": "antenne_beta", "pk": "g2_std", "users": [], "users_obj": []},
         ]
         mock_email_pk_map = {"user1@example.com": "upk1"}
-        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map)
+        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map) # For the email map part
+        # Also mock the direct call to authentik_client.get_groups_with_users for group discovery
+        mock_auth_client.get_groups_with_users.return_value = (mock_groups_list, mock_email_pk_map)
+
         mock_lib_config.PERMISSIONS_MATRIX = {
             "PROJET": {
                 "standard": {"authentik_group_name_pattern": "projet_{base_name}"},
@@ -126,7 +129,7 @@ class TestSyncLogic(unittest.TestCase):
             {"service": "ANTENNE_BETA_SYNC", "status": "SUCCESS"},
         ]
         success, detailed_results = orchestrate_group_synchronization(
-            mock_auth_client, mock_mm_client, mock_outline_client, mock_team_id
+            mock_auth_client, mock_mm_client, mock_outline_client, mock_team_id, perform_deletions=True
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, expected_detailed_results)
@@ -140,8 +143,9 @@ class TestSyncLogic(unittest.TestCase):
             "alpha",
             "PROJET",
             mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
-            unittest.mock.ANY,
+            unittest.mock.ANY, # all_authentik_groups_by_name
             mock_email_pk_map,
+            True, # perform_deletions
         )
         mock_sync_entity_permissions.assert_any_call(
             mock_auth_client,
@@ -151,8 +155,9 @@ class TestSyncLogic(unittest.TestCase):
             "beta",
             "ANTENNE",
             mock_lib_config.PERMISSIONS_MATRIX["ANTENNE"],
-            unittest.mock.ANY,
+            unittest.mock.ANY, # all_authentik_groups_by_name
             mock_email_pk_map,
+            True, # perform_deletions
         )
 
     @patch("libraries.group_sync_services.sync_entity_permissions")
@@ -167,14 +172,16 @@ class TestSyncLogic(unittest.TestCase):
         mock_outline_client_none = None
         mock_groups_list = [{"name": "projet_gamma", "pk": "g_gamma", "users": [], "users_obj": []}]
         mock_email_pk_map = {"usergamma@example.com": "upk_gamma"}
-        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map)
+        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map) # For email map
+        mock_auth_client.get_groups_with_users.return_value = (mock_groups_list, mock_email_pk_map) # For group discovery
+
         mock_lib_config.PERMISSIONS_MATRIX = {
             "PROJET": {"standard": {"authentik_group_name_pattern": "projet_{base_name}"}}
         }
         mock_sync_entity_permissions.return_value = [{"service": "AUTHENTIK_ONLY", "status": "SUCCESS"}]
         expected_detailed_results = [{"service": "AUTHENTIK_ONLY", "status": "SUCCESS"}]
         success, detailed_results = orchestrate_group_synchronization(
-            mock_auth_client, mock_mm_client, mock_outline_client_none, mock_team_id
+            mock_auth_client, mock_mm_client, mock_outline_client_none, mock_team_id, perform_deletions=True
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, expected_detailed_results)
@@ -186,8 +193,9 @@ class TestSyncLogic(unittest.TestCase):
             "gamma",
             "PROJET",
             mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
-            unittest.mock.ANY,
+            unittest.mock.ANY, # all_authentik_groups_by_name
             mock_email_pk_map,
+            True, # perform_deletions
         )
 
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
@@ -197,9 +205,12 @@ class TestSyncLogic(unittest.TestCase):
         mock_mm_client = MagicMock(spec=MattermostClient)
         mock_outline_client = MagicMock(spec=OutlineClient)
         mock_team_id = "team123"
-        mock_get_groups_map.return_value = ([], {})
+        mock_get_groups_map.return_value = ([], {}) # For email map part
+        mock_auth_client.get_groups_with_users.return_value = ([], {}) # For group discovery part
+
         success, detailed_results = orchestrate_group_synchronization(
-            mock_auth_client, mock_mm_client, mock_outline_client, mock_team_id
+            mock_auth_client, mock_mm_client, mock_outline_client, mock_team_id, perform_deletions=True
+            # fetch_remote_members defaults to True, so this will use the mock_auth_client.get_groups_with_users
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, [])
@@ -208,17 +219,17 @@ class TestSyncLogic(unittest.TestCase):
     def test_library_orchestrate_sync_core_clients_missing(self):
         mock_outline_client = MagicMock(spec=OutlineClient)
         success_auth, results_auth = orchestrate_group_synchronization(
-            None, MagicMock(spec=MattermostClient), mock_outline_client, "team_id"
+            None, MagicMock(spec=MattermostClient), mock_outline_client, "team_id", perform_deletions=True
         )
         self.assertFalse(success_auth)
         self.assertEqual(results_auth, [])
         success_mm, results_mm = orchestrate_group_synchronization(
-            MagicMock(spec=AuthentikClient), None, mock_outline_client, "team_id"
+            MagicMock(spec=AuthentikClient), None, mock_outline_client, "team_id", perform_deletions=True
         )
         self.assertFalse(success_mm)
         self.assertEqual(results_mm, [])
         success_team, results_team = orchestrate_group_synchronization(
-            MagicMock(spec=AuthentikClient), MagicMock(spec=MattermostClient), mock_outline_client, None
+            MagicMock(spec=AuthentikClient), MagicMock(spec=MattermostClient), mock_outline_client, None, perform_deletions=True
         )
         self.assertFalse(success_team)
         self.assertEqual(results_team, [])
@@ -238,6 +249,9 @@ class TestSyncLogic(unittest.TestCase):
         mock_orchestrate_lib.return_value = (True, [])
         script_module.main_sync_logic()
         mock_script_init_clients.assert_called_once()
+        # Script main_sync_logic calls orchestrate_group_synchronization without explicitly setting perform_deletions,
+        # so it relies on the default value (True) in the function's definition.
+        # The mock assertion should reflect the actual call made by the script.
         mock_orchestrate_lib.assert_called_once_with(mock_auth_instance, mock_mm_instance, None, "script_team_id")
 
     @patch("scripts.sync_mm_authentik_groups.config")

@@ -409,6 +409,49 @@ class MattermostClient:
             logging.error(f"Error decoding JSON from add user to channel response for channel {channel_id}: {e}")
             return False
 
+    def get_channels_for_team(self, team_id: str = None) -> list[dict]:
+        """
+        Fetches all public and private channels for a given team_id.
+        Corresponds to Mattermost API: GET /api/v4/teams/{team_id}/channels
+        (Note: This endpoint typically returns public channels. For private channels,
+         additional permissions or a different endpoint might be needed if the bot
+         is not already a member. For simplicity, this fetches what's available via this route.)
+        :param team_id: Optional. The ID of the team. If None, uses the client's default team_id.
+        :return: A list of channel objects (dictionaries) if successful, an empty list otherwise.
+        """
+        current_team_id = team_id or self.team_id
+        if not current_team_id:
+            logging.error("Mattermost Team ID is not available for fetching channels.")
+            return []
+
+        api_url = f"{self.base_url}/api/v4/teams/{current_team_id}/channels"
+        # This endpoint might be paginated for teams with many channels,
+        # but often for typical setups, it might return all in one go or a reasonable first page.
+        # For full robustness, pagination handling (page, per_page) would be needed here too.
+        # For now, fetching the default first page (usually up to 60-200 channels).
+        logging.debug(f"Mattermost API >> Fetching channels for team {current_team_id} from {api_url}")
+        try:
+            response = requests.get(api_url, headers=self.headers)
+            response.raise_for_status()
+            channels_data = response.json()
+            if isinstance(channels_data, list):
+                logging.info(f"Successfully fetched {len(channels_data)} channels for team {current_team_id}.")
+                return channels_data
+            else:
+                logging.error(f"Unexpected response format when fetching channels for team {current_team_id}: {channels_data}")
+                return []
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error fetching channels for team {current_team_id}: {e.response.status_code} - {e.response.text}"
+            )
+            return []
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception fetching channels for team {current_team_id}: {e}")
+            return []
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from channels response for team {current_team_id}: {e}")
+            return []
+
 
 if __name__ == "__main__":
     from dotenv import load_dotenv

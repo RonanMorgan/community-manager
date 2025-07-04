@@ -122,16 +122,16 @@ class MartyBot:
                 c, arg_str, "pôle", "POLES", user_id_who_posted
             ),
             "help": self._send_help_message,
-            "sync_user_channels": self._handle_sync_user_channels_command,
-            "update_user_rights": self._handle_update_user_rights_command,
+            "update_all_user_rights": self._handle_update_all_user_rights_command,
+            "update_user_rights_and_remove": self._handle_update_user_rights_and_remove_command,
         }
 
     async def _format_and_send_sync_results(
-        self, channel_id: str, initial_post_id: str | None, detailed_results: list[dict]
+        self, channel_id: str, initial_post_id: str | None, detailed_results: list[dict], command_name: str = "synchronisation"
     ):
         """Helper function to format and send detailed synchronization results."""
         if not detailed_results:
-            final_summary_message = ":information_source: Processus de synchronisation terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
+            final_summary_message = f":information_source: Processus de {command_name} terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
             await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
             return
 
@@ -205,7 +205,7 @@ class MartyBot:
             )
 
         # Construction du message de résumé final
-        summary_lines = ["### :checkered_flag: Résumé de la synchronisation des droits :"]
+        summary_lines = [f"### :checkered_flag: Résumé de {command_name} des droits :"]
         summary_lines.append(f"- Opérations réussies : {total_success_ops}")
         if total_problem_ops > 0:
             summary_lines.append(f"- Problèmes/omissions : {total_problem_ops}")
@@ -215,39 +215,39 @@ class MartyBot:
             summary_lines.append(f"- `{act}` : {count} fois")
 
         if total_problem_ops > 0 and total_success_ops > 0:
-            summary_lines.insert(1, ":warning: Synchronisation partiellement terminée.")
+            summary_lines.insert(1, f":warning: {command_name.capitalize()} partiellement terminée.")
         elif total_problem_ops > 0:
-            summary_lines.insert(1, ":x: Synchronisation terminée avec des problèmes/omissions.")
+            summary_lines.insert(1, f":x: {command_name.capitalize()} terminée avec des problèmes/omissions.")
         elif total_success_ops > 0:
-            summary_lines.insert(1, ":rocket: Synchronisation terminée avec succès.")
+            summary_lines.insert(1, f":rocket: {command_name.capitalize()} terminée avec succès.")
         else:  # No ops or only skips like NO_MM_EMAIL
             summary_lines.insert(
-                1, ":information_source: Synchronisation terminée. Peu ou pas d'opérations significatives effectuées."
+                1, f":information_source: {command_name.capitalize()} terminée. Peu ou pas d'opérations significatives effectuées."
             )
 
         final_summary_message = "\n".join(summary_lines)
         if final_summary_message:
             await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
 
-    async def _handle_update_user_rights_command(self, channel_id, arg_string=None):
-        """Met à jour tous les droits utilisateurs et supprime les accès obsolètes."""
-        logging.info(f"'{self.bot_name_mention} update_user_rights' command received in channel {channel_id}.")
+    async def _handle_update_user_rights_and_remove_command(self, channel_id, arg_string=None):
+        """Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes."""
+        logging.info(f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id}.")
 
         initial_message_text = (
-            ":hourglass_flowing_sand: Démarrage de la mise à jour des droits utilisateurs... "
-            "Ceci inclut la synchronisation des groupes Authentik et des collections Outline, "
-            "ainsi que la suppression des accès obsolètes. Cela peut prendre un moment."
+            ":hourglass_flowing_sand: Démarrage de la synchronisation complète des droits (avec suppressions)... "
+            "Ceci inclut la synchronisation des groupes Authentik et des collections Outline. "
+            "Cela peut prendre un moment."
         )
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
 
         if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
             error_msg = (
-                ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la synchronisation. "
+                ":warning: **Erreur :** Le bot n'est pas correctement configuré pour cette opération. "
                 "Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. "
                 "Veuillez vérifier les logs du serveur."
             )
             logging.error(
-                "Bot is not properly configured for rights update (core components): Missing Authentik client, "
+                "Bot is not properly configured for rights removal (core components): Missing Authentik client, "
                 "Mattermost API client, or Mattermost Team ID."
             )
             await asyncio.to_thread(self.envoyer_message, channel_id, error_msg, thread_id=initial_post_id)
@@ -255,42 +255,43 @@ class MartyBot:
 
         if not self.outline_client:
             logging.info(
-                "Outline client not configured on this bot instance. Outline synchronization will be skipped."
+                "Outline client not configured on this bot instance. Outline synchronization will be skipped for remove_user_rights."
             )
 
         try:
-            logging.info("Dispatching group synchronization task (for rights update) to a thread...")
-            # On réutilise orchestrate_group_synchronization car elle fait maintenant la synchro complète
+            logging.info("Dispatching group synchronization task (for rights removal) to a thread...")
             orchestration_success, detailed_results = await asyncio.to_thread(
                 orchestrate_group_synchronization,
                 self.authentik_client,
                 self.mattermost_api_client,
                 self.outline_client,  # Peut être None, géré par l'orchestrateur
                 self.config.MATTERMOST_TEAM_ID,
+                perform_deletions=True, # Assure la suppression
+                fetch_remote_members=True # Mode complet pour remove_user_rights
             )
 
             if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
                 logging.warning(
-                    "Group synchronization task (for rights update) reported critical failure during orchestration."
+                    "Group synchronization task (for rights removal) reported critical failure during orchestration."
                 )
                 summary_msg = (
-                    ":x: La mise à jour des droits a échoué de manière critique durant l'orchestration. "
+                    ":x: La suppression/synchronisation des droits a échoué de manière critique durant l'orchestration. "
                     "Veuillez consulter les logs du serveur pour plus de détails."
                 )
                 await asyncio.to_thread(self.envoyer_message, channel_id, summary_msg, thread_id=initial_post_id)
             else:
                 logging.info(
-                    f"Group synchronization task (for rights update) orchestration completed. Detailed results count: {len(detailed_results)}"
+                    f"Group synchronization task (for rights removal) orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
-                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results)
+                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results, command_name="Suppression/synchronisation")
 
         except Exception as e:
             logging.error(
-                f"An unexpected error occurred while dispatching or running the rights update task: {e}", exc_info=True
+                f"An unexpected error occurred while dispatching or running the rights removal task: {e}", exc_info=True
             )
             error_response_msg = (
                 ":boom: Une erreur serveur inattendue s'est produite lors de la tentative "
-                "d'exécution de la mise à jour des droits. Veuillez consulter les logs du serveur."
+                "d'exécution de la suppression/synchronisation des droits. Veuillez consulter les logs du serveur."
             )
             await asyncio.to_thread(self.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id)
 
@@ -419,12 +420,12 @@ class MartyBot:
             outline_msg = f"  - Outline Collection `{outline_coll_name}`: "
             if self.outline_client:
                 try:
-                    status = self.outline_client.create_group(outline_coll_name)  # create_group ensures existence
-                    if status == "CREATED":
-                        outline_msg += ":white_check_mark: Créée."
-                    elif status == "EXISTS":
-                        outline_msg += ":information_source: Collection existait déjà."
-                    else:  # FAILED
+                    collection_obj = self.outline_client.create_group(outline_coll_name)
+                    if collection_obj and collection_obj.get("id"):
+                        # Simplification: On ne sait plus facilement si "CREATED" ou "EXISTS" ici sans changer plus create_group.
+                        # On logue un succès générique si on a un objet collection valide.
+                        outline_msg += ":white_check_mark: Collection assurée (créée ou existante)."
+                    else:
                         outline_msg += ":warning: Échec création/vérification."
                 except Exception as e:
                     outline_msg += f":x: Erreur ({e})."
@@ -510,60 +511,61 @@ class MartyBot:
     #         channel_id, arg_string, "pôle", "POLES", user_id_who_posted
     #     )
 
-    async def _handle_sync_user_channels_command(
+    async def _handle_update_all_user_rights_command(
         self, channel_id, arg_string=None
-    ):  # arg_string and user_id not used here
-        """Triggers the synchronization of Mattermost channel users to Authentik groups."""
-        logging.info(f"'{self.bot_name_mention} sync_user_channels' command received in channel {channel_id}.")
+    ):
+        """S'assure que les utilisateurs Mattermost ont les bons droits (ajouts/mises à jour uniquement)."""
+        logging.info(f"'{self.bot_name_mention} update_all_user_rights' (upsert) command received in channel {channel_id}.")
 
-        initial_message_text = ":hourglass_flowing_sand: Démarrage de la synchronisation des utilisateurs des canaux Mattermost vers les groupes Authentik et collections Outline... Ceci peut prendre un moment."
+        initial_message_text = ":hourglass_flowing_sand: Démarrage de la mise à jour des droits utilisateurs (ajouts/modifications uniquement)... Ceci peut prendre un moment."
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
 
         if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
             error_msg = (
-                ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la synchronisation. "
+                ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la mise à jour des droits. "
                 "Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. "
                 "Veuillez vérifier les logs du serveur."
             )
             logging.error(
-                "Bot is not properly configured for sync (core components): Missing Authentik client, "
+                "Bot is not properly configured for rights update (upsert): Missing Authentik client, "
                 "Mattermost API client, or Mattermost Team ID."
             )
             await asyncio.to_thread(self.envoyer_message, channel_id, error_msg, thread_id=initial_post_id)
             return
 
         if not self.outline_client:
-            logging.info("Outline client not configured on this bot instance. Outline sync will be skipped.")
+            logging.info("Outline client not configured. Outline operations will be skipped for update_user_rights.")
 
         try:
-            logging.info("Dispatching group synchronization task to a thread...")
+            logging.info("Dispatching group synchronization task (upsert mode) to a thread...")
             orchestration_success, detailed_results = await asyncio.to_thread(
                 orchestrate_group_synchronization,
                 self.authentik_client,
                 self.mattermost_api_client,
-                self.outline_client,  # Peut être None, géré par l'orchestrateur
+                self.outline_client,
                 self.config.MATTERMOST_TEAM_ID,
+                perform_deletions=False, # Ne pas supprimer d'utilisateurs
+                fetch_remote_members=False # Mode "upsert pur" basé sur Mattermost
             )
 
-            if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
-                logging.warning("Group synchronization task reported critical failure during orchestration.")
+            if not orchestration_success:
+                logging.warning("Group synchronization task (upsert mode) reported critical failure during orchestration.")
                 summary_msg = (
-                    ":x: La synchronisation des groupes a échoué de manière critique durant l'orchestration. "
+                    ":x: La mise à jour des droits (upsert) a échoué de manière critique durant l'orchestration. "
                     "Veuillez consulter les logs du serveur pour plus de détails."
                 )
                 await asyncio.to_thread(self.envoyer_message, channel_id, summary_msg, thread_id=initial_post_id)
             else:
                 logging.info(
-                    f"Group synchronization task orchestration completed. Detailed results count: {len(detailed_results)}"
+                    f"Group synchronization task (upsert mode) orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
-                # Utiliser la méthode factorisée pour envoyer les résultats
-                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results)
+                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results, command_name="Mise à jour (upsert)")
 
         except Exception as e:
             logging.error(
-                f"An unexpected error occurred while dispatching or running the sync task: {e}", exc_info=True
+                f"An unexpected error occurred while dispatching or running the upsert task: {e}", exc_info=True
             )
-            error_response_msg = ":boom: Une erreur serveur inattendue s'est produite lors de la tentative d'exécution de la synchronisation. Veuillez consulter les logs du serveur."
+            error_response_msg = ":boom: Une erreur serveur inattendue s'est produite lors de la tentative d'exécution de la mise à jour des droits (upsert). Veuillez consulter les logs du serveur."
             await asyncio.to_thread(self.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id)
 
     def _request_shutdown(self):
@@ -647,9 +649,15 @@ class MartyBot:
         help_lines.append(f"* `{self.bot_name_mention} create_projet MonProjet1 MonProjet2`")
         help_lines.append(f"* `{self.bot_name_mention} create_antenne AntenneRegionale`")
         help_lines.append(f"* `{self.bot_name_mention} create_pole PoleTechnique AutrePole`")
+        help_lines.append("\n**Commandes de synchronisation des droits utilisateurs :**")
+        help_lines.append(f"* **`{self.bot_name_mention} update_all_user_rights`**")
+        help_lines.append(f"  - _Rôle : S'assure que les utilisateurs présents dans les canaux Mattermost ont bien les accès correspondants dans Authentik et Outline._")
+        help_lines.append(f"  - _Logique : Part des canaux Mattermost. Ajoute les utilisateurs aux groupes/collections distants si nécessaire, ou met à jour leurs permissions. **Ne supprime jamais d'accès.** Idéal pour ajouter rapidement des droits suite à l'ajout d'un utilisateur à un canal Mattermost._")
+        help_lines.append(f"* **`{self.bot_name_mention} update_user_rights_and_remove`**")
+        help_lines.append(f"  - _Rôle : Effectue une synchronisation complète des droits. Garantit que les accès dans Authentik/Outline reflètent exactement la composition des canaux Mattermost._")
+        help_lines.append(f"  - _Logique : Combine les actions de `update_all_user_rights` (ajouts/mises à jour depuis Mattermost) ET **supprime les accès** des utilisateurs dans Authentik/Outline s'ils ne sont plus présents dans les canaux Mattermost correspondants (ou si leurs droits ont changé). C'est la commande à utiliser pour une remise en cohérence complète._")
         help_lines.append(
-            f"\n**Note :** Les commandes `{self.bot_name_mention} sync_user_channels` et `{self.bot_name_mention} update_user_rights` "
-            "peuvent prendre un certain temps pour s'exécuter."
+            f"\n**Note :** La commande `update_user_rights_and_remove` est plus complète mais peut prendre plus de temps car elle vérifie tous les membres des services distants."
         )
         help_lines.append(f"\nMentionnez-moi avec une commande, comme `{self.bot_name_mention} help`.")
         help_text = "\n".join(help_lines)

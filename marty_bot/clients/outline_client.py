@@ -26,21 +26,20 @@ class OutlineClient:
         """
         Ensures a collection (space) in Outline exists, creating it if necessary.
         :param project_name: The name of the project/collection.
-        :return: "CREATED" if newly created, "EXISTS" if already there, "FAILED" otherwise.
+        :return: The collection object (dict with at least 'id' and 'name') if successful/exists, None otherwise.
         """
         # 1. Check if collection already exists
         try:
             existing_collection = self.get_collection_by_name(project_name)
             if existing_collection:
                 collection_id = existing_collection.get("id")
-                logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) already exists.")
-                return "EXISTS"
+                logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) already exists. Returning existing object.")
+                return existing_collection # Return the existing collection object
         except requests.exceptions.RequestException as e:
-            # This exception would come from get_collection_by_name if requests.post fails there
             logging.error(
                 f"Outline API >> Error during existence check for collection '{project_name}': {e}"
-            )  # noqa: E501
-            return "FAILED"  # If we can't check, we can't safely determine existence or create
+            )
+            return None # If we can't check, we can't safely determine existence or create
 
         # 2. If not found (and no error during check), try to create it
         create_api_url = f"{self.base_url}/api/collections.create"
@@ -54,36 +53,33 @@ class OutlineClient:
         try:
             response = requests.post(create_api_url, headers=self.headers, json=payload)
 
-            if response.status_code == 200:  # Outline typically returns 200 for successful creation
+            if response.status_code == 200:
                 response_data = response.json()
                 data_content = response_data.get("data")
                 if isinstance(data_content, dict) and data_content.get("id"):
                     collection_id = data_content.get("id")
                     logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) created successfully.")
-                    return "CREATED"
+                    return data_content # Return the newly created collection object
                 else:
-                    # Success status but unexpected data format
                     logging.warning(
                         f"Outline collection '{project_name}' creation reported success (200), "
-                        f"but 'id' could not be retrieved from response data: {response.text}"  # noqa: E501
+                        f"but 'id' or valid data could not be retrieved from response: {response.text}"
                     )
-                    return "FAILED"  # Treat as failure if data is not as expected
+                    return None
             else:
-                # Handle non-200 responses for collections.create
                 error_details_msg = ""
                 try:
                     error_json = response.json()
                     error_details_msg = f" (API Error: {error_json.get('message', 'No specific message')})"
                 except json.JSONDecodeError:
                     error_details_msg = " (Could not parse JSON error response)"
-
                 logging.error(
-                    f"Error creating Outline collection '{project_name}': {response.status_code} - {response.text}{error_details_msg}"  # noqa: E501
+                    f"Error creating Outline collection '{project_name}': {response.status_code} - {response.text}{error_details_msg}"
                 )
-                return "FAILED"
+                return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Request exception during Outline collection creation for '{project_name}': {e}")
-            return "FAILED"
+            return None
 
     def get_user_by_email(self, email: str) -> dict | None:
         """
@@ -351,6 +347,45 @@ class OutlineClient:
             )
             return None
 
+    def get_user_by_id(self, user_id: str) -> dict | None:
+        """
+        Retrieves a user from Outline by their ID.
+        Uses /api/users.info endpoint.
+        :param user_id: The ID of the user to find.
+        :return: A dictionary containing the user data if found, None otherwise.
+        """
+        if not user_id:
+            logging.error("User ID must be provided to get user by ID.")
+            return None
+
+        api_url = f"{self.base_url}/api/users.info"
+        payload = {"id": user_id}
+        logging.debug(f"Outline API >> Getting user by ID '{user_id}'")
+
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            response_data = response.json()
+            user_data = response_data.get("data")
+
+            if user_data:
+                logging.info(f"Successfully fetched Outline user (ID: {user_id}, Name: {user_data.get('name')}).")
+                return user_data
+            else:
+                logging.warning(f"Outline user ID '{user_id}' not found or no data returned.")
+                return None
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error fetching Outline user by ID '{user_id}': {e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed while fetching Outline user by ID '{user_id}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from Outline users.info response for ID '{user_id}': {e}")
+            return None
+
     def remove_user_from_collection(self, collection_id: str, user_id: str) -> bool:
         """
         Removes a user from an Outline collection.
@@ -364,7 +399,7 @@ class OutlineClient:
 
         api_url = f"{self.base_url}/api/collections.remove_user"
         payload = {
-            "collectionId": collection_id,  # Note: API docs might vary, check if it's 'id' or 'collectionId'
+            "id": collection_id, # Corrigé: "id" au lieu de "collectionId"
             "userId": user_id,
         }
         logging.info(
