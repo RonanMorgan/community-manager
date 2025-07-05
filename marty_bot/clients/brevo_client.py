@@ -170,6 +170,44 @@ class BrevoClient:
         logging.error(f"Failed to delete Brevo list ID {list_id}. Status: {status_code}")
         return False
 
+    def get_folder_id_by_name(self, folder_name: str) -> int | None:
+        """
+        Retrieves the ID of a folder by its name.
+        Handles pagination.
+        :param folder_name: The name of the folder to find.
+        :return: The ID of the folder if found, None otherwise.
+        """
+        logging.info(f"Attempting to find Brevo folder ID for folder name: '{folder_name}'")
+        limit = 50  # Brevo's default limit for folders is often 10 or 50.
+        offset = 0
+        total_folders = None
+
+        while True:
+            params = {"limit": limit, "offset": offset, "sort": "desc"}
+            status_code, data = self._make_request("GET", "contacts/folders", params=params)
+
+            if status_code == 200 and data and "folders" in data:
+                if total_folders is None:  # First call
+                    total_folders = data.get("count", 0)
+
+                for folder in data["folders"]:
+                    if folder.get("name") == folder_name:
+                        folder_id = folder.get("id")
+                        logging.info(f"Found Brevo folder '{folder_name}' with ID {folder_id}.")
+                        return folder_id
+
+                offset += len(data["folders"])
+                if offset >= total_folders or not data["folders"]:  # No more folders or reached the end
+                    break
+            else:
+                logging.warning(
+                    f"Could not retrieve folders from Brevo or data format unexpected. Status: {status_code}, Offset: {offset}"
+                )
+                return None
+
+        logging.info(f"Brevo folder '{folder_name}' not found after checking {total_folders or 0} folders.")
+        return None
+
     def send_transactional_email(
         self, subject: str, text_content: str, sender_email: str, sender_name: str, to_contacts: list[dict]
     ) -> bool:
@@ -198,7 +236,7 @@ class BrevoClient:
 
         logging.info(
             f"Attempting to send transactional email. Subject: '{subject}', To: {len(to_contacts)} recipients."
-        )
+        )  # noqa: E501
         status_code, data = self._make_request("POST", "smtp/email", json_data=payload)
 
         # Brevo API returns 201 Created if the email is accepted for sending

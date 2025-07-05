@@ -366,6 +366,77 @@ class TestBrevoClient(unittest.TestCase):
         self.assertFalse(self.client.send_transactional_email("Subject", "Content", "s@e.com", "Sender", []))
         mock_request.assert_not_called()
 
+    @patch("requests.request")
+    def test_get_folder_id_by_name_found(self, mock_request):
+        """Test retrieving a folder ID by name when it exists."""
+        folder_name = "My Test Folder"
+        folder_id = 123
+        mock_response_data = {"folders": [{"id": folder_id, "name": folder_name}], "count": 1}
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
+
+        result = self.client.get_folder_id_by_name(folder_name)
+        self.assertEqual(result, folder_id)
+        mock_request.assert_called_once_with(
+            "GET",
+            f"{FAKE_API_URL}/contacts/folders",
+            headers=self.client.headers,
+            json=None,
+            params={"limit": 50, "offset": 0, "sort": "desc"},
+        )
+
+    @patch("requests.request")
+    def test_get_folder_id_by_name_not_found(self, mock_request):
+        """Test retrieving a folder ID by name when it does not exist."""
+        folder_name = "Non Existent Folder"
+        mock_response_data = {"folders": [{"id": 1, "name": "Another Folder"}], "count": 1}
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
+
+        result = self.client.get_folder_id_by_name(folder_name)
+        self.assertIsNone(result)
+
+    @patch("requests.request")
+    def test_get_folder_id_by_name_pagination(self, mock_request):
+        """Test retrieving a folder ID by name with pagination."""
+        folder_name = "Target Folder Page 2"
+        folder_id = 789
+
+        # Simulate two pages of responses
+        mock_response_page1_data = {
+            "folders": [{"id": i, "name": f"Folder {i}"} for i in range(1, 51)],
+            "count": 51,  # Total count indicates more pages
+        }
+        mock_response_page2_data = {"folders": [{"id": folder_id, "name": folder_name}], "count": 51}
+
+        mock_request.side_effect = [
+            mock_brevo_response(200, json_data=mock_response_page1_data),
+            mock_brevo_response(200, json_data=mock_response_page2_data),
+        ]
+
+        result = self.client.get_folder_id_by_name(folder_name)
+        self.assertEqual(result, folder_id)
+        self.assertEqual(mock_request.call_count, 2)
+        mock_request.assert_any_call(
+            "GET",
+            f"{FAKE_API_URL}/contacts/folders",
+            headers=self.client.headers,
+            json=None,
+            params={"limit": 50, "offset": 0, "sort": "desc"},
+        )
+        mock_request.assert_any_call(
+            "GET",
+            f"{FAKE_API_URL}/contacts/folders",
+            headers=self.client.headers,
+            json=None,
+            params={"limit": 50, "offset": 50, "sort": "desc"},  # Offset for second page
+        )
+
+    @patch("requests.request")
+    def test_get_folder_id_by_name_api_error(self, mock_request):
+        """Test retrieving folder ID when API returns an error."""
+        mock_request.return_value = mock_brevo_response(500, json_data={"error": "Server Error"})
+        result = self.client.get_folder_id_by_name("Any Folder")
+        self.assertIsNone(result)
+
 
 if __name__ == "__main__":
     # This allows running the tests directly with `python -m unittest path/to/test_brevo_client.py`

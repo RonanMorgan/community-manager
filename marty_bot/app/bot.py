@@ -474,23 +474,53 @@ class MartyBot:
                 "list_name_pattern", "mm_list_{base_name}"
             )  # Default pattern if not specified
             brevo_list_name = brevo_list_pattern.format(base_name=base_name)
+            folder_name_from_matrix = brevo_config.get("folder_name")
+            target_folder_id = 1  # Default Brevo folder ID
 
-            brevo_msg = f"  - Brevo Liste `{brevo_list_name}`: "
+            brevo_msg = f"  - Brevo Liste `{brevo_list_name}`"
+
+            if self.brevo_client and folder_name_from_matrix:
+                try:
+                    fetched_folder_id = await asyncio.to_thread(
+                        self.brevo_client.get_folder_id_by_name, folder_name_from_matrix
+                    )
+                    if fetched_folder_id:
+                        target_folder_id = fetched_folder_id
+                        brevo_msg += f" (Dossier: '{folder_name_from_matrix}', ID: {target_folder_id})"
+                    else:
+                        brevo_msg += f" (Dossier: '{folder_name_from_matrix}' introuvable, utilise défaut ID: {target_folder_id})"
+                        logging.warning(
+                            f"Brevo folder '{folder_name_from_matrix}' not found for list '{brevo_list_name}'. Using default folder ID {target_folder_id}."
+                        )
+                except Exception as e:
+                    brevo_msg += f" (Erreur recherche dossier '{folder_name_from_matrix}', utilise défaut ID: {target_folder_id}): {e}"
+                    logging.error(f"Error fetching Brevo folder ID for '{folder_name_from_matrix}': {e}")
+            elif self.brevo_client:
+                brevo_msg += f" (Dossier par défaut ID: {target_folder_id})"
+
+            brevo_msg += ": "
+
             if self.brevo_client:
                 try:
-                    # Attempt to get the list first to see if it exists
-                    existing_list = self.brevo_client.get_list_by_name(brevo_list_name)
+                    existing_list = await asyncio.to_thread(self.brevo_client.get_list_by_name, brevo_list_name)
                     if existing_list:
-                        brevo_msg += f":white_check_mark: Existe déjà (ID: {existing_list['id']})."
+                        current_folder_id = existing_list.get("folderId")
+                        if current_folder_id == target_folder_id:
+                            brevo_msg += f":white_check_mark: Existe déjà (ID: {existing_list['id']})."
+                        else:
+                            brevo_msg += f":warning: Existe déjà (ID: {existing_list['id']}) mais dans un autre dossier (ID: {current_folder_id}). Non déplacée."
+                            # Log this situation clearly
+                            logging.warning(
+                                f"Brevo list '{brevo_list_name}' (ID: {existing_list['id']}) exists in folder {current_folder_id}, target was {target_folder_id}. List not moved or recreated."
+                            )
                     else:
-                        # If not found, create it
-                        created_list = self.brevo_client.create_list(
-                            brevo_list_name
-                        )  # Assuming folder_id default is fine
+                        # If not found globally, create it in the target folder
+                        created_list = await asyncio.to_thread(
+                            self.brevo_client.create_list, brevo_list_name, folder_id=int(target_folder_id)
+                        )
                         if created_list and created_list.get("id"):
                             brevo_msg += f":white_check_mark: Créée (ID: {created_list['id']})."
                         else:
-                            # This case might indicate an issue with create_list or a duplicate check within it failed to return obj
                             brevo_msg += ":warning: Échec création/vérification."
                 except Exception as e:
                     brevo_msg += f":x: Erreur ({e})."

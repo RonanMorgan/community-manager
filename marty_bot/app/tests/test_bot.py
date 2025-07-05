@@ -33,6 +33,7 @@ class TestMartyBot(unittest.TestCase):
         self.mock_config.BREVO_DEFAULT_SENDER_NAME = "Marty Test Sender"
         self.mock_config.DEBUG = False
 
+        # Updated PERMISSIONS_MATRIX to include folder_name for Brevo
         self.mock_config.PERMISSIONS_MATRIX = {
             "PROJET": {
                 "standard": {
@@ -50,7 +51,7 @@ class TestMartyBot(unittest.TestCase):
                     "default_access": "read",
                     "admin_access": "read_write",
                 },
-                "brevo": {"list_name_pattern": "brevo_projet_{base_name}"},
+                "brevo": {"list_name_pattern": "brevo_projet_{base_name}", "folder_name": "Dossier Projets Test"},
             },
             "ANTENNE": {
                 "standard": {
@@ -145,8 +146,14 @@ class TestMartyBot(unittest.TestCase):
         self.bot.authentik_client.create_group.return_value = {"name": expected_std_auth_name, "pk": "fake_pk"}
         self.bot.outline_client.create_group.return_value = {"name": expected_outline_coll_name, "id": "fake_id"}
         expected_brevo_list_name = f"brevo_projet_{project_name}"
-        self.bot.brevo_client.get_list_by_name.return_value = None
-        self.bot.brevo_client.create_list.return_value = {"name": expected_brevo_list_name, "id": "fake_brevo_id"}
+        mocked_folder_id = 12345
+        self.bot.brevo_client.get_folder_id_by_name.return_value = mocked_folder_id
+        self.bot.brevo_client.get_list_by_name.return_value = None  # Simulate list does not exist initially
+        self.bot.brevo_client.create_list.return_value = {
+            "name": expected_brevo_list_name,
+            "id": "fake_brevo_id",
+            "folderId": mocked_folder_id,
+        }
 
         def create_channel_side_effect(name, channel_type):
             if name == expected_std_mm_name:
@@ -161,8 +168,9 @@ class TestMartyBot(unittest.TestCase):
         self.bot.authentik_client.create_group.assert_any_call(expected_std_auth_name)
         self.bot.authentik_client.create_group.assert_any_call(expected_adm_auth_name)
         self.bot.outline_client.create_group.assert_called_once_with(expected_outline_coll_name)
-        self.bot.brevo_client.get_list_by_name.assert_called_with(expected_brevo_list_name)
-        self.bot.brevo_client.create_list.assert_called_with(expected_brevo_list_name)
+        self.bot.brevo_client.get_folder_id_by_name.assert_called_once_with("Dossier Projets Test")
+        self.bot.brevo_client.get_list_by_name.assert_called_once_with(expected_brevo_list_name)
+        self.bot.brevo_client.create_list.assert_called_once_with(expected_brevo_list_name, folder_id=mocked_folder_id)
         self.bot.mattermost_api_client.create_channel.assert_any_call(expected_std_mm_name, channel_type="O")
         self.bot.mattermost_api_client.create_channel.assert_any_call(expected_adm_mm_name, channel_type="P")
         self.bot.mattermost_api_client.add_user_to_channel.assert_any_call(
@@ -189,15 +197,24 @@ class TestMartyBot(unittest.TestCase):
             f"Outline Collection `{expected_outline_coll_name}`: :white_check_mark: Collection assurée (créée ou existante).",
             summary_text,
         )
-        self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
+        self.assertIn(
+            f"Brevo Liste `{expected_brevo_list_name}` (Dossier: 'Dossier Projets Test', ID: {mocked_folder_id}): :white_check_mark: Créée",
+            summary_text,
+        )
 
     @async_test
     async def test_handle_create_projet_command_multiple_items_success(self):
         project_names_input = ["ProjetAlpha", "ProjetBeta"]
         self.bot.authentik_client.create_group.return_value = {"name": "mocked_auth_group", "pk": "mocked_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "mocked_outline_coll", "id": "mocked_id"}
+        self.bot.brevo_client.get_folder_id_by_name.return_value = 123  # Mock folder ID for these tests
         self.bot.brevo_client.get_list_by_name.return_value = None
-        self.bot.brevo_client.create_list.side_effect = lambda name: {"name": name, "id": f"brevo_id_{name}"}
+        # Ensure the side_effect lambda for create_list accepts folder_id
+        self.bot.brevo_client.create_list.side_effect = lambda name, folder_id: {
+            "name": name,
+            "id": f"brevo_id_{name}",
+            "folderId": folder_id,
+        }
         self.bot.mattermost_api_client.create_channel.return_value = {
             "id": "mock_channel_id",
             "name": "mock_channel_name",
@@ -218,15 +235,26 @@ class TestMartyBot(unittest.TestCase):
                 f"Outline Collection `projet_{name_input}`: :white_check_mark: Collection assurée (créée ou existante).",
                 summary_text,
             )
-            self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
+            self.assertIn(
+                f"Brevo Liste `{expected_brevo_list_name}` (Dossier: 'Dossier Projets Test', ID: 123): :white_check_mark: Créée",
+                summary_text,
+            )
 
     @async_test
     async def test_handle_create_antenne_command_multiple_items(self):
         antenne_names_input = ["AntenneEst", "AntenneOuest"]
+        self.mock_config.PERMISSIONS_MATRIX["ANTENNE"]["brevo"][
+            "folder_name"
+        ] = "Dossier Antennes Test"  # Ensure folder name for test
         self.bot.authentik_client.create_group.return_value = {"name": "mocked_auth_group", "pk": "mocked_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "mocked_outline_coll", "id": "mocked_id"}
+        self.bot.brevo_client.get_folder_id_by_name.return_value = 456  # Mock folder ID
         self.bot.brevo_client.get_list_by_name.return_value = None
-        self.bot.brevo_client.create_list.side_effect = lambda name: {"name": name, "id": f"brevo_id_{name}"}
+        self.bot.brevo_client.create_list.side_effect = lambda name, folder_id: {
+            "name": name,
+            "id": f"brevo_id_{name}",
+            "folderId": folder_id,
+        }
         self.bot.mattermost_api_client.create_channel.return_value = {"id": "mock_channel_id"}
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_antenne {' '.join(antenne_names_input)}")
@@ -236,15 +264,28 @@ class TestMartyBot(unittest.TestCase):
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         for name_input in antenne_names_input:
             expected_brevo_list_name = f"brevo_antenne_{name_input}"
-            self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
+            self.assertIn(
+                f"Brevo Liste `{expected_brevo_list_name}` (Dossier: 'Dossier Antennes Test', ID: 456): :white_check_mark: Créée",
+                summary_text,
+            )
 
     @async_test
     async def test_handle_create_pole_command_multiple_items(self):
         pole_names_input = ["PoleAlpha", "PoleBeta", "PoleGamma"]
+        # Ensure folder_name is in PERMISSIONS_MATRIX for POLES or mock get_folder_id_by_name to return None
+        # Assuming we want to test with a folder for poles as well for consistency:
+        self.mock_config.PERMISSIONS_MATRIX["POLES"]["brevo"]["folder_name"] = "Dossier Poles Test"
+        mocked_pole_folder_id = 789
+        self.bot.brevo_client.get_folder_id_by_name.return_value = mocked_pole_folder_id
+
         self.bot.authentik_client.create_group.return_value = {"name": "mocked_auth_group", "pk": "mocked_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "mocked_outline_coll", "id": "mocked_id"}
         self.bot.brevo_client.get_list_by_name.return_value = None
-        self.bot.brevo_client.create_list.side_effect = lambda name: {"name": name, "id": f"brevo_id_{name}"}
+        self.bot.brevo_client.create_list.side_effect = lambda name, folder_id: {
+            "name": name,
+            "id": f"brevo_id_{name}",
+            "folderId": folder_id,
+        }
         self.bot.mattermost_api_client.create_channel.return_value = {"id": "mock_channel_id"}
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_pole {' '.join(pole_names_input)}")
@@ -254,7 +295,10 @@ class TestMartyBot(unittest.TestCase):
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         for name_input in pole_names_input:
             expected_brevo_list_name = f"brevo_pole_{name_input}"
-            self.assertIn(f"Brevo Liste `{expected_brevo_list_name}`: :white_check_mark: Créée", summary_text)
+            self.assertIn(
+                f"Brevo Liste `{expected_brevo_list_name}` (Dossier: 'Dossier Poles Test', ID: {mocked_pole_folder_id}): :white_check_mark: Créée",
+                summary_text,
+            )
 
     @async_test
     async def test_create_commands_no_arg_provided(self):
@@ -290,31 +334,45 @@ class TestMartyBot(unittest.TestCase):
         self.bot.authentik_client.create_group.return_value = None
         self.bot.outline_client.create_group.return_value = None
         self.bot.brevo_client.get_list_by_name.return_value = None
-        self.bot.brevo_client.create_list.return_value = None
+        self.bot.brevo_client.create_list.return_value = None  # Simulate Brevo list creation failure
         self.bot.mattermost_api_client.create_channel.return_value = None
-        await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name_input}")
-        self.assertEqual(self.bot.envoyer_message.call_count, 2)
-        summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
-        expected_std_auth_name = f"projet_{project_name_input}"
-        expected_std_mm_name = f"projet_{project_name_input}"
-        expected_adm_auth_name = f"projet_{project_name_input} Admin"
-        expected_adm_mm_name = f"projet_{project_name_input} Admin"
-        expected_outline_coll_name = f"projet_{project_name_input}"
-        self.assertIn(f"Authentik Groupe `{expected_std_auth_name}`: :warning: Échec/Existe déjà.", summary_text)
-        self.assertIn(
-            f"Mattermost Canal `{expected_std_mm_name}` (type: O): :warning: Échec/Existe déjà.", summary_text
-        )
-        self.assertIn(f"Authentik Groupe `{expected_adm_auth_name}`: :warning: Échec/Existe déjà.", summary_text)
-        self.assertIn(
-            f"Mattermost Canal `{expected_adm_mm_name}` (type: P): :warning: Échec/Existe déjà.", summary_text
-        )
-        self.assertIn(
-            f"Outline Collection `{expected_outline_coll_name}`: :warning: Échec création/vérification.", summary_text
-        )
-        expected_brevo_list_name = f"brevo_projet_{project_name_input}"
-        self.assertIn(
-            f"Brevo Liste `{expected_brevo_list_name}`: :warning: Échec création/vérification.", summary_text
-        )
+
+        # PERMISSIONS_MATRIX for PROJET already defines "folder_name": "Dossier Projets Test" in setUp
+        projet_brevo_config = self.mock_config.PERMISSIONS_MATRIX["PROJET"]["brevo"]
+        expected_folder_name = projet_brevo_config["folder_name"]
+        mocked_folder_id_for_this_test = 5678
+
+        # Use patch.object to mock get_folder_id_by_name for this specific test execution
+        with patch.object(
+            self.bot.brevo_client, "get_folder_id_by_name", return_value=mocked_folder_id_for_this_test
+        ) as mock_get_id_method:
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name_input}")
+
+            self.assertEqual(self.bot.envoyer_message.call_count, 2)
+            summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
+
+            mock_get_id_method.assert_called_once_with(expected_folder_name)
+
+            expected_std_auth_name = f"projet_{project_name_input}"
+            expected_std_mm_name = f"projet_{project_name_input}"
+            expected_adm_auth_name = f"projet_{project_name_input} Admin"
+            expected_adm_mm_name = f"projet_{project_name_input} Admin"
+            expected_outline_coll_name = f"projet_{project_name_input}"
+            self.assertIn(f"Authentik Groupe `{expected_std_auth_name}`: :warning: Échec/Existe déjà.", summary_text)
+            self.assertIn(
+                f"Mattermost Canal `{expected_std_mm_name}` (type: O): :warning: Échec/Existe déjà.", summary_text
+            )
+            self.assertIn(f"Authentik Groupe `{expected_adm_auth_name}`: :warning: Échec/Existe déjà.", summary_text)
+            self.assertIn(
+                f"Mattermost Canal `{expected_adm_mm_name}` (type: P): :warning: Échec/Existe déjà.", summary_text
+            )
+            self.assertIn(
+                f"Outline Collection `{expected_outline_coll_name}`: :warning: Échec création/vérification.",
+                summary_text,
+            )
+            expected_brevo_list_name = f"brevo_projet_{project_name_input}"
+            expected_brevo_message = f"Brevo Liste `{expected_brevo_list_name}` (Dossier: '{expected_folder_name}', ID: {mocked_folder_id_for_this_test}): :warning: Échec création/vérification."
+            self.assertIn(expected_brevo_message, summary_text)
 
     @async_test
     async def test_handle_simple_mention_unknown_command(self):
