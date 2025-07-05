@@ -807,7 +807,9 @@ class MartyBot:
         channel_members = await asyncio.to_thread(
             self.mattermost_api_client.get_users_in_channel, channel_id
         )  # Corrected method
-        if not any(member["user_id"] == user_id_who_posted for member in channel_members):
+        if not any(
+            member.get("id") == user_id_who_posted for member in channel_members
+        ):  # Changed "user_id" to "id" and added .get()
             logging.warning(
                 f"User {user_id_who_posted} tried to use send_email from channel {channel_id} but is not a member."
             )
