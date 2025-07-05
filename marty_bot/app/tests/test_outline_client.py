@@ -85,7 +85,6 @@ class TestOutlineClient(unittest.TestCase):
         # First call in get_collection_by_name (fails), second call for collections.create (also fails due to side_effect)
         self.assertEqual(mock_post_request.call_count, 2)
 
-
     @patch("requests.post")
     def test_create_group_failure_during_actual_creation(self, mock_post_request):
         mock_list_response = Mock()
@@ -96,8 +95,9 @@ class TestOutlineClient(unittest.TestCase):
         mock_create_response.status_code = 403
         mock_create_response.json.return_value = {"message": "Cannot create"}
         # Simulate raise_for_status() for the failing call
-        mock_create_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_create_response)
-
+        mock_create_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_create_response
+        )
 
         mock_post_request.side_effect = [mock_list_response, mock_create_response]
 
@@ -114,7 +114,7 @@ class TestOutlineClient(unittest.TestCase):
 
         mock_create_response = Mock()
         mock_create_response.status_code = 200
-        mock_create_response.json.return_value = {"data": None} # Malformed: 'data' is None, not a dict with 'id'
+        mock_create_response.json.return_value = {"data": None}  # Malformed: 'data' is None, not a dict with 'id'
 
         mock_post_request.side_effect = [mock_list_response, mock_create_response]
 

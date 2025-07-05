@@ -101,6 +101,28 @@ class MartyBot:
                 "Mattermost URL, Bot Token, or Team ID not fully configured for MattermostClient instance. Mattermost API operations may fail or be disabled."
             )
 
+        self.brevo_client = None  # Initialize brevo_client attribute
+        if (
+            hasattr(self.config, "BREVO_API_URL")
+            and hasattr(self.config, "BREVO_API_KEY")
+            and self.config.BREVO_API_URL
+            and self.config.BREVO_API_KEY
+        ):
+            try:
+                # Ensure BrevoClient is imported
+                from clients.brevo_client import BrevoClient
+
+                self.brevo_client = BrevoClient(self.config.BREVO_API_URL, self.config.BREVO_API_KEY)
+                logging.info("BrevoClient initialized successfully for MartyBot instance.")
+            except ValueError as e:
+                logging.warning(f"Failed to initialize BrevoClient for MartyBot instance: {e}")
+            except ImportError:
+                logging.error("Failed to import BrevoClient. Brevo features will be disabled.")
+        else:
+            logging.warning(
+                "Brevo API URL or Key not configured for MartyBot instance. Brevo features will be disabled."
+            )
+
         self.websocket = None  # Represents the active WebSocket connection object
 
         # For graceful shutdown
@@ -124,10 +146,15 @@ class MartyBot:
             "help": self._send_help_message,
             "update_all_user_rights": self._handle_update_all_user_rights_command,
             "update_user_rights_and_remove": self._handle_update_user_rights_and_remove_command,
+            "send_email": self._handle_send_email_command,  # New command
         }
 
     async def _format_and_send_sync_results(
-        self, channel_id: str, initial_post_id: str | None, detailed_results: list[dict], command_name: str = "synchronisation"
+        self,
+        channel_id: str,
+        initial_post_id: str | None,
+        detailed_results: list[dict],
+        command_name: str = "synchronisation",
     ):
         """Helper function to format and send detailed synchronization results."""
         if not detailed_results:
@@ -222,7 +249,8 @@ class MartyBot:
             summary_lines.insert(1, f":rocket: {command_name.capitalize()} terminée avec succès.")
         else:  # No ops or only skips like NO_MM_EMAIL
             summary_lines.insert(
-                1, f":information_source: {command_name.capitalize()} terminée. Peu ou pas d'opérations significatives effectuées."
+                1,
+                f":information_source: {command_name.capitalize()} terminée. Peu ou pas d'opérations significatives effectuées.",
             )
 
         final_summary_message = "\n".join(summary_lines)
@@ -231,7 +259,9 @@ class MartyBot:
 
     async def _handle_update_user_rights_and_remove_command(self, channel_id, arg_string=None):
         """Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes."""
-        logging.info(f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id}.")
+        logging.info(
+            f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id}."
+        )
 
         initial_message_text = (
             ":hourglass_flowing_sand: Démarrage de la synchronisation complète des droits (avec suppressions)... "
@@ -265,9 +295,10 @@ class MartyBot:
                 self.authentik_client,
                 self.mattermost_api_client,
                 self.outline_client,  # Peut être None, géré par l'orchestrateur
+                self.brevo_client,  # Pass Brevo client
                 self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=True, # Assure la suppression
-                fetch_remote_members=True # Mode complet pour remove_user_rights
+                perform_deletions=True,  # Assure la suppression
+                fetch_remote_members=True,  # Mode complet pour remove_user_rights
             )
 
             if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
@@ -283,11 +314,14 @@ class MartyBot:
                 logging.info(
                     f"Group synchronization task (for rights removal) orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
-                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results, command_name="Suppression/synchronisation")
+                await self._format_and_send_sync_results(
+                    channel_id, initial_post_id, detailed_results, command_name="Suppression/synchronisation"
+                )
 
         except Exception as e:
             logging.error(
-                f"An unexpected error occurred while dispatching or running the rights removal task: {e}", exc_info=True
+                f"An unexpected error occurred while dispatching or running the rights removal task: {e}",
+                exc_info=True,
             )
             error_response_msg = (
                 ":boom: Une erreur serveur inattendue s'est produite lors de la tentative "
@@ -433,6 +467,67 @@ class MartyBot:
                 outline_msg += ":information_source: Client non configuré."
             item_results_log.append(outline_msg)
 
+        # Brevo List (unique per entity)
+        brevo_config = entity_config.get("brevo")
+        if brevo_config:
+            brevo_list_pattern = brevo_config.get(
+                "list_name_pattern", "mm_list_{base_name}"
+            )  # Default pattern if not specified
+            brevo_list_name = brevo_list_pattern.format(base_name=base_name)
+            folder_name_from_matrix = brevo_config.get("folder_name")
+            target_folder_id = 1  # Default Brevo folder ID
+
+            brevo_msg = f"  - Brevo Liste `{brevo_list_name}`"
+
+            if self.brevo_client and folder_name_from_matrix:
+                try:
+                    fetched_folder_id = await asyncio.to_thread(
+                        self.brevo_client.get_folder_id_by_name, folder_name_from_matrix
+                    )
+                    if fetched_folder_id:
+                        target_folder_id = fetched_folder_id
+                        brevo_msg += f" (Dossier: '{folder_name_from_matrix}', ID: {target_folder_id})"
+                    else:
+                        brevo_msg += f" (Dossier: '{folder_name_from_matrix}' introuvable, utilise défaut ID: {target_folder_id})"
+                        logging.warning(
+                            f"Brevo folder '{folder_name_from_matrix}' not found for list '{brevo_list_name}'. Using default folder ID {target_folder_id}."
+                        )
+                except Exception as e:
+                    brevo_msg += f" (Erreur recherche dossier '{folder_name_from_matrix}', utilise défaut ID: {target_folder_id}): {e}"
+                    logging.error(f"Error fetching Brevo folder ID for '{folder_name_from_matrix}': {e}")
+            elif self.brevo_client:
+                brevo_msg += f" (Dossier par défaut ID: {target_folder_id})"
+
+            brevo_msg += ": "
+
+            if self.brevo_client:
+                try:
+                    existing_list = await asyncio.to_thread(self.brevo_client.get_list_by_name, brevo_list_name)
+                    if existing_list:
+                        current_folder_id = existing_list.get("folderId")
+                        if current_folder_id == target_folder_id:
+                            brevo_msg += f":white_check_mark: Existe déjà (ID: {existing_list['id']})."
+                        else:
+                            brevo_msg += f":warning: Existe déjà (ID: {existing_list['id']}) mais dans un autre dossier (ID: {current_folder_id}). Non déplacée."
+                            # Log this situation clearly
+                            logging.warning(
+                                f"Brevo list '{brevo_list_name}' (ID: {existing_list['id']}) exists in folder {current_folder_id}, target was {target_folder_id}. List not moved or recreated."
+                            )
+                    else:
+                        # If not found globally, create it in the target folder
+                        created_list = await asyncio.to_thread(
+                            self.brevo_client.create_list, brevo_list_name, folder_id=int(target_folder_id)
+                        )
+                        if created_list and created_list.get("id"):
+                            brevo_msg += f":white_check_mark: Créée (ID: {created_list['id']})."
+                        else:
+                            brevo_msg += ":warning: Échec création/vérification."
+                except Exception as e:
+                    brevo_msg += f":x: Erreur ({e})."
+            else:
+                brevo_msg += ":information_source: Client non configuré."
+            item_results_log.append(brevo_msg)
+
         return item_results_log
 
     async def _execute_batch_create_command(
@@ -511,11 +606,11 @@ class MartyBot:
     #         channel_id, arg_string, "pôle", "POLES", user_id_who_posted
     #     )
 
-    async def _handle_update_all_user_rights_command(
-        self, channel_id, arg_string=None
-    ):
+    async def _handle_update_all_user_rights_command(self, channel_id, arg_string=None):
         """S'assure que les utilisateurs Mattermost ont les bons droits (ajouts/mises à jour uniquement)."""
-        logging.info(f"'{self.bot_name_mention} update_all_user_rights' (upsert) command received in channel {channel_id}.")
+        logging.info(
+            f"'{self.bot_name_mention} update_all_user_rights' (upsert) command received in channel {channel_id}."
+        )
 
         initial_message_text = ":hourglass_flowing_sand: Démarrage de la mise à jour des droits utilisateurs (ajouts/modifications uniquement)... Ceci peut prendre un moment."
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
@@ -543,13 +638,16 @@ class MartyBot:
                 self.authentik_client,
                 self.mattermost_api_client,
                 self.outline_client,
+                self.brevo_client,  # Pass Brevo client
                 self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=False, # Ne pas supprimer d'utilisateurs
-                fetch_remote_members=False # Mode "upsert pur" basé sur Mattermost
+                perform_deletions=False,  # Ne pas supprimer d'utilisateurs
+                fetch_remote_members=False,  # Mode "upsert pur" basé sur Mattermost
             )
 
             if not orchestration_success:
-                logging.warning("Group synchronization task (upsert mode) reported critical failure during orchestration.")
+                logging.warning(
+                    "Group synchronization task (upsert mode) reported critical failure during orchestration."
+                )
                 summary_msg = (
                     ":x: La mise à jour des droits (upsert) a échoué de manière critique durant l'orchestration. "
                     "Veuillez consulter les logs du serveur pour plus de détails."
@@ -559,7 +657,9 @@ class MartyBot:
                 logging.info(
                     f"Group synchronization task (upsert mode) orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
-                await self._format_and_send_sync_results(channel_id, initial_post_id, detailed_results, command_name="Mise à jour (upsert)")
+                await self._format_and_send_sync_results(
+                    channel_id, initial_post_id, detailed_results, command_name="Mise à jour (upsert)"
+                )
 
         except Exception as e:
             logging.error(
@@ -651,17 +751,227 @@ class MartyBot:
         help_lines.append(f"* `{self.bot_name_mention} create_pole PoleTechnique AutrePole`")
         help_lines.append("\n**Commandes de synchronisation des droits utilisateurs :**")
         help_lines.append(f"* **`{self.bot_name_mention} update_all_user_rights`**")
-        help_lines.append(f"  - _Rôle : S'assure que les utilisateurs présents dans les canaux Mattermost ont bien les accès correspondants dans Authentik et Outline._")
-        help_lines.append(f"  - _Logique : Part des canaux Mattermost. Ajoute les utilisateurs aux groupes/collections distants si nécessaire, ou met à jour leurs permissions. **Ne supprime jamais d'accès.** Idéal pour ajouter rapidement des droits suite à l'ajout d'un utilisateur à un canal Mattermost._")
-        help_lines.append(f"* **`{self.bot_name_mention} update_user_rights_and_remove`**")
-        help_lines.append(f"  - _Rôle : Effectue une synchronisation complète des droits. Garantit que les accès dans Authentik/Outline reflètent exactement la composition des canaux Mattermost._")
-        help_lines.append(f"  - _Logique : Combine les actions de `update_all_user_rights` (ajouts/mises à jour depuis Mattermost) ET **supprime les accès** des utilisateurs dans Authentik/Outline s'ils ne sont plus présents dans les canaux Mattermost correspondants (ou si leurs droits ont changé). C'est la commande à utiliser pour une remise en cohérence complète._")
         help_lines.append(
-            f"\n**Note :** La commande `update_user_rights_and_remove` est plus complète mais peut prendre plus de temps car elle vérifie tous les membres des services distants."
+            "  - _Rôle : S'assure que les utilisateurs présents dans les canaux Mattermost ont bien les accès correspondants dans Authentik et Outline._"
+        )
+        help_lines.append(
+            "  - _Logique : Part des canaux Mattermost. Ajoute les utilisateurs aux groupes/collections distants si nécessaire, ou met à jour leurs permissions. **Ne supprime jamais d'accès.** Idéal pour ajouter rapidement des droits suite à l'ajout d'un utilisateur à un canal Mattermost._"
+        )
+        help_lines.append(f"* **`{self.bot_name_mention} update_user_rights_and_remove`**")
+        help_lines.append(
+            "  - _Rôle : Effectue une synchronisation complète des droits. Garantit que les accès dans Authentik/Outline reflètent exactement la composition des canaux Mattermost._"
+        )
+        help_lines.append(
+            "  - _Logique : Combine les actions de `update_all_user_rights` (ajouts/mises à jour depuis Mattermost) ET **supprime les accès** des utilisateurs dans Authentik/Outline s'ils ne sont plus présents dans les canaux Mattermost correspondants (ou si leurs droits ont changé). C'est la commande à utiliser pour une remise en cohérence complète._"
+        )
+        help_lines.append(
+            "\n**Note :** La commande `update_user_rights_and_remove` est plus complète mais peut prendre plus de temps car elle vérifie tous les membres des services distants."
+        )
+        help_lines.append("\n**Commande d'envoi d'email (via Brevo) :**")
+        help_lines.append(f"* **`{self.bot_name_mention} send_email <Sujet> /// <Message>`**")
+        help_lines.append(
+            '  - _Rôle : Envoie un email via Brevo aux membres de la liste de contacts associée au canal "standard" de l\'entité._'
+        )
+        help_lines.append(
+            '  - _Usage : Doit être exécutée depuis le canal "admin" de l\'entité (projet, pôle, antenne). Le sujet et le message sont séparés par `///`._'
         )
         help_lines.append(f"\nMentionnez-moi avec une commande, comme `{self.bot_name_mention} help`.")
         help_text = "\n".join(help_lines)
         await asyncio.to_thread(self.envoyer_message, channel_id, help_text)
+
+    async def _handle_send_email_command(self, channel_id: str, arg_string: str | None, user_id_who_posted: str):
+        """
+        Envoie un email via Brevo aux membres du canal standard associé.
+        Usage: @marty send_email <Sujet de l'email> /// <Contenu de l'email>
+        Doit être lancé depuis un canal admin d'une entité (projet, pôle, antenne).
+        """
+        logging.info(f"'send_email' command received in channel {channel_id} by user {user_id_who_posted}.")
+
+        if not self.brevo_client:
+            await asyncio.to_thread(
+                self.envoyer_message, channel_id, ":x: Erreur: Le client Brevo n'est pas configuré."
+            )
+            return
+        if not self.config.BREVO_DEFAULT_SENDER_EMAIL or not self.config.BREVO_DEFAULT_SENDER_NAME:
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                ":x: Erreur: L'expéditeur par défaut (email/nom) n'est pas configuré pour Brevo.",
+            )
+            return
+        if not self.mattermost_api_client:
+            await asyncio.to_thread(
+                self.envoyer_message, channel_id, ":x: Erreur: Le client Mattermost API n'est pas configuré."
+            )
+            return
+
+        if not arg_string or "///" not in arg_string:
+            usage_msg = "Usage: `@marty send_email <Sujet de l'email> /// <Contenu de l'email>`"
+            await asyncio.to_thread(self.envoyer_message, channel_id, f":warning: Syntaxe incorrecte. {usage_msg}")
+            return
+
+        subject, text_content = [part.strip() for part in arg_string.split("///", 1)]
+
+        if not subject or not text_content:
+            usage_msg = "Usage: `@marty send_email <Sujet de l'email> /// <Contenu de l'email>`"
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                f":warning: Le sujet et le contenu ne peuvent pas être vides. {usage_msg}",
+            )
+            return
+
+        # 1. Vérifier que la commande est lancée depuis un canal admin et identifier l'entité
+        current_channel_info = await asyncio.to_thread(
+            self.mattermost_api_client.get_channel_by_id, channel_id
+        )  # Corrected method call
+        if not current_channel_info:
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                ":x: Erreur: Impossible de récupérer les informations du canal actuel.",
+            )
+            return
+
+        # Check if user is a member of the current (admin) channel
+        channel_members = await asyncio.to_thread(
+            self.mattermost_api_client.get_users_in_channel, channel_id
+        )  # Corrected method
+        if not any(
+            member.get("id") == user_id_who_posted for member in channel_members
+        ):  # Changed "user_id" to "id" and added .get()
+            logging.warning(
+                f"User {user_id_who_posted} tried to use send_email from channel {channel_id} but is not a member."
+            )
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                ":x: Erreur: Vous devez être membre de ce canal admin pour utiliser cette commande.",
+            )
+            return
+
+        entity_key_found = None
+        base_name_found = None
+        admin_channel_name_slug = current_channel_info.get("name")
+
+        from libraries.group_sync_services import (
+            _map_mm_channel_to_entity_and_base_name,
+            slugify,
+        )  # For slugify if needed by map
+
+        # We need to iterate through PERMISSIONS_MATRIX to find which entity this admin channel belongs to
+        # This is a bit reversed from the usual mapping.
+        for e_key, e_conf in self.config.PERMISSIONS_MATRIX.items():
+            admin_cfg = e_conf.get("admin")
+            if admin_cfg:
+                admin_pattern = admin_cfg.get("mattermost_channel_name_pattern")
+                if admin_pattern:
+                    # We need to check if current_channel_info['name'] (slug) or ['display_name'] matches a *potential* admin channel
+                    # This requires trying to extract a base_name and re-formatting, or having a direct match.
+                    # For simplicity, we'll assume the channel name is relatively standard.
+                    # A robust way is to use the _map_mm_channel_to_entity_and_base_name
+                    # but that function itself might need adjustment if it only maps from base_name to channel, not channel to base_name.
+                    # Let's try to extract base_name from current admin channel assuming it ends with " Admin" or similar.
+                    # This part is tricky and might need refinement based on exact naming conventions.
+
+                    # Attempt with display_name:
+                    temp_entity_key, temp_base_name = _map_mm_channel_to_entity_and_base_name(
+                        admin_channel_name_slug,
+                        current_channel_info.get("display_name"),
+                        {e_key: e_conf},  # Pass only current entity for specific matching
+                    )
+                    if temp_entity_key == e_key and temp_base_name:
+                        # Verify if this is indeed an admin channel for THIS entity_key
+                        expected_admin_channel_slug = slugify(admin_pattern.format(base_name=temp_base_name))
+                        if admin_channel_name_slug == expected_admin_channel_slug:
+                            entity_key_found = e_key
+                            base_name_found = temp_base_name
+                            break
+
+        if not entity_key_found or not base_name_found:
+            logging.warning(
+                f"Channel {channel_id} ('{current_channel_info.get('display_name')}') is not recognized as a configured admin channel for any entity."
+            )
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                ":x: Erreur: Cette commande doit être lancée depuis un canal admin d'une entité configurée (projet, pôle, antenne).",
+            )
+            return
+
+        logging.info(
+            f"Command 'send_email' validated for entity '{base_name_found}' (type: {entity_key_found}) from admin channel '{current_channel_info.get('display_name')}'."
+        )
+
+        # 2. Récupérer la liste Brevo du canal standard
+        entity_permissions = self.config.PERMISSIONS_MATRIX.get(entity_key_found, {})
+        brevo_config = entity_permissions.get("brevo", {})
+        brevo_list_pattern = brevo_config.get("list_name_pattern")
+        standard_channel_config = entity_permissions.get("standard", {})
+        standard_mm_channel_name_pattern = standard_channel_config.get("mattermost_channel_name_pattern")
+
+        if not brevo_list_pattern or not standard_mm_channel_name_pattern:
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                f":x: Erreur: Configuration Brevo ou du canal standard manquante pour l'entité {entity_key_found}.",
+            )
+            return
+
+        target_brevo_list_name = brevo_list_pattern.format(base_name=base_name_found)
+        brevo_list_obj = await asyncio.to_thread(self.brevo_client.get_list_by_name, target_brevo_list_name)
+
+        if not brevo_list_obj or not brevo_list_obj.get("id"):
+            await asyncio.to_thread(
+                self.envoyer_message, channel_id, f":x: Erreur: Liste Brevo '{target_brevo_list_name}' non trouvée."
+            )
+            return
+
+        brevo_list_id = brevo_list_obj["id"]
+
+        # 3. Récupérer les contacts de la liste Brevo
+        # Assuming get_contacts_from_list can fetch all contacts (might need pagination handling for very large lists)
+        contacts_on_list = await asyncio.to_thread(self.brevo_client.get_contacts_from_list, brevo_list_id)
+
+        if contacts_on_list is None:  # API error
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                f":x: Erreur lors de la récupération des contacts de la liste Brevo '{target_brevo_list_name}'.",
+            )
+            return
+
+        to_contacts = [{"email": contact["email"]} for contact in contacts_on_list if contact.get("email")]
+
+        if not to_contacts:
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                f":information_source: La liste Brevo '{target_brevo_list_name}' ne contient aucun contact avec une adresse email.",
+            )
+            return
+
+        # 4. Envoyer l'email
+        sender_email = self.config.BREVO_DEFAULT_SENDER_EMAIL
+        sender_name = self.config.BREVO_DEFAULT_SENDER_NAME
+
+        email_sent_successfully = await asyncio.to_thread(
+            self.brevo_client.send_transactional_email,
+            subject,
+            text_content,  # Pass text_content directly
+            sender_email,
+            sender_name,
+            to_contacts,
+        )
+
+        if email_sent_successfully:
+            feedback_msg = f":white_check_mark: Email avec sujet '{subject}' envoyé (ou tentative d'envoi) à {len(to_contacts)} destinataires de la liste '{target_brevo_list_name}'."
+        else:
+            feedback_msg = (
+                f":x: Échec de l'envoi de l'email avec sujet '{subject}' via Brevo. Vérifiez les logs du serveur."
+            )
+
+        await asyncio.to_thread(self.envoyer_message, channel_id, feedback_msg)
 
     async def _handle_message_event(self, message_data):
         post_info = message_data.get("data", {}).get("post")
@@ -686,16 +996,25 @@ class MartyBot:
             if handler_method:
                 # Pass user_id_who_posted to command handlers that need it
                 # For lambdas, arguments must be positional if not explicitly defined with same name.
-                if command_verb in ["create_projet", "create_antenne", "create_pole"]:
-                    # The lambda expects (channel_id, arg_string, user_id_who_posted)
+                if command_verb in [
+                    "create_projet",
+                    "create_antenne",
+                    "create_pole",
+                    "send_email",
+                ]:  # Added 'send_email'
+                    # These handlers expect (channel_id, arg_string, user_id_who_posted)
                     await handler_method(channel_id, arg_string, user_id_who_posted)
-                elif command_verb in ["sync_user_channels", "update_user_rights", "help"]:
+                elif command_verb in [
+                    "update_all_user_rights",
+                    "update_user_rights_and_remove",
+                    "help",
+                ]:  # Removed sync_user_channels and update_user_rights as they were older names
                     # These handlers are defined to accept (self, channel_id, arg_string)
                     # user_id_who_posted is not passed or needed by their current definition.
                     await handler_method(channel_id, arg_string)
-                else:
-                    # Fallback for any other command type if they were to be added without specific handling
-                    await handler_method(channel_id, arg_string)
+                # else: # No other command types currently defined that would fall here without specific handling.
+                # Fallback for any other command type if they were to be added without specific handling
+                # await handler_method(channel_id, arg_string)
             else:
                 message = f":question: Commande inconnue : **`{command_verb}`**. Essayez `{self.bot_name_mention} help` pour une liste des commandes disponibles."
                 await asyncio.to_thread(self.envoyer_message, channel_id, message)

@@ -33,13 +33,13 @@ class OutlineClient:
             existing_collection = self.get_collection_by_name(project_name)
             if existing_collection:
                 collection_id = existing_collection.get("id")
-                logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) already exists. Returning existing object.")
-                return existing_collection # Return the existing collection object
+                logging.info(
+                    f"Outline collection '{project_name}' (ID: {collection_id}) already exists. Returning existing object."
+                )
+                return existing_collection  # Return the existing collection object
         except requests.exceptions.RequestException as e:
-            logging.error(
-                f"Outline API >> Error during existence check for collection '{project_name}': {e}"
-            )
-            return None # If we can't check, we can't safely determine existence or create
+            logging.error(f"Outline API >> Error during existence check for collection '{project_name}': {e}")
+            return None  # If we can't check, we can't safely determine existence or create
 
         # 2. If not found (and no error during check), try to create it
         create_api_url = f"{self.base_url}/api/collections.create"
@@ -59,7 +59,7 @@ class OutlineClient:
                 if isinstance(data_content, dict) and data_content.get("id"):
                     collection_id = data_content.get("id")
                     logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) created successfully.")
-                    return data_content # Return the newly created collection object
+                    return data_content  # Return the newly created collection object
                 else:
                     logging.warning(
                         f"Outline collection '{project_name}' creation reported success (200), "
@@ -399,7 +399,7 @@ class OutlineClient:
 
         api_url = f"{self.base_url}/api/collections.remove_user"
         payload = {
-            "id": collection_id, # Corrigé: "id" au lieu de "collectionId"
+            "id": collection_id,  # Corrigé: "id" au lieu de "collectionId"
             "userId": user_id,
         }
         logging.info(
