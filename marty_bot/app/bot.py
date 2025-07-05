@@ -804,7 +804,9 @@ class MartyBot:
             return
 
         # Check if user is a member of the current (admin) channel
-        channel_members = await asyncio.to_thread(self.mattermost_api_client.get_channel_members, channel_id)
+        channel_members = await asyncio.to_thread(
+            self.mattermost_api_client.get_users_in_channel, channel_id
+        )  # Corrected method
         if not any(member["user_id"] == user_id_who_posted for member in channel_members):
             logging.warning(
                 f"User {user_id_who_posted} tried to use send_email from channel {channel_id} but is not a member."

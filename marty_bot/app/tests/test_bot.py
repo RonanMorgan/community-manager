@@ -532,7 +532,7 @@ class TestSendEmailCommand(TestMartyBot):
                 "name": admin_channel_slug,
                 "display_name": admin_channel_display_name,
             }
-            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": user_id}]
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"user_id": user_id}]
 
             brevo_list_name_pattern_from_config = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
                 "list_name_pattern"
@@ -580,7 +580,7 @@ class TestSendEmailCommand(TestMartyBot):
                 "name": channel_slug,
                 "display_name": channel_display_name,
             }
-            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": "test_user"}]
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"user_id": "test_user"}]
             await self.bot._handle_send_email_command(channel_id, "Subject /// Body", "test_user")
             self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]
@@ -611,7 +611,7 @@ class TestSendEmailCommand(TestMartyBot):
                 "name": admin_slug,
                 "display_name": admin_display_name,
             }
-            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": "test_user"}]
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"user_id": "test_user"}]
             self.bot.brevo_client.get_list_by_name.return_value = None
             await self.bot._handle_send_email_command("admin_no_list", "Sujet /// Corps", "test_user")
             self.bot.envoyer_message.assert_called_with("admin_no_list", unittest.mock.ANY)
@@ -646,7 +646,7 @@ class TestSendEmailCommand(TestMartyBot):
                 "name": admin_slug,
                 "display_name": admin_display_name,
             }
-            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": "test_user"}]
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"user_id": "test_user"}]
             brevo_list_name_pattern = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
                 "list_name_pattern"
             ]
@@ -686,7 +686,7 @@ class TestSendEmailCommand(TestMartyBot):
                 "name": admin_slug,
                 "display_name": admin_display_name,
             }
-            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": "test_user"}]
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"user_id": "test_user"}]
             brevo_list_name_pattern = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
                 "list_name_pattern"
             ]
@@ -713,7 +713,7 @@ class TestSendEmailCommand(TestMartyBot):
                 "name": "projet-syntax-admin",
                 "display_name": "Projet Syntax Admin",
             }
-            self.bot.mattermost_api_client.get_channel_members.return_value = [{"user_id": "test_user"}]
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"user_id": "test_user"}]
             with patch(
                 "libraries.group_sync_services._map_mm_channel_to_entity_and_base_name",
                 return_value=("PROJET", "SyntaxTest"),
