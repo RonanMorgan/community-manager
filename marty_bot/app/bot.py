@@ -792,7 +792,9 @@ class MartyBot:
             return
 
         # 1. Vérifier que la commande est lancée depuis un canal admin et identifier l'entité
-        current_channel_info = await asyncio.to_thread(self.mattermost_api_client.get_channel, channel_id)
+        current_channel_info = await asyncio.to_thread(
+            self.mattermost_api_client.get_channel_by_id, channel_id
+        )  # Corrected method call
         if not current_channel_info:
             await asyncio.to_thread(
                 self.envoyer_message,

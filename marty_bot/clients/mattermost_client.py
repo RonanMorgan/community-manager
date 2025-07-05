@@ -454,6 +454,35 @@ class MattermostClient:
             logging.error(f"Error decoding JSON from channels response for team {current_team_id}: {e}")
             return []
 
+    def get_channel_by_id(self, channel_id: str) -> dict | None:
+        """Fetches a Mattermost channel by its ID."""
+        if not channel_id:
+            logging.error("Channel ID must be provided.")
+            return None
+
+        url = f"{self.base_url}/api/v4/channels/{channel_id}"
+        logging.debug(f"Fetching Mattermost channel by ID '{channel_id}' from {url}")
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            channel_data = response.json()
+            logging.info(f"Successfully fetched channel ID '{channel_id}' (Name: {channel_data.get('name')}).")
+            return channel_data
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                logging.warning(f"Mattermost channel with ID '{channel_id}' not found.")
+            else:
+                logging.error(
+                    f"HTTP error fetching channel ID '{channel_id}': {e.response.status_code} - {e.response.text}"
+                )
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error fetching Mattermost channel ID '{channel_id}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from Mattermost channel response (ID: {channel_id}): {e}")
+            return None
+
 
 if __name__ == "__main__":
     from dotenv import load_dotenv
