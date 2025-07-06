@@ -14,7 +14,7 @@ permissions:
       admin_access: "read_write"
     brevo:
       list_name_pattern: "projet_{base_name}"
-      folder_name: "projets" # Placeholder, user should update
+      folder_name: "Projets MartyBot" # Placeholder, user should update
     # nocodb:
     #   access: "No" # L'ancienne matrice avait "No" pour PROJET
 
@@ -33,7 +33,7 @@ permissions:
       admin_access: "read_write"
     brevo:
       list_name_pattern: "antenne_{base_name}"
-      folder_name: "antennes" # Placeholder, user should update
+      folder_name: "Antennes MartyBot" # Placeholder, user should update
     nocodb:
       # L'ancienne matrice avait read/rw pour Antenne et Antenne_Admin
       # Cette structure devrait être adaptée si NocoDB est utilisé.
@@ -59,7 +59,7 @@ permissions:
       admin_access: "read_write"
     brevo:
       list_name_pattern: "pole_{base_name}"
-      folder_name: "poles" # Placeholder, user should update
+      folder_name: "Poles MartyBot" # Placeholder, user should update
     # nocodb:
     #   access: "read" # Simplifié
     #   admin_access: "rw" # Simplifié

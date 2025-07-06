@@ -617,10 +617,11 @@ class TestSendEmailCommand(TestMartyBot):
             self.bot.brevo_client.get_contacts_from_list.assert_called_once_with("brevo_list_123")
             self.bot.brevo_client.send_transactional_email.assert_called_once_with(
                 subject,
-                body,
+                body,  # text_content
                 self.mock_config.BREVO_DEFAULT_SENDER_EMAIL,
                 self.mock_config.BREVO_DEFAULT_SENDER_NAME,
                 expected_to_contacts,
+                html_content=unittest.mock.ANY,  # HTML content is now always passed
             )
             self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]

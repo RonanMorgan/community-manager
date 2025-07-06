@@ -252,7 +252,13 @@ class BrevoClient:
         return None
 
     def send_transactional_email(
-        self, subject: str, text_content: str, sender_email: str, sender_name: str, to_contacts: list[dict]
+        self,
+        subject: str,
+        text_content: str,
+        sender_email: str,
+        sender_name: str,
+        to_contacts: list[dict],
+        html_content: str | None = None,
     ) -> bool:
         """
         Sends a transactional email.
@@ -261,25 +267,28 @@ class BrevoClient:
         :param sender_email: Email address of the sender.
         :param sender_name: Name of the sender.
         :param to_contacts: List of recipient dicts, e.g., [{'email': 'recipient1@example.com'}]
+        :param html_content: Optional HTML content of the email.
         :return: True if email was sent successfully (API accepted the request), False otherwise.
         """
-        if not all([subject, text_content, sender_email, to_contacts]):
-            logging.error("Send email failed: Missing subject, text_content, sender_email, or to_contacts.")
+        if not all([subject, text_content, sender_email, to_contacts]):  # html_content is optional
+            logging.error("Send email failed: Missing subject, text_content (fallback), sender_email, or to_contacts.")
             return False
 
-        # For pure text emails, Brevo API expects 'textContent'.
-        # If HTML is desired, 'htmlContent' would be used.
-        # The API can handle both, or one of them.
         payload = {
             "sender": {"email": sender_email, "name": sender_name},
             "to": to_contacts,
             "subject": subject,
             "textContent": text_content,
         }
+        if html_content:
+            payload["htmlContent"] = html_content
 
-        logging.info(
+        log_message = (
             f"Attempting to send transactional email. Subject: '{subject}', To: {len(to_contacts)} recipients."
-        )  # noqa: E501
+        )
+        if html_content:
+            log_message += " (HTML content provided)"
+        logging.info(log_message)
         status_code, data = self._make_request("POST", "smtp/email", json_data=payload)
 
         # Brevo API returns 201 Created if the email is accepted for sending
