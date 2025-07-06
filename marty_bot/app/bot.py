@@ -989,7 +989,8 @@ class MartyBot:
         user_id_who_posted = post_data.get("user_id")  # Get user_id here
 
         escaped_mention = re.escape(self.bot_name_mention)
-        mention_match = re.search(rf"(?i)(?:^|\s){escaped_mention}(?:\s+(.*)|$)", message_text)
+        # Add re.DOTALL to make . match newline characters
+        mention_match = re.search(rf"(?i)(?:^|\s){escaped_mention}(?:\s+(.*)|$)", message_text, re.DOTALL)
 
         if not mention_match:
             return
