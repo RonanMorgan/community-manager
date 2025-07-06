@@ -41,18 +41,50 @@ class BrevoClient:
             return 500, {"error": f"JSON decode error: {e}"}
 
     def get_list_by_name(self, list_name: str) -> dict | None:
-        """Retrieves a list by its name."""
-        logging.info(f"Attempting to find Brevo list with name: '{list_name}'")
-        status_code, data = self._make_request("GET", "contacts/lists")
-        if status_code == 200 and data and "lists" in data:
-            for lst in data["lists"]:
-                if lst.get("name") == list_name:
-                    logging.info(f"Found Brevo list '{list_name}' with ID {lst['id']}.")
-                    return lst
-            logging.info(f"Brevo list '{list_name}' not found.")
-            return None
-        logging.warning(f"Could not retrieve lists from Brevo or data format unexpected. Status: {status_code}")
-        return None
+        """
+        Retrieves a list by its name, handling pagination and case-insensitive comparison.
+        """
+        logging.info(f"Attempting to find Brevo list with name: '{list_name}' (case-insensitive, pagination aware)")
+
+        processed_list_name = list_name.strip().lower()
+        limit = 50  # Default limit, adjust if needed or make configurable
+        offset = 0
+        total_lists = None
+
+        while True:
+            params = {"limit": limit, "offset": offset}
+            status_code, data = self._make_request("GET", "contacts/lists", params=params)
+
+            if status_code == 200 and data and "lists" in data:
+                if total_lists is None: # Initialize total_lists on first successful call
+                    # Brevo's GET /contacts/lists might not return a 'count' of all lists across all pages directly in the main response.
+                    # It might return a 'count' for the current page, or sometimes a total in a different structure.
+                    # For simplicity, if 'count' for total lists is not obvious, we paginate until no more lists are returned.
+                    # If 'count' is available for total lists (e.g. data.get('count')), use it for a more efficient loop.
+                    # Let's assume for now we don't get a global count and iterate until lists are exhausted.
+                    pass # No explicit total count available in standard /contacts/lists response, rely on empty list return
+
+                lists_on_page = data["lists"]
+                for lst in lists_on_page:
+                    current_list_name = lst.get("name", "").strip().lower()
+                    if current_list_name == processed_list_name:
+                        logging.info(f"Found Brevo list '{list_name}' (matched as '{current_list_name}') with ID {lst['id']}.")
+                        return lst
+
+                if len(lists_on_page) < limit: # Reached the end of all lists
+                    logging.info(f"Brevo list '{list_name}' not found after checking all pages (last page had {len(lists_on_page)} items).")
+                    return None
+
+                offset += len(lists_on_page)
+                if not lists_on_page: # Should be caught by len(lists_on_page) < limit, but as a safeguard
+                    logging.info(f"Brevo list '{list_name}' not found (empty page returned, offset {offset}).")
+                    return None
+
+            else:
+                logging.warning(
+                    f"Could not retrieve lists from Brevo or data format unexpected. Status: {status_code}, Offset: {offset}"
+                )
+                return None # Error during API call
 
     def create_list(self, list_name: str, folder_id: int = 1) -> dict | None:
         """
