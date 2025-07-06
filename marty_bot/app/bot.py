@@ -32,6 +32,7 @@ else:
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.mattermost_client import MattermostClient
+from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
 
 # Import orchestration function for sync command
 from libraries.group_sync_services import orchestrate_group_synchronization
@@ -122,6 +123,18 @@ class MartyBot:
         else:
             logging.warning(
                 "Brevo API URL or Key not configured for MartyBot instance. Brevo features will be disabled."
+            )
+
+        self.nocodb_client = None
+        if self.config.NOCODB_URL and self.config.NOCODB_TOKEN:
+            try:
+                self.nocodb_client = NocoDBClient(self.config.NOCODB_URL, self.config.NOCODB_TOKEN)
+                logging.info("NocoDBClient initialized successfully for MartyBot instance.")
+            except ValueError as e:
+                logging.warning(f"Failed to initialize NocoDBClient for MartyBot instance: {e}")
+        else:
+            logging.warning(
+                "NocoDB URL or Token not configured for MartyBot instance. NocoDB features will be disabled."
             )
 
         self.websocket = None  # Represents the active WebSocket connection object
@@ -295,11 +308,12 @@ class MartyBot:
                 orchestrate_group_synchronization,
                 self.authentik_client,
                 self.mattermost_api_client,
-                self.outline_client,  # Peut être None, géré par l'orchestrateur
-                self.brevo_client,  # Pass Brevo client
+                self.outline_client,
+                self.brevo_client,
+                self.nocodb_client,  # Pass NocoDB client
                 self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=True,  # Assure la suppression
-                fetch_remote_members=True,  # Mode complet pour remove_user_rights
+                perform_deletions=True,
+                fetch_remote_members=True,
             )
 
             if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
@@ -529,6 +543,36 @@ class MartyBot:
                 brevo_msg += ":information_source: Client non configuré."
             item_results_log.append(brevo_msg)
 
+        # NoCoDB Base (for ANTENNE and POLES)
+        nocodb_config = entity_config.get("nocodb")
+        if nocodb_config and entity_key in ["ANTENNE", "POLES"]:  # Only for specific entities
+            base_title_pattern = nocodb_config.get("base_title_pattern", "nocodb_{base_name}")
+            nocodb_base_title = base_title_pattern.format(base_name=base_name)
+            nocodb_msg = f"  - NoCoDB Base `{nocodb_base_title}`: "
+
+            if self.nocodb_client:
+                try:
+                    # Check if base already exists to avoid error and log appropriately
+                    existing_base = await asyncio.to_thread(self.nocodb_client.get_base_by_title, nocodb_base_title)
+                    if existing_base:
+                        nocodb_msg += f":white_check_mark: Existe déjà (ID: {existing_base['id']})."
+                    else:
+                        # Create the base if it doesn't exist
+                        created_base = await asyncio.to_thread(self.nocodb_client.create_base, nocodb_base_title)
+                        if created_base and created_base.get("id"):
+                            nocodb_msg += f":white_check_mark: Créée (ID: {created_base['id']})."
+                        else:
+                            nocodb_msg += ":warning: Échec création."
+                except Exception as e:
+                    nocodb_msg += f":x: Erreur ({e})."
+            else:
+                nocodb_msg += ":information_source: Client non configuré."
+            item_results_log.append(nocodb_msg)
+        elif entity_key in ["ANTENNE", "POLES"]:  # Log if config is missing for relevant types
+            item_results_log.append(
+                f"  - NoCoDB Base: :information_source: Configuration 'nocodb' manquante pour l'entité '{entity_key}'."
+            )
+
         return item_results_log
 
     async def _execute_batch_create_command(
@@ -639,10 +683,11 @@ class MartyBot:
                 self.authentik_client,
                 self.mattermost_api_client,
                 self.outline_client,
-                self.brevo_client,  # Pass Brevo client
+                self.brevo_client,
+                self.nocodb_client,  # Pass NocoDB client
                 self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=False,  # Ne pas supprimer d'utilisateurs
-                fetch_remote_members=False,  # Mode "upsert pur" basé sur Mattermost
+                perform_deletions=False,
+                fetch_remote_members=False,
             )
 
             if not orchestration_success:

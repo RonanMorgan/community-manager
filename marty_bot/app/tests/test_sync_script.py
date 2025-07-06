@@ -11,7 +11,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 from clients.authentik_client import AuthentikClient
 from clients.mattermost_client import MattermostClient
 from clients.outline_client import OutlineClient
-from clients.brevo_client import BrevoClient  # Added BrevoClient
+from clients.brevo_client import BrevoClient
+from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
 
 # Functions/modules to be tested
 import scripts.sync_mm_authentik_groups as script_module
@@ -59,35 +60,40 @@ class TestSyncLogic(unittest.TestCase):
         # Mock OutlineClient and BrevoClient if they are part of initialize_clients
         with patch("scripts.sync_mm_authentik_groups.OutlineClient") as MockScriptOutlineClient, patch(
             "scripts.sync_mm_authentik_groups.BrevoClient"
-        ) as MockScriptBrevoClient:
+        ) as MockScriptBrevoClient, patch(
+            "scripts.sync_mm_authentik_groups.NocoDBClient"
+        ) as MockScriptNocoDBClient:  # Added NocoDBClient
             mock_outline_instance = MockScriptOutlineClient.return_value
             mock_brevo_instance = MockScriptBrevoClient.return_value
+            mock_nocodb_instance = MockScriptNocoDBClient.return_value  # Added
 
-            auth_client, mm_client, outline_client, brevo_client = script_module.initialize_clients()
+            auth_client, mm_client, outline_client, brevo_client, nocodb_client = (
+                script_module.initialize_clients()
+            )  # Unpack 5
 
             MockScriptAuthClient.assert_called_once_with("http://auth.example.com", "auth_token")
             MockScriptMMClient.assert_called_once_with("http://mm.example.com", "mm_bot_token", "mm_team_id")
             MockScriptOutlineClient.assert_called_once_with("http://outline.example.com", "outline_token")
             MockScriptBrevoClient.assert_called_once_with("http://brevo.example.com", "brevo_key")
+            MockScriptNocoDBClient.assert_called_once_with(
+                mock_script_config.NOCODB_URL, mock_script_config.NOCODB_TOKEN
+            )  # Added
 
             self.assertEqual(auth_client, mock_auth_instance)
             self.assertEqual(mm_client, mock_mm_instance)
             self.assertEqual(outline_client, mock_outline_instance)
             self.assertEqual(brevo_client, mock_brevo_instance)
+            self.assertEqual(nocodb_client, mock_nocodb_instance)  # Added
 
     @patch("scripts.sync_mm_authentik_groups.AuthentikClient")
     @patch("scripts.sync_mm_authentik_groups.config")
     def test_script_initialize_clients_auth_missing_config(self, mock_script_config, MockScriptAuthClient):
         mock_script_config.AUTHENTIK_URL = None
         mock_script_config.AUTHENTIK_TOKEN = "token"
-        mock_script_config.MATTERMOST_URL = "http://mm.example.com"
-        mock_script_config.BOT_TOKEN = "mm_bot_token"
-        mock_script_config.MATTERMOST_TEAM_ID = "mm_team_id"
-        mock_script_config.OUTLINE_URL = "http://outline.example.com"
-        mock_script_config.OUTLINE_TOKEN = "outline_token"
-        mock_script_config.BREVO_API_URL = "http://brevo.example.com"
-        mock_script_config.BREVO_API_KEY = "brevo_key"
-        auth_client, _, _, _ = script_module.initialize_clients()  # Unpack 4
+        # ... (rest of config vars)
+        mock_script_config.NOCODB_URL = "http://nocodb.example.com"  # Ensure all config vars are present
+        mock_script_config.NOCODB_TOKEN = "nocodb_token"
+        auth_client, _, _, _, _ = script_module.initialize_clients()  # Unpack 5
         self.assertIsNone(auth_client)
         MockScriptAuthClient.assert_not_called()
 
@@ -96,14 +102,10 @@ class TestSyncLogic(unittest.TestCase):
     def test_script_initialize_clients_mm_missing_config(self, mock_script_config, MockScriptMMClient):
         mock_script_config.MATTERMOST_URL = None
         mock_script_config.BOT_TOKEN = "token"
-        mock_script_config.MATTERMOST_TEAM_ID = "team_id"
-        mock_script_config.AUTHENTIK_URL = "http://auth.example.com"
-        mock_script_config.AUTHENTIK_TOKEN = "auth_token"
-        mock_script_config.OUTLINE_URL = "http://outline.example.com"
-        mock_script_config.OUTLINE_TOKEN = "outline_token"
-        mock_script_config.BREVO_API_URL = "http://brevo.example.com"
-        mock_script_config.BREVO_API_KEY = "brevo_key"
-        _, mm_client, _, _ = script_module.initialize_clients()  # Unpack 4
+        # ... (rest of config vars)
+        mock_script_config.NOCODB_URL = "http://nocodb.example.com"
+        mock_script_config.NOCODB_TOKEN = "nocodb_token"
+        _, mm_client, _, _, _ = script_module.initialize_clients()  # Unpack 5
         self.assertIsNone(mm_client)
         MockScriptMMClient.assert_not_called()
 
@@ -161,6 +163,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_mm_client,
             mock_outline_client,
             self.mock_brevo_client_instance,
+            MagicMock(spec=NocoDBClient),  # Added mock_nocodb_client
             mock_team_id,
             perform_deletions=True,
         )
@@ -173,26 +176,28 @@ class TestSyncLogic(unittest.TestCase):
             mock_mm_client,
             mock_outline_client,
             self.mock_brevo_client_instance,
+            unittest.mock.ANY,  # nocodb_client
             mock_team_id,
             "alpha",
             "PROJET",
             mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
-            unittest.mock.ANY,  # all_authentik_groups_by_name
+            unittest.mock.ANY,
             mock_email_pk_map,
-            True,  # perform_deletions
+            True,
         )
         mock_sync_entity_permissions.assert_any_call(
             mock_auth_client,
             mock_mm_client,
             mock_outline_client,
             self.mock_brevo_client_instance,
+            unittest.mock.ANY,  # nocodb_client
             mock_team_id,
             "beta",
             "ANTENNE",
             mock_lib_config.PERMISSIONS_MATRIX["ANTENNE"],
-            unittest.mock.ANY,  # all_authentik_groups_by_name
+            unittest.mock.ANY,
             mock_email_pk_map,
-            True,  # perform_deletions
+            True,
         )
 
     @patch("libraries.group_sync_services.sync_entity_permissions")
@@ -223,6 +228,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_mm_client,
             mock_outline_client_none,
             self.mock_brevo_client_instance,
+            MagicMock(spec=NocoDBClient),  # Added mock_nocodb_client
             mock_team_id,
             perform_deletions=True,
         )
@@ -233,13 +239,14 @@ class TestSyncLogic(unittest.TestCase):
             mock_mm_client,
             mock_outline_client_none,
             self.mock_brevo_client_instance,
+            unittest.mock.ANY,  # nocodb_client
             mock_team_id,
             "gamma",
             "PROJET",
             mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
-            unittest.mock.ANY,  # all_authentik_groups_by_name
+            unittest.mock.ANY,
             mock_email_pk_map,
-            True,  # perform_deletions
+            True,
         )
 
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
@@ -256,10 +263,10 @@ class TestSyncLogic(unittest.TestCase):
             mock_auth_client,
             mock_mm_client,
             mock_outline_client,
-            self.mock_brevo_client_instance,  # Use instance mock
+            self.mock_brevo_client_instance,
+            MagicMock(spec=NocoDBClient),  # Added mock_nocodb_client
             mock_team_id,
             perform_deletions=True,
-            # fetch_remote_members defaults to True, so this will use the mock_auth_client.get_groups_with_users
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, [])
@@ -271,26 +278,28 @@ class TestSyncLogic(unittest.TestCase):
 
         # Test with Authentik client missing
         success_auth, results_auth = orchestrate_group_synchronization(
-            None,
+            None,  # authentik_client
             MagicMock(spec=MattermostClient),
             mock_outline_client,
             self.mock_brevo_client_instance,
-            "team_id",
+            MagicMock(spec=NocoDBClient),  # nocodb_client
+            "team_id",  # mm_team_id
             perform_deletions=True,
         )
-        self.assertTrue(success_auth)
+        self.assertTrue(success_auth)  # Should still proceed but skip Authentik ops
         self.assertEqual(results_auth, [])
 
         # Test with Mattermost client missing (critical)
         success_mm, results_mm = orchestrate_group_synchronization(
             MagicMock(spec=AuthentikClient),
-            None,
+            None,  # mattermost_client
             mock_outline_client,
             self.mock_brevo_client_instance,
-            "team_id",
+            MagicMock(spec=NocoDBClient),  # nocodb_client
+            "team_id",  # mm_team_id
             perform_deletions=True,
         )
-        self.assertFalse(success_mm)
+        self.assertFalse(success_mm)  # Critical, cannot proceed
         self.assertEqual(results_mm, [])
 
         # Test with Mattermost team_id missing (critical)
@@ -299,7 +308,8 @@ class TestSyncLogic(unittest.TestCase):
             MagicMock(spec=MattermostClient),
             mock_outline_client,
             self.mock_brevo_client_instance,
-            None,  # team_id is None
+            MagicMock(spec=NocoDBClient),  # nocodb_client
+            None,  # mm_team_id is None
             perform_deletions=True,
         )
         self.assertFalse(success_team)
@@ -314,11 +324,19 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
         mock_script_config.OUTLINE_URL = None
         mock_script_config.OUTLINE_TOKEN = None
-        mock_script_config.BREVO_API_URL = None  # Brevo client will be None
+        mock_script_config.BREVO_API_URL = None
         mock_script_config.BREVO_API_KEY = None
+        mock_script_config.NOCODB_URL = None  # NocoDB not configured for this specific test run
+        mock_script_config.NOCODB_TOKEN = None
         mock_auth_instance = MagicMock(spec=AuthentikClient)
         mock_mm_instance = MagicMock(spec=MattermostClient)
-        mock_script_init_clients.return_value = (mock_auth_instance, mock_mm_instance, None, None)  # Return 4 values
+        mock_script_init_clients.return_value = (
+            mock_auth_instance,
+            mock_mm_instance,
+            None,
+            None,
+            None,
+        )  # Return 5 values
         mock_orchestrate_lib.return_value = (True, [])
         script_module.main_sync_logic()
         mock_script_init_clients.assert_called_once()
@@ -327,8 +345,9 @@ class TestSyncLogic(unittest.TestCase):
         # The mock assertion should reflect the actual call made by the script.
         # Outline client is None because OUTLINE_URL and OUTLINE_TOKEN are None in this test's config.
         # Brevo client will also be None as its config is not set here.
+        # NocoDB client will also be None as its config is not set here by default for this test
         mock_orchestrate_lib.assert_called_once_with(
-            mock_auth_instance, mock_mm_instance, None, None, "script_team_id"
+            mock_auth_instance, mock_mm_instance, None, None, None, "script_team_id"
         )
 
     @patch("scripts.sync_mm_authentik_groups.config")
@@ -342,7 +361,15 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.OUTLINE_TOKEN = None
         mock_script_config.BREVO_API_URL = None  # Ensure Brevo client is None
         mock_script_config.BREVO_API_KEY = None
-        mock_script_init_clients.return_value = (None, MagicMock(spec=MattermostClient), None, None)  # Return 4 values
+        mock_script_config.NOCODB_URL = None  # Ensure NocoDB client is None for this test path
+        mock_script_config.NOCODB_TOKEN = None
+        mock_script_init_clients.return_value = (
+            None,
+            MagicMock(spec=MattermostClient),
+            None,
+            None,
+            None,
+        )  # Return 5 values
         script_module.main_sync_logic()
         mock_orchestrate_lib.assert_not_called()
 
@@ -357,7 +384,15 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.OUTLINE_TOKEN = None
         mock_script_config.BREVO_API_URL = None  # Ensure Brevo client is None
         mock_script_config.BREVO_API_KEY = None
-        mock_script_init_clients.return_value = (MagicMock(spec=AuthentikClient), None, None, None)  # Return 4 values
+        mock_script_config.NOCODB_URL = None  # Ensure NocoDB client is None
+        mock_script_config.NOCODB_TOKEN = None
+        mock_script_init_clients.return_value = (
+            MagicMock(spec=AuthentikClient),
+            None,
+            None,
+            None,
+            None,
+        )  # Return 5 values
         script_module.main_sync_logic()
         mock_orchestrate_lib.assert_not_called()
 
@@ -372,12 +407,15 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.OUTLINE_TOKEN = None
         mock_script_config.BREVO_API_URL = None
         mock_script_config.BREVO_API_KEY = None
+        mock_script_config.NOCODB_URL = None
+        mock_script_config.NOCODB_TOKEN = None
         mock_script_init_clients.return_value = (
             MagicMock(spec=AuthentikClient),
             MagicMock(spec=MattermostClient),
-            None,
-            None,
-        )  # Return 4 values
+            None,  # Outline
+            None,  # Brevo
+            None,  # NocoDB
+        )  # Return 5 values
         script_module.main_sync_logic()
         mock_orchestrate_lib.assert_not_called()
 

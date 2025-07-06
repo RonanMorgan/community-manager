@@ -13,7 +13,8 @@ from app import config as app_config
 from clients.mattermost_client import MattermostClient, slugify
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
-from clients.brevo_client import BrevoClient  # Added BrevoClient
+from clients.brevo_client import BrevoClient
+from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
 
 
 def reload_config_module():
@@ -29,7 +30,8 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mock_authentik_client = MagicMock(spec=AuthentikClient)
         self.mock_mattermost_client = MagicMock(spec=MattermostClient)
         self.mock_outline_client = MagicMock(spec=OutlineClient)
-        self.mock_brevo_client = MagicMock(spec=BrevoClient)  # Added Brevo mock
+        self.mock_brevo_client = MagicMock(spec=BrevoClient)
+        self.mock_nocodb_client = MagicMock(spec=NocoDBClient)  # Added NocoDB mock
         self.mm_team_id = "test_team_id"
 
         self.email_to_authentik_user_pk_map_fixture = {
@@ -74,7 +76,18 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mock_brevo_client.create_list.side_effect = create_brevo_list_side_effect
         self.mock_brevo_client.add_contact_to_list.return_value = True
         self.mock_brevo_client.remove_contact_from_list.return_value = True
-        self.mock_brevo_client.get_contacts_from_list.return_value = []  # Default to empty list
+        self.mock_brevo_client.get_contacts_from_list.return_value = []
+
+        # Mock NocoDB client methods
+        self.mock_nocodb_client.get_base_by_title.return_value = None
+        self.mock_nocodb_client.create_base.side_effect = lambda title, desc="": {
+            "id": f"nc_id_{slugify(title)}",
+            "title": title,
+        }
+        self.mock_nocodb_client.list_base_users.return_value = []
+        self.mock_nocodb_client.invite_user_to_base.return_value = True
+        self.mock_nocodb_client.update_base_user.return_value = True
+        self.mock_nocodb_client.delete_base_user.return_value = True
 
     def test_extract_base_name(self):
         self.assertEqual(_extract_base_name("projet_TestProjet_dev", "projet_{base_name}_dev"), "TestProjet")
@@ -243,8 +256,9 @@ class TestGroupSyncServices(unittest.TestCase):
             authentik_client=self.mock_authentik_client,
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,  # Added
             mm_team_id=self.mm_team_id,
-            brevo_client=self.mock_brevo_client,  # Pass mock Brevo client
             entity_key=entity_key,
             base_name=base_name,
             entity_config=mock_entity_config,
@@ -452,7 +466,8 @@ permissions:
             authentik_client=self.mock_authentik_client,
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,  # Pass Brevo client
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,  # Added
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -531,7 +546,8 @@ permissions:
             authentik_client=self.mock_authentik_client,
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,  # Pass Brevo client
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,  # Added
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -595,12 +611,13 @@ permissions:
             authentik_client=self.mock_authentik_client,
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,  # Added
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-            brevo_client=self.mock_brevo_client,
             email_to_authentik_user_pk_map=email_map_already,
             perform_deletions=True,
         )
@@ -652,12 +669,13 @@ permissions:
             authentik_client=self.mock_authentik_client,
             mattermost_client=self.mock_mattermost_client,
             outline_client=None,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,  # Added
             mm_team_id=self.mm_team_id,
             entity_key="PROJET",
             base_name="",
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            brevo_client=self.mock_brevo_client,
             email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
         )
@@ -717,12 +735,13 @@ permissions:
             authentik_client=self.mock_authentik_client,
             mattermost_client=self.mock_mattermost_client,
             outline_client=None,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,  # Added
             mm_team_id=self.mm_team_id,
             entity_key="PROJET",
             base_name="",
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            brevo_client=self.mock_brevo_client,
             email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
         )
@@ -796,12 +815,13 @@ permissions:
             authentik_client=self.mock_authentik_client,
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,  # Added
             mm_team_id=self.mm_team_id,
             entity_key=entity_key_for_test,
             base_name=base_name_for_test,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            brevo_client=self.mock_brevo_client,
             email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
         )
@@ -873,12 +893,13 @@ permissions:
             authentik_client=self.mock_authentik_client,
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,  # Added
             mm_team_id=self.mm_team_id,
             entity_key=entity_key_for_test,
             base_name=base_name_for_test,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            brevo_client=self.mock_brevo_client,
             email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
         )
@@ -1019,12 +1040,13 @@ permissions:
                     authentik_client=self.mock_authentik_client,
                     mattermost_client=self.mock_mattermost_client,
                     outline_client=self.mock_outline_client,
+                    brevo_client=self.mock_brevo_client,
+                    nocodb_client=self.mock_nocodb_client,  # Added
                     mm_team_id=self.mm_team_id,
                     entity_key=entity_key_for_test,
                     base_name=base_name_from_case,
                     entity_config=mock_entity_config,
                     all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-                    brevo_client=self.mock_brevo_client,
                     email_to_authentik_user_pk_map=email_to_pk_map,
                     perform_deletions=True,
                 )
@@ -1104,6 +1126,7 @@ permissions:
             self.mock_mattermost_client,
             self.mock_outline_client,
             self.mock_brevo_client,
+            self.mock_nocodb_client,  # Pass NocoDB client
             mock_team_id,
             perform_deletions=False,
             fetch_remote_members=False,
@@ -1170,6 +1193,7 @@ permissions:
             self.mock_mattermost_client,
             self.mock_outline_client,
             self.mock_brevo_client,
+            self.mock_nocodb_client,  # Pass NocoDB client
             mock_team_id,
             perform_deletions=True,
             fetch_remote_members=True,
@@ -1187,6 +1211,7 @@ permissions:
             self.mock_mattermost_client,
             self.mock_outline_client,
             self.mock_brevo_client,
+            self.mock_nocodb_client,  # Pass NocoDB client
             mock_team_id,
             "Gamma",
             "PROJET",
@@ -1200,6 +1225,7 @@ permissions:
             self.mock_mattermost_client,
             self.mock_outline_client,
             self.mock_brevo_client,
+            self.mock_nocodb_client,  # Pass NocoDB client
             mock_team_id,
             "Delta",
             "ANTENNE",
@@ -1379,6 +1405,201 @@ permissions:
             mm_channel_display_name_for_log=mm_channel_name_log,
             perform_deletions=perform_deletions,
         )
+
+    # --- Tests for NocoDB base synchronization ---
+    @patch("libraries.group_sync_services.config")  # To mock EXCLUDED_USERS
+    def test_sync_nocodb_base_creation_and_user_invite(self, mock_lib_config_nocodb):
+        mock_lib_config_nocodb.EXCLUDED_USERS = set()
+        from libraries.group_sync_services import _sync_single_nocodb_base
+
+        base_title_pattern = "test_nocodb_{base_name}"
+        entity_base_name = "MyNocoAntenne"
+        nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
+
+        mm_users_for_perm = {
+            "user1@nocodb.com": {
+                "username": "nocodb_user1",
+                "mm_user_id": "mm_nc_u1",
+                "is_admin_channel_member": False,
+            },
+            "admin@nocodb.com": {
+                "username": "nocodb_admin1",
+                "mm_user_id": "mm_nc_a1",
+                "is_admin_channel_member": True,
+            },
+        }
+        default_perm = "viewer"
+        admin_perm = "owner"
+        mm_channel_context = "TestNocoDBChannel"
+
+        # Mock NocoDB client calls for this test
+        self.mock_nocodb_client.get_base_by_title.return_value = {"id": "nc_base_id_123", "title": nocodb_base_title}
+        self.mock_nocodb_client.list_base_users.return_value = []  # No users initially
+        self.mock_nocodb_client.invite_user_to_base.return_value = True
+
+        results = _sync_single_nocodb_base(
+            self.mock_nocodb_client,
+            base_title_pattern,
+            entity_base_name,
+            mm_users_for_perm,
+            default_perm,
+            admin_perm,
+            mm_channel_context,
+            perform_deletions=False,
+        )
+        self.mock_nocodb_client.get_base_by_title.assert_called_once_with(nocodb_base_title)
+        self.mock_nocodb_client.list_base_users.assert_called_once_with("nc_base_id_123")
+
+        self.assertEqual(self.mock_nocodb_client.invite_user_to_base.call_count, 2)
+        self.mock_nocodb_client.invite_user_to_base.assert_any_call("nc_base_id_123", "user1@nocodb.com", default_perm)
+        self.mock_nocodb_client.invite_user_to_base.assert_any_call("nc_base_id_123", "admin@nocodb.com", admin_perm)
+
+        self.assertEqual(len(results), 2)
+        for res in results:
+            self.assertEqual(res["status"], "SUCCESS")
+            self.assertIn(res["action"], ["NOCODB_USER_INVITED_AS_VIEWER", "NOCODB_USER_INVITED_AS_OWNER"])
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_nocodb_base_user_update_and_removal(self, mock_lib_config_nocodb):
+        mock_lib_config_nocodb.EXCLUDED_USERS = set()
+        from libraries.group_sync_services import _sync_single_nocodb_base
+
+        base_title_pattern = "upd_rem_nocodb_{base_name}"
+        entity_base_name = "NocoAntenneTwo"
+        nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
+        base_id = "nc_base_id_456"
+
+        # MM users: user1 (viewer), user2 (owner)
+        mm_users_for_perm = {
+            "user1.update@nocodb.com": {
+                "username": "nc_user1_upd",
+                "mm_user_id": "mm_u1u",
+                "is_admin_channel_member": False,
+            },
+            "user2.owner@nocodb.com": {
+                "username": "nc_user2_own",
+                "mm_user_id": "mm_u2o",
+                "is_admin_channel_member": True,
+            },
+        }
+        # NocoDB users initially: user1 (owner), user_to_remove (viewer)
+        initial_nocodb_users = [
+            {"id": "nc_uid1", "email": "user1.update@nocodb.com", "roles": "owner"},  # Role needs update
+            {
+                "id": "nc_uid_remove",
+                "email": "user.remove@nocodb.com",
+                "roles": "viewer",
+                "firstname": "Remove",
+                "lastname": "Me",
+            },
+        ]
+
+        self.mock_nocodb_client.get_base_by_title.return_value = {"id": base_id, "title": nocodb_base_title}
+        self.mock_nocodb_client.list_base_users.return_value = initial_nocodb_users
+        self.mock_nocodb_client.update_base_user.return_value = True
+        self.mock_nocodb_client.delete_base_user.return_value = True  # This actually sets role to no-access
+        self.mock_nocodb_client.invite_user_to_base.return_value = True  # For user2 who is new
+
+        results = _sync_single_nocodb_base(
+            self.mock_nocodb_client,
+            base_title_pattern,
+            entity_base_name,
+            mm_users_for_perm,
+            "viewer",
+            "owner",
+            "NocoDBUpdateRemoveChannel",
+            perform_deletions=True,
+        )
+
+        # Check update for user1
+        self.mock_nocodb_client.update_base_user.assert_any_call(base_id, "nc_uid1", "viewer")
+        # Check invite for user2
+        self.mock_nocodb_client.invite_user_to_base.assert_any_call(base_id, "user2.owner@nocodb.com", "owner")
+        # Check removal for user.remove@nocodb.com
+        self.mock_nocodb_client.delete_base_user.assert_called_once_with(base_id, "nc_uid_remove")
+
+        self.assertEqual(len(results), 3)  # 1 update, 1 invite, 1 removal
+        actions = [r["action"] for r in results]
+        self.assertIn("NOCODB_USER_ROLE_UPDATED_TO_VIEWER", actions)
+        self.assertIn("NOCODB_USER_INVITED_AS_OWNER", actions)
+        self.assertIn("NOCODB_USER_REMOVED_FROM_BASE", actions)
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_nocodb_base_excluded_user_handling(self, mock_lib_config_nocodb):
+        excluded_username = "excluded_nc_user"
+        mock_lib_config_nocodb.EXCLUDED_USERS = {excluded_username}
+        from libraries.group_sync_services import _sync_single_nocodb_base
+
+        base_title_pattern = "excl_nocodb_{base_name}"
+        entity_base_name = "NocoAntenneExcl"
+        nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
+        base_id = "nc_base_id_789"
+
+        mm_users_for_perm = {
+            "excluded.user@nocodb.com": {
+                "username": excluded_username,
+                "mm_user_id": "mm_excl",
+                "is_admin_channel_member": False,
+            },
+            "normal.user@nocodb.com": {
+                "username": "normal_nc_user",
+                "mm_user_id": "mm_norm",
+                "is_admin_channel_member": False,
+            },
+        }
+        # Excluded user is on NocoDB, should be preserved. Another user on NocoDB not in MM should be removed.
+        initial_nocodb_users = [
+            {"id": "nc_uid_excl", "email": "excluded.user@nocodb.com", "roles": "editor"},
+            {"id": "nc_uid_remove_excl_test", "email": "remove.excl@nocodb.com", "roles": "viewer"},
+        ]
+
+        self.mock_nocodb_client.get_base_by_title.return_value = {"id": base_id, "title": nocodb_base_title}
+        self.mock_nocodb_client.list_base_users.return_value = initial_nocodb_users
+        self.mock_nocodb_client.invite_user_to_base.return_value = True  # For normal.user
+        self.mock_nocodb_client.delete_base_user.return_value = True  # For remove.excl
+
+        results = _sync_single_nocodb_base(
+            self.mock_nocodb_client,
+            base_title_pattern,
+            entity_base_name,
+            mm_users_for_perm,
+            "viewer",
+            "owner",
+            "NocoDBExclChannel",
+            perform_deletions=True,
+        )
+
+        # Normal user should be invited
+        self.mock_nocodb_client.invite_user_to_base.assert_called_once_with(
+            base_id, "normal.user@nocodb.com", "viewer"
+        )
+        # Excluded user on NocoDB should not be touched (no update/delete call for their NocoDB ID nc_uid_excl)
+        for call in self.mock_nocodb_client.update_base_user.call_args_list:
+            self.assertNotEqual(call.args[1], "nc_uid_excl")
+        for call in self.mock_nocodb_client.delete_base_user.call_args_list:
+            self.assertNotEqual(call.args[1], "nc_uid_excl")
+        # User to remove (remove.excl@nocodb.com) should be deleted
+        self.mock_nocodb_client.delete_base_user.assert_any_call(base_id, "nc_uid_remove_excl_test")
+
+        actions = {r["mm_user_email"]: r["action"] for r in results if "mm_user_email" in r}
+        self.assertEqual(actions.get("normal.user@nocodb.com"), "NOCODB_USER_INVITED_AS_VIEWER")
+        self.assertEqual(actions.get("remove.excl@nocodb.com"), "NOCODB_USER_REMOVED_FROM_BASE")
+        self.assertNotIn("excluded.user@nocodb.com", actions)  # No action logged for excluded user if already present
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_nocodb_base_not_found(self, mock_lib_config_nocodb):
+        mock_lib_config_nocodb.EXCLUDED_USERS = set()
+        from libraries.group_sync_services import _sync_single_nocodb_base
+
+        self.mock_nocodb_client.get_base_by_title.return_value = None  # Simulate base not found
+
+        results = _sync_single_nocodb_base(
+            self.mock_nocodb_client, "nf_{base_name}", "NocoNF", {}, "viewer", "owner", "ChanNF", False
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "SKIPPED")
+        self.assertEqual(results[0]["action"], "SKIPPED_NOCODB_BASE_NOT_FOUND")
+        self.mock_nocodb_client.list_base_users.assert_not_called()
 
 
 if __name__ == "__main__":
