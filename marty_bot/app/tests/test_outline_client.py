@@ -95,9 +95,8 @@ class TestOutlineClient(unittest.TestCase):
         mock_create_response.status_code = 403
         mock_create_response.json.return_value = {"message": "Cannot create"}
         # Simulate raise_for_status() for the failing call
-        mock_create_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            response=mock_create_response
-        )
+        http_error = requests.exceptions.HTTPError(response=mock_create_response)
+        mock_create_response.raise_for_status.side_effect = http_error
 
         mock_post_request.side_effect = [mock_list_response, mock_create_response]
 

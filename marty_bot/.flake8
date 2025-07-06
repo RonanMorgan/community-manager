@@ -8,7 +8,10 @@ per-file-ignores =
     marty_bot/app/bot.py:E501
     marty_bot/app/tests/test_bot.py:E501
     marty_bot/app/tests/test_group_sync_services.py:E501
+    marty_bot/app/tests/test_brevo_client.py:E501
+    marty_bot/app/tests/test_outline_client.py:E501
     marty_bot/clients/authentik_client.py: E501
+    marty_bot/clients/brevo_client.py:E501
     marty_bot/clients/mattermost_client.py: E501
     marty_bot/clients/outline_client.py:E501
     marty_bot/scripts/sync_mm_authentik_groups.py: E501

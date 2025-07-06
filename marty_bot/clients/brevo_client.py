@@ -49,42 +49,52 @@ class BrevoClient:
         processed_list_name = list_name.strip().lower()
         limit = 50  # Default limit, adjust if needed or make configurable
         offset = 0
-        total_lists = None
+        # total_lists = None # Not used as Brevo API might not provide total count easily
 
         while True:
             params = {"limit": limit, "offset": offset}
             status_code, data = self._make_request("GET", "contacts/lists", params=params)
 
             if status_code == 200 and data and "lists" in data:
-                if total_lists is None: # Initialize total_lists on first successful call
-                    # Brevo's GET /contacts/lists might not return a 'count' of all lists across all pages directly in the main response.
-                    # It might return a 'count' for the current page, or sometimes a total in a different structure.
-                    # For simplicity, if 'count' for total lists is not obvious, we paginate until no more lists are returned.
-                    # If 'count' is available for total lists (e.g. data.get('count')), use it for a more efficient loop.
-                    # Let's assume for now we don't get a global count and iterate until lists are exhausted.
-                    pass # No explicit total count available in standard /contacts/lists response, rely on empty list return
+                # if total_lists is None: # Initialize total_lists on first successful call
+                #     total_lists = data.get("count", 0) # Assuming 'count' holds total lists; this may vary by API
 
                 lists_on_page = data["lists"]
                 for lst in lists_on_page:
                     current_list_name = lst.get("name", "").strip().lower()
                     if current_list_name == processed_list_name:
-                        logging.info(f"Found Brevo list '{list_name}' (matched as '{current_list_name}') with ID {lst['id']}.")
+                        log_msg = (
+                            f"Found Brevo list '{list_name}' (matched as '{current_list_name}') "
+                            f"with ID {lst['id']}."
+                        )
+                        logging.info(log_msg)
                         return lst
 
-                if len(lists_on_page) < limit: # Reached the end of all lists
-                    logging.info(f"Brevo list '{list_name}' not found after checking all pages (last page had {len(lists_on_page)} items).")
+                if len(lists_on_page) < limit:  # Reached the end of all lists
+                    log_msg = (
+                        f"Brevo list '{list_name}' not found after checking all pages "
+                        f"(last page had {len(lists_on_page)} items)."
+                    )
+                    logging.info(log_msg)
                     return None
 
                 offset += len(lists_on_page)
-                if not lists_on_page: # Should be caught by len(lists_on_page) < limit, but as a safeguard
-                    logging.info(f"Brevo list '{list_name}' not found (empty page returned, offset {offset}).")
+                # if offset >= total_lists and total_lists > 0: # Alternative end condition if total_lists is known and reliable
+                #     logging.info(f"Brevo list '{list_name}' not found after checking all {total_lists} lists.")
+                #     return None
+                if (
+                    not lists_on_page
+                ):  # Safeguard if API returns empty list before len(lists_on_page) < limit condition met (e.g. offset out of bounds)
+                    log_msg = f"Brevo list '{list_name}' not found (empty page returned, offset {offset})."
+                    logging.info(log_msg)
                     return None
-
             else:
-                logging.warning(
-                    f"Could not retrieve lists from Brevo or data format unexpected. Status: {status_code}, Offset: {offset}"
+                log_msg = (
+                    f"Could not retrieve lists from Brevo or data format unexpected. "
+                    f"Status: {status_code}, Offset: {offset}"
                 )
-                return None # Error during API call
+                logging.warning(log_msg)
+                return None  # Error during API call
 
     def create_list(self, list_name: str, folder_id: int = 1) -> dict | None:
         """
@@ -123,7 +133,7 @@ class BrevoClient:
         Adds a contact to a specific list.
         Optionally allows setting contact attributes and enabling/disabling contact update.
         """
-        logging.info(f"Adding contact '{email}' to Brevo list ID {list_id}")  # noqa: E501
+        logging.info(f"Adding contact '{email}' to Brevo list ID {list_id}")
         payload = {"email": email, "listIds": [list_id], "updateEnabled": update_enabled}
         if attributes:
             payload["attributes"] = attributes
@@ -181,7 +191,8 @@ class BrevoClient:
         Retrieves contacts from a specific list.
         Supports pagination with limit and offset.
         """
-        logging.info(f"Fetching contacts from Brevo list ID {list_id} (limit: {limit}, offset: {offset})")
+        log_msg = f"Fetching contacts from Brevo list ID {list_id} (limit: {limit}, offset: {offset})"
+        logging.info(log_msg)
         params = {"limit": limit, "offset": offset}
         status_code, data = self._make_request("GET", f"contacts/lists/{list_id}/contacts", params=params)
 
@@ -309,10 +320,10 @@ if __name__ == "__main__":
             list_obj = client.create_list(test_list_name)
             if list_obj and list_obj.get("id"):
                 created_list_id = list_obj["id"]
-                print(f"List '{test_list_name}' ID: {created_list_id} (ensured/created)")  # noqa: E501
+                print(f"List '{test_list_name}' ID: {created_list_id} (ensured/created)")
 
                 # 2. Add contacts to the list
-                print(f"\n--- Adding {test_email_1} to list {created_list_id} ---")  # noqa: E501
+                print(f"\n--- Adding {test_email_1} to list {created_list_id} ---")
                 if client.add_contact_to_list(test_email_1, created_list_id):
                     print(f"Added {test_email_1} to list {created_list_id}")
                 else:

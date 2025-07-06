@@ -74,7 +74,11 @@ class TestBrevoClient(unittest.TestCase):
         self.assertEqual(result["id"], list_id)
         self.assertEqual(result["name"], list_name)
         mock_request.assert_called_once_with(
-            "GET", f"{FAKE_API_URL}/contacts/lists", headers=self.client.headers, json=None, params=None
+            "GET",
+            f"{FAKE_API_URL}/contacts/lists",
+            headers=self.client.headers,
+            json=None,
+            params={"limit": 50, "offset": 0},  # Updated params
         )
 
     @patch("requests.request")
@@ -170,9 +174,11 @@ class TestBrevoClient(unittest.TestCase):
             headers=self.client.headers,
             json={"name": list_name, "folderId": 1},
             params=None,
-        )  # noqa: E501
+        )
         # This call is from get_list_by_name
-        mock_request.assert_any_call("GET", url, headers=self.client.headers, json=None, params=None)  # noqa: E501
+        mock_request.assert_any_call(
+            "GET", url, headers=self.client.headers, json=None, params={"limit": 50, "offset": 0}
+        )
 
     @patch("requests.request")
     def test_get_list_by_id_success(self, mock_request):
