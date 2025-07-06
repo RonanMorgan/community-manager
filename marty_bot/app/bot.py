@@ -957,7 +957,7 @@ class MartyBot:
         sender_name = self.config.BREVO_DEFAULT_SENDER_NAME
 
         # Convert Markdown to HTML
-        html_content = markdown2.markdown(text_content)
+        html_content = markdown2.markdown(text_content, extras=["break-on-newline"])
 
         email_sent_successfully = await asyncio.to_thread(
             self.brevo_client.send_transactional_email,
