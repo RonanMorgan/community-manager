@@ -74,7 +74,11 @@ class TestBrevoClient(unittest.TestCase):
         self.assertEqual(result["id"], list_id)
         self.assertEqual(result["name"], list_name)
         mock_request.assert_called_once_with(
-            "GET", f"{FAKE_API_URL}/contacts/lists", headers=self.client.headers, json=None, params=None
+            "GET",
+            f"{FAKE_API_URL}/contacts/lists",
+            headers=self.client.headers,
+            json=None,
+            params={"limit": 50, "offset": 0},  # Updated params
         )
 
     @patch("requests.request")
@@ -170,9 +174,11 @@ class TestBrevoClient(unittest.TestCase):
             headers=self.client.headers,
             json={"name": list_name, "folderId": 1},
             params=None,
-        )  # noqa: E501
+        )
         # This call is from get_list_by_name
-        mock_request.assert_any_call("GET", url, headers=self.client.headers, json=None, params=None)  # noqa: E501
+        mock_request.assert_any_call(
+            "GET", url, headers=self.client.headers, json=None, params={"limit": 50, "offset": 0}
+        )
 
     @patch("requests.request")
     def test_get_list_by_id_success(self, mock_request):
@@ -328,7 +334,10 @@ class TestBrevoClient(unittest.TestCase):
         mock_response_data = {"messageId": "some-message-id-123"}
         mock_request.return_value = mock_brevo_response(201, json_data=mock_response_data)
 
-        success = self.client.send_transactional_email(subject, text_content, sender_email, sender_name, to_contacts)
+        html_content_example = "<p>Hello, this is a test email.</p>"
+        success = self.client.send_transactional_email(
+            subject, text_content, sender_email, sender_name, to_contacts, html_content=html_content_example
+        )
         self.assertTrue(success)
 
         expected_payload = {
@@ -336,6 +345,37 @@ class TestBrevoClient(unittest.TestCase):
             "to": to_contacts,
             "subject": subject,
             "textContent": text_content,
+            "htmlContent": html_content_example,
+        }
+        mock_request.assert_called_once_with(
+            "POST", f"{FAKE_API_URL}/smtp/email", headers=self.client.headers, json=expected_payload, params=None
+        )
+
+    @patch("requests.request")
+    def test_send_transactional_email_success_no_html(self, mock_request):
+        """Test sending a transactional email successfully without HTML content."""
+        subject = "Test Subject No HTML"
+        text_content = "Hello, this is a plain text test email."
+        sender_email = "sender.nohtml@example.com"
+        sender_name = "Test Sender No HTML"
+        to_contacts = [{"email": "recipient.nohtml@example.com"}]
+
+        mock_response_data = {"messageId": "some-message-id-nohtml"}
+        mock_request.return_value = mock_brevo_response(
+            201, json_data=mock_response_data
+        )  # Changed to 201 for explicit success handling in client
+
+        success = self.client.send_transactional_email(
+            subject, text_content, sender_email, sender_name, to_contacts, html_content=None
+        )  # Explicitly None
+        self.assertTrue(success)
+
+        expected_payload = {
+            "sender": {"email": sender_email, "name": sender_name},
+            "to": to_contacts,
+            "subject": subject,
+            "textContent": text_content,
+            # No htmlContent key
         }
         mock_request.assert_called_once_with(
             "POST", f"{FAKE_API_URL}/smtp/email", headers=self.client.headers, json=expected_payload, params=None

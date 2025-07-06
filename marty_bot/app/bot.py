@@ -8,6 +8,7 @@ import requests
 # import os # No longer used
 import asyncio
 import logging
+import markdown2  # For send_email Markdown to HTML conversion
 
 # import signal  # No longer used directly in MartyBot class after removing signal handlers
 import threading  # For logging current thread name in start()
@@ -955,13 +956,17 @@ class MartyBot:
         sender_email = self.config.BREVO_DEFAULT_SENDER_EMAIL
         sender_name = self.config.BREVO_DEFAULT_SENDER_NAME
 
+        # Convert Markdown to HTML
+        html_content = markdown2.markdown(text_content, extras=["break-on-newline"])
+
         email_sent_successfully = await asyncio.to_thread(
             self.brevo_client.send_transactional_email,
             subject,
-            text_content,  # Pass text_content directly
+            text_content,  # Original text content as fallback
             sender_email,
             sender_name,
             to_contacts,
+            html_content=html_content,  # Pass HTML content
         )
 
         if email_sent_successfully:
@@ -984,7 +989,8 @@ class MartyBot:
         user_id_who_posted = post_data.get("user_id")  # Get user_id here
 
         escaped_mention = re.escape(self.bot_name_mention)
-        mention_match = re.search(rf"(?i)(?:^|\s){escaped_mention}(?:\s+(.*)|$)", message_text)
+        # Add re.DOTALL to make . match newline characters
+        mention_match = re.search(rf"(?i)(?:^|\s){escaped_mention}(?:\s+(.*)|$)", message_text, re.DOTALL)
 
         if not mention_match:
             return

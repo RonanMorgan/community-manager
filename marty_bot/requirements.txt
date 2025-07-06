@@ -2,3 +2,4 @@ requests
 websockets
 python-dotenv
 PyYAML
+markdown2

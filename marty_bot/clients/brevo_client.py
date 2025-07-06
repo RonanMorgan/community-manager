@@ -41,18 +41,60 @@ class BrevoClient:
             return 500, {"error": f"JSON decode error: {e}"}
 
     def get_list_by_name(self, list_name: str) -> dict | None:
-        """Retrieves a list by its name."""
-        logging.info(f"Attempting to find Brevo list with name: '{list_name}'")
-        status_code, data = self._make_request("GET", "contacts/lists")
-        if status_code == 200 and data and "lists" in data:
-            for lst in data["lists"]:
-                if lst.get("name") == list_name:
-                    logging.info(f"Found Brevo list '{list_name}' with ID {lst['id']}.")
-                    return lst
-            logging.info(f"Brevo list '{list_name}' not found.")
-            return None
-        logging.warning(f"Could not retrieve lists from Brevo or data format unexpected. Status: {status_code}")
-        return None
+        """
+        Retrieves a list by its name, handling pagination and case-insensitive comparison.
+        """
+        logging.info(f"Attempting to find Brevo list with name: '{list_name}' (case-insensitive, pagination aware)")
+
+        processed_list_name = list_name.strip().lower()
+        limit = 50  # Default limit, adjust if needed or make configurable
+        offset = 0
+        # total_lists = None # Not used as Brevo API might not provide total count easily
+
+        while True:
+            params = {"limit": limit, "offset": offset}
+            status_code, data = self._make_request("GET", "contacts/lists", params=params)
+
+            if status_code == 200 and data and "lists" in data:
+                # if total_lists is None: # Initialize total_lists on first successful call
+                #     total_lists = data.get("count", 0) # Assuming 'count' holds total lists; this may vary by API
+
+                lists_on_page = data["lists"]
+                for lst in lists_on_page:
+                    current_list_name = lst.get("name", "").strip().lower()
+                    if current_list_name == processed_list_name:
+                        log_msg = (
+                            f"Found Brevo list '{list_name}' (matched as '{current_list_name}') "
+                            f"with ID {lst['id']}."
+                        )
+                        logging.info(log_msg)
+                        return lst
+
+                if len(lists_on_page) < limit:  # Reached the end of all lists
+                    log_msg = (
+                        f"Brevo list '{list_name}' not found after checking all pages "
+                        f"(last page had {len(lists_on_page)} items)."
+                    )
+                    logging.info(log_msg)
+                    return None
+
+                offset += len(lists_on_page)
+                # if offset >= total_lists and total_lists > 0: # Alternative end condition if total_lists is known and reliable
+                #     logging.info(f"Brevo list '{list_name}' not found after checking all {total_lists} lists.")
+                #     return None
+                if (
+                    not lists_on_page
+                ):  # Safeguard if API returns empty list before len(lists_on_page) < limit condition met (e.g. offset out of bounds)
+                    log_msg = f"Brevo list '{list_name}' not found (empty page returned, offset {offset})."
+                    logging.info(log_msg)
+                    return None
+            else:
+                log_msg = (
+                    f"Could not retrieve lists from Brevo or data format unexpected. "
+                    f"Status: {status_code}, Offset: {offset}"
+                )
+                logging.warning(log_msg)
+                return None  # Error during API call
 
     def create_list(self, list_name: str, folder_id: int = 1) -> dict | None:
         """
@@ -91,7 +133,7 @@ class BrevoClient:
         Adds a contact to a specific list.
         Optionally allows setting contact attributes and enabling/disabling contact update.
         """
-        logging.info(f"Adding contact '{email}' to Brevo list ID {list_id}")  # noqa: E501
+        logging.info(f"Adding contact '{email}' to Brevo list ID {list_id}")
         payload = {"email": email, "listIds": [list_id], "updateEnabled": update_enabled}
         if attributes:
             payload["attributes"] = attributes
@@ -149,7 +191,8 @@ class BrevoClient:
         Retrieves contacts from a specific list.
         Supports pagination with limit and offset.
         """
-        logging.info(f"Fetching contacts from Brevo list ID {list_id} (limit: {limit}, offset: {offset})")
+        log_msg = f"Fetching contacts from Brevo list ID {list_id} (limit: {limit}, offset: {offset})"
+        logging.info(log_msg)
         params = {"limit": limit, "offset": offset}
         status_code, data = self._make_request("GET", f"contacts/lists/{list_id}/contacts", params=params)
 
@@ -209,7 +252,13 @@ class BrevoClient:
         return None
 
     def send_transactional_email(
-        self, subject: str, text_content: str, sender_email: str, sender_name: str, to_contacts: list[dict]
+        self,
+        subject: str,
+        text_content: str,
+        sender_email: str,
+        sender_name: str,
+        to_contacts: list[dict],
+        html_content: str | None = None,
     ) -> bool:
         """
         Sends a transactional email.
@@ -218,25 +267,28 @@ class BrevoClient:
         :param sender_email: Email address of the sender.
         :param sender_name: Name of the sender.
         :param to_contacts: List of recipient dicts, e.g., [{'email': 'recipient1@example.com'}]
+        :param html_content: Optional HTML content of the email.
         :return: True if email was sent successfully (API accepted the request), False otherwise.
         """
-        if not all([subject, text_content, sender_email, to_contacts]):
-            logging.error("Send email failed: Missing subject, text_content, sender_email, or to_contacts.")
+        if not all([subject, text_content, sender_email, to_contacts]):  # html_content is optional
+            logging.error("Send email failed: Missing subject, text_content (fallback), sender_email, or to_contacts.")
             return False
 
-        # For pure text emails, Brevo API expects 'textContent'.
-        # If HTML is desired, 'htmlContent' would be used.
-        # The API can handle both, or one of them.
         payload = {
             "sender": {"email": sender_email, "name": sender_name},
             "to": to_contacts,
             "subject": subject,
             "textContent": text_content,
         }
+        if html_content:
+            payload["htmlContent"] = html_content
 
-        logging.info(
+        log_message = (
             f"Attempting to send transactional email. Subject: '{subject}', To: {len(to_contacts)} recipients."
-        )  # noqa: E501
+        )
+        if html_content:
+            log_message += " (HTML content provided)"
+        logging.info(log_message)
         status_code, data = self._make_request("POST", "smtp/email", json_data=payload)
 
         # Brevo API returns 201 Created if the email is accepted for sending
@@ -277,10 +329,10 @@ if __name__ == "__main__":
             list_obj = client.create_list(test_list_name)
             if list_obj and list_obj.get("id"):
                 created_list_id = list_obj["id"]
-                print(f"List '{test_list_name}' ID: {created_list_id} (ensured/created)")  # noqa: E501
+                print(f"List '{test_list_name}' ID: {created_list_id} (ensured/created)")
 
                 # 2. Add contacts to the list
-                print(f"\n--- Adding {test_email_1} to list {created_list_id} ---")  # noqa: E501
+                print(f"\n--- Adding {test_email_1} to list {created_list_id} ---")
                 if client.add_contact_to_list(test_email_1, created_list_id):
                     print(f"Added {test_email_1} to list {created_list_id}")
                 else:
