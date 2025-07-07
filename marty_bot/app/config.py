@@ -23,28 +23,22 @@ AUTHENTIK_TOKEN = os.getenv("AUTHENTIK_TOKEN")
 OUTLINE_URL = os.getenv("OUTLINE_URL")
 OUTLINE_TOKEN = os.getenv("OUTLINE_TOKEN")
 
-NOCODB_URL = os.getenv("NOCODB_URL")
-NOCODB_TOKEN = os.getenv("NOCODB_TOKEN")
-NOCODB_SHARED_VIEW_PROJECTS_URL = os.getenv("NOCODB_SHARED_VIEW_PROJECTS_URL")
-NOCODB_SHARED_VIEW_ANTENNES_URL = os.getenv("NOCODB_SHARED_VIEW_ANTENNES_URL")
-NOCODB_SHARED_VIEW_POLES_URL = os.getenv("NOCODB_SHARED_VIEW_POLES_URL")
-# NOCODB_PROJECT_ID is removed as each Antenne/Pole will have its own project/database
-
 # Brevo settings
 BREVO_API_URL = os.getenv("BREVO_API_URL", "https://api.brevo.com/v3")
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 BREVO_DEFAULT_SENDER_EMAIL = os.getenv("BREVO_DEFAULT_SENDER_EMAIL")
 BREVO_DEFAULT_SENDER_NAME = os.getenv("BREVO_DEFAULT_SENDER_NAME", "Marty Bot")
 
+# NoCoDB settings
+NOCODB_URL = os.getenv("NOCODB_URL")
+NOCODB_TOKEN = os.getenv("NOCODB_TOKEN")
+
 # Vaultwarden settings
 VAULTWARDEN_ORGANIZATION_ID = os.getenv("VAULTWARDEN_ORGANIZATION_ID")
-VAULTWARDEN_SERVER_URL = os.getenv("VAULTWARDEN_SERVER_URL", "https://vaultwarden.services.dataforgood.fr")
-# BW_SESSION and BW_PASSWORD are not directly used by config.py but are relevant for the VaultwardenClient
-# and are typically set as environment variables. The client will pick them up using os.getenv().
-# We list them here for completeness of documentation within config.
-# BW_SESSION = os.getenv("BW_SESSION")
-# BW_PASSWORD = os.getenv("BW_PASSWORD")
-
+VAULTWARDEN_SERVER_URL = os.getenv("VAULTWARDEN_SERVER_URL")
+# BW_PASSWORD is intentionally not loaded into the config object directly for security.
+# The VaultwardenClient will attempt to read it from the environment itself using os.getenv("BW_PASSWORD").
+# This avoids storing it in a config object that might be logged or exposed.
 
 # General Configuration
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"

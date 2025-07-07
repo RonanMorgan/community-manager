@@ -5,12 +5,13 @@ from .authentik_client import AuthentikClient
 from .mattermost_client import MattermostClient
 from .outline_client import OutlineClient
 from .brevo_client import BrevoClient
-from .vaultwarden_client import VaultwardenClient
 
 __all__ = [
     "AuthentikClient",
     "MattermostClient",
     "OutlineClient",
     "BrevoClient",
-    "VaultwardenClient",
+    "NocoDBClient",
 ]
+
+from .nocodb_client import NocoDBClient

@@ -1,268 +1,300 @@
-import os
 import subprocess
 import json
+import os
 import logging
-import tempfile
-from typing import Optional  # Added Optional
+
+# import tempfile # No longer used
 
 
 class VaultwardenClient:
-    def __init__(self, organization_id: str, session_token: str = None, server_url: str = None):
+    def __init__(self, organization_id: str, server_url: str | None = None):
         """
         Initializes the VaultwardenClient.
-        :param organization_id: The Vaultwarden Organization ID.
-        :param session_token: An existing BW_SESSION token (optional).
-        :param server_url: The URL of the Vaultwarden server (optional, defaults to official).
+        :param organization_id: The ID of the organization in Vaultwarden.
+        :param server_url: The URL of the Vaultwarden server. If None, it's assumed 'bw config server' was already run.
         """
         if not organization_id:
             raise ValueError("Vaultwarden organization_id must be provided.")
-
         self.organization_id = organization_id
-        self.bw_session = session_token or os.getenv("BW_SESSION")
-        self.server_url = server_url or os.getenv(
-            "BW_SERVER_URL", "https://vaultwarden.services.dataforgood.fr"
-        )  # Default from script
-
-        self._configure_server()
+        self.server_url = server_url
+        # Try to get BW_SESSION from env first, might be set by a wrapper or previous run
+        self.bw_session = os.getenv("BW_SESSION")
+        self._ensure_server_configuration()
 
     def _run_bw_command(
-        self, command_args: list[str], input_data: str = None, capture_output: bool = True, use_session: bool = True
-    ) -> subprocess.CompletedProcess:
+        self,
+        command_parts: list[str],
+        input_data: str | None = None,
+        capture_output: bool = True,
+        custom_env: dict | None = None,
+    ) -> tuple[int, str, str]:
         """
         Helper function to run a 'bw' command.
-        :param command_args: A list of arguments for the 'bw' command.
-        :param input_data: Optional string data to pass to the command's stdin.
-        :param capture_output: Whether to capture stdout/stderr.
-        :param use_session: Whether to include the --session token.
-        :return: CompletedProcess object.
+        Returns the return code, stdout, and stderr.
+        'custom_env' will override the default environment handling if provided.
         """
-        full_command = ["bw"] + command_args
-        env = os.environ.copy()
-
-        if use_session and self.bw_session:
-            # Some commands take --session as an arg, others need it in env
-            # For simplicity here, primarily assume BW_SESSION env var is picked up by bw CLI
-            # or add --session if explicitly needed by a command.
-            # The provided example `bw create org-collection` doesn't show --session,
-            # but `bw get item` does. `bw sync` also likely needs it.
-            # Let's add it for commands that might need it.
-            # The bw CLI should also respect BW_SESSION env var if set.
-            env["BW_SESSION"] = self.bw_session
-            # Some commands like `bw get item --raw --session` need it explicitly.
-            # We will add it to specific commands if required.
-
-        logging.debug(f"Running bw command: {' '.join(full_command)}")
-        if input_data:
-            logging.debug(f"Input data for bw: {input_data[:200]}...")  # Log snippet of input
-
-        process = subprocess.run(
-            full_command,
-            input=input_data.encode() if input_data else None,
-            capture_output=capture_output,
-            text=True,
-            check=False,  # We will check the return code manually
-            env=env,
-        )
-
-        if process.returncode != 0:
-            logging.error(f"Error running bw command: {' '.join(full_command)}")
-            logging.error(f"bw stdout: {process.stdout}")
-            logging.error(f"bw stderr: {process.stderr}")
-        return process
-
-    def _configure_server(self):
-        """Configures the Vaultwarden server URL if not already set correctly."""
         try:
-            status_process = self._run_bw_command(["status"], use_session=False)  # Status doesn't need session
-            if status_process.returncode == 0:
-                status_data = json.loads(status_process.stdout)
-                current_server_url = status_data.get("serverUrl")
-                if current_server_url != self.server_url:
-                    logging.info(f"Current Vaultwarden server is '{current_server_url}'.")
-                    logging.info("Configuring Vaultwarden server to:")
-                    logging.info(self.server_url)
-                    self._run_bw_command(["logout"], use_session=False, capture_output=False)  # Logout from old server
-                    config_proc = self._run_bw_command(["config", "server", self.server_url], use_session=False)
-                    if config_proc.returncode != 0:
-                        err_msg = f"Failed to configure Vaultwarden server URL. stderr: {config_proc.stderr}"
-                        logging.error(f"Failed to configure Vaultwarden server URL to {self.server_url}.")
-                        raise RuntimeError(err_msg)
-                    logging.info(f"Vaultwarden server URL configured to {self.server_url}.")
-                else:
-                    logging.info(f"Vaultwarden server URL is already correctly set to '{self.server_url}'.")
-            else:
-                # This might happen if bw is not logged in at all or no server is configured yet.
-                # Attempt to configure it directly.
-                logging.info(
-                    "Could not determine current Vaultwarden server status or not logged in. Attempting to configure server URL."
-                )
-                config_proc = self._run_bw_command(["config", "server", self.server_url], use_session=False)
-                if config_proc.returncode != 0:
-                    logging.warning(f"Failed to config server {self.server_url} (might be ok).")
-                    logging.warning(f"stderr: {config_proc.stderr}")
-                else:
-                    logging.info(f"Vaultwarden server URL configured to {self.server_url}.")
+            # Prepare environment for subprocess
+            env_for_subprocess = os.environ.copy()
+            if self.bw_session:  # Pass current session if available
+                env_for_subprocess["BW_SESSION"] = self.bw_session
+            if custom_env:  # Allow overriding with a fully custom environment
+                env_for_subprocess = custom_env
 
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse 'bw status' output: {e}. Assuming server needs configuration.")
-            # Attempt to configure it directly if status parsing fails
-            config_proc = self._run_bw_command(["config", "server", self.server_url], use_session=False)
-            if config_proc.returncode != 0:
-                logging.error(
-                    f"Failed to configure Vaultwarden server URL to {self.server_url}. stderr: {config_proc.stderr}"
-                )
-                # raise RuntimeError(f"Failed to configure Vaultwarden server URL after status parse error. stderr: {config_proc.stderr}")
-            else:
-                logging.info(f"Vaultwarden server URL configured to {self.server_url} after status parse error.")
+            logging.debug(f"Running bw command: {' '.join(['bw'] + command_parts)}")  # Ensure 'bw' is part of log
+            process = subprocess.run(
+                ["bw"] + command_parts,
+                input=input_data.encode() if input_data else None,
+                capture_output=capture_output,
+                text=True,
+                check=False,
+                env=env_for_subprocess,
+            )
+            logging.debug(f"bw command stdout: {process.stdout.strip() if process.stdout else ''}")
+            logging.debug(f"bw command stderr: {process.stderr.strip() if process.stderr else ''}")
+            return process.returncode, process.stdout, process.stderr
+        except FileNotFoundError:
+            logging.error("'bw' command-line tool not found. Please ensure it is installed and in PATH.")
+            raise
         except Exception as e:
-            logging.error(f"An unexpected error occurred during server configuration: {e}")
-            # raise
+            logging.error(f"An unexpected error occurred while running bw command: {e}")
+            return 1, "", str(e)
 
-    def _get_session(self) -> Optional[str]:
+    def _ensure_server_configuration(self):
+        """Ensures the Vaultwarden server URL is configured if provided."""
+        if self.server_url:
+            returncode, stdout, _ = self._run_bw_command(["config", "server"])
+            if returncode == 0 and self.server_url in stdout:
+                logging.info(f"Vaultwarden server URL is already set to {self.server_url}.")
+                return True
+
+            logging.info(f"Attempting to set Vaultwarden server URL to {self.server_url}...")
+            returncode, _, stderr = self._run_bw_command(["config", "server", self.server_url])
+            if returncode != 0:
+                error_message = f"Failed to configure Vaultwarden server URL to {self.server_url}: {stderr.strip()}"
+                logging.error(error_message)
+                return False
+            logging.info(f"Vaultwarden server URL configured to {self.server_url}.")
+        return True
+
+    def _get_session(self) -> str | None:
         """
-        Ensures a valid BW_SESSION is available, attempting to unlock or login if necessary.
-        Relies on BW_PASSWORD environment variable if unlocking is needed.
+        Ensures a valid Bitwarden session is available.
+        Manages self.bw_session.
         """
         if self.bw_session:
-            # Check if the current session is valid
-            # `bw unlock --check` is a good way, or `bw status`
-            check_process = self._run_bw_command(["unlock", "--check", "--session", self.bw_session])
-            if check_process.returncode == 0:
+            logging.debug("Checking existing BW_SESSION...")
+            returncode, _, stderr = self._run_bw_command(["unlock", "--check"])
+            if returncode == 0:
                 logging.info("Existing BW_SESSION is valid.")
-                # Sync vault after confirming session
-                sync_proc = self._run_bw_command(["sync", "--session", self.bw_session])
-                if sync_proc.returncode != 0:
-                    logging.warning("Failed to sync vault with existing session.")
                 return self.bw_session
             else:
-                logging.info("Existing BW_SESSION is invalid or expired.")
-                self.bw_session = None  # Clear invalid session
+                logging.warning(f"Existing BW_SESSION is invalid or expired: {stderr.strip()}. Attempting to unlock.")
+                self.bw_session = None
+                if "BW_SESSION" in os.environ:  # Remove from current process env too if it was there
+                    del os.environ["BW_SESSION"]
 
-        # Try to unlock if no valid session
         bw_password = os.getenv("BW_PASSWORD")
-        if bw_password:
-            logging.info("Attempting to unlock vault using BW_PASSWORD environment variable.")
-            # Create a temporary file for the password to avoid exposing it in process list
-            with tempfile.NamedTemporaryFile(mode="w", delete=True) as tmp_pass_file:
-                tmp_pass_file.write(bw_password)
-                tmp_pass_file.flush()  # Ensure data is written to disk
-
-                # Use BW_PASSWORD_FILE environment variable that points to this temp file
-                env_unlock = os.environ.copy()
-                env_unlock["BW_PASSWORD_FILE"] = tmp_pass_file.name
-
-                unlock_process = subprocess.run(
-                    ["bw", "unlock", "--raw"],  # BW_PASSWORD_FILE should be picked up
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    env=env_unlock,
-                )
-
-            if unlock_process.returncode == 0 and unlock_process.stdout.strip():
-                self.bw_session = unlock_process.stdout.strip()
-                logging.info("Vault unlocked successfully. New BW_SESSION obtained.")
-                os.environ["BW_SESSION"] = self.bw_session  # Make it available for subsequent direct bw calls if any
-
-                # Sync vault after unlocking
-                sync_proc = self._run_bw_command(["sync", "--session", self.bw_session])
-                if sync_proc.returncode != 0:
-                    logging.warning("Failed to sync vault after unlocking.")
-                return self.bw_session
-            else:
-                logging.error(
-                    f"Failed to unlock vault. stdout: {unlock_process.stdout}, stderr: {unlock_process.stderr}"
-                )
-                # Fall through to login attempt or failure
-        else:
-            logging.warning("BW_PASSWORD environment variable not set. Cannot unlock automatically.")
-
-        # If unlock failed or no password, check status and try login (which might be interactive or fail)
-        # This part is problematic for non-interactive environments.
-        # For now, we assume login must be handled externally if BW_PASSWORD is not set.
-        status_process = self._run_bw_command(["status"], use_session=False)
-        if status_process.returncode == 0:
-            status_data = json.loads(status_process.stdout)
-            if status_data.get("status") == "unauthenticated":
-                logging.error("Vaultwarden unauthenticated. Login required externally or via BW_PASSWORD.")
-                raise RuntimeError("Login required via CLI or BW_PASSWORD env var for unlock.")
-            elif status_data.get("status") == "locked":
-                logging.error("Vault locked & BW_PASSWORD unlock failed/not set. Manual unlock or BW_PASSWORD needed.")
-                raise RuntimeError("Vaultwarden is locked and automatic unlock failed.")
-
-        if not self.bw_session:
-            logging.error("Could not obtain BW_SESSION.")
+        if not bw_password:
+            logging.error("BW_PASSWORD environment variable is not set. Cannot unlock Vaultwarden.")
             return None
-        return self.bw_session
 
-    def create_collection(self, collection_name: str, groups: list = None, users: list = None) -> Optional[dict]:
+        logging.info("Attempting to unlock Vaultwarden using BW_PASSWORD...")
+
+        # Use --passwordenv for passing password
+        unlock_env = os.environ.copy()
+        unlock_env["BW_PASSWORD"] = bw_password
+        # Clear BW_SESSION from this custom_env if it was there, to ensure clean unlock
+        unlock_env.pop("BW_SESSION", None)
+
+        # Assign to distinct local variables
+        rc_unlock_attempt, sout_unlock_attempt, err_unlock_attempt = self._run_bw_command(
+            ["unlock", "--passwordenv", "BW_PASSWORD", "--raw"],
+            custom_env=unlock_env,  # Pass the environment with BW_PASSWORD
+        )
+        new_session_key_val = sout_unlock_attempt.strip()
+
+        # DEBUGGING LOG to see the exact values before the conditional
+        logging.debug(
+            f"VaultwardenClient._get_session: unlock with password results - "
+            f"rc_unlock={rc_unlock_attempt}, "
+            f"new_session_key='{new_session_key_val}', "
+            f"stderr_unlock='{err_unlock_attempt.strip()}'"
+        )
+
+        if rc_unlock_attempt == 0 and new_session_key_val:
+            logging.info("Successfully unlocked Vaultwarden and obtained new session key.")
+            self.bw_session = new_session_key_val
+            os.environ["BW_SESSION"] = self.bw_session
+            return self.bw_session
+        else:
+            logging.error(f"Failed to unlock Vaultwarden: {err_unlock_attempt.strip()}")
+            self.bw_session = None
+            if "BW_SESSION" in os.environ:
+                del os.environ["BW_SESSION"]
+            return None
+
+    def _sync_vault(self) -> bool:
+        """
+        Runs 'bw sync' to ensure the local cache is up-to-date.
+        Requires a valid session.
+        """
+        if not self.bw_session:  # Relies on _get_session having been called if needed
+            logging.error("Cannot sync vault: No active BW_SESSION available to client.")
+            return False
+
+        logging.info("Syncing Vaultwarden local cache...")
+        returncode, _, stderr = self._run_bw_command(["sync"])
+        if returncode != 0:
+            logging.error(f"Failed to sync Vaultwarden: {stderr.strip()}")
+            if "invalid session token" in stderr.lower() or "not logged in" in stderr.lower():
+                logging.warning("Sync failed due to session issue. Clearing current BW_SESSION.")
+                self.bw_session = None
+                if "BW_SESSION" in os.environ:
+                    del os.environ["BW_SESSION"]
+            return False
+        logging.info("Vaultwarden sync successful.")
+        return True
+
+    def create_collection(self, collection_name: str, group_ids: list[dict] | None = None) -> str | None:
         """
         Creates a new collection in Vaultwarden.
         :param collection_name: The name for the new collection.
-        :param groups: Optional list of group associations.
-        :param users: Optional list of user associations.
-        :return: The created collection object as a dictionary if successful, None otherwise.
+        :param group_ids: Optional. A list of group associations.
+        :return: The ID of the created collection if successful, None otherwise.
         """
-        if not self._get_session():
-            logging.error("Failed to create collection: No valid Vaultwarden session.")
+        if not self._get_session():  # This will attempt to unlock if needed
+            logging.error("Cannot create collection: Failed to obtain Vaultwarden session.")
             return None
+        if not self._sync_vault():
+            logging.warning("Vault sync failed before creating collection. Proceeding, but data might be stale.")
+
+        logging.info(f"Attempting to create Vaultwarden collection: '{collection_name}'")
 
         collection_data = {
             "organizationId": self.organization_id,
             "name": collection_name,
-            "externalId": None,  # As per example
-            "groups": groups or [],
-            "users": users or [],
+            "externalId": None,
+            "groups": group_ids if group_ids else [],
         }
 
-        # The jq part from the example:
-        # echo '{"organizationId":"..."}' | jq ".name = \"manual test\" | .groups = [] | .organizationId=\"c9...\""
-        # This implies the initial JSON is a template, and we override parts of it.
-        # Our collection_data is already constructed with the correct name and orgId.
+        returncode_encode, encoded_payload_stdout, stderr_encode = self._run_bw_command(
+            ["encode"], input_data=json.dumps(collection_data)
+        )
+        encoded_payload = encoded_payload_stdout.strip()
 
-        input_json_str = json.dumps(collection_data)
-
-        # Step 1: Encode the collection data
-        encode_process = self._run_bw_command(["encode"], input_data=input_json_str, use_session=True)
-        if encode_process.returncode != 0 or not encode_process.stdout:
-            logging.error(f"Failed to encode collection data for '{collection_name}'. stderr: {encode_process.stderr}")
+        if returncode_encode != 0:
+            logging.error(f"Failed to encode collection data using 'bw encode': {stderr_encode.strip()}")
             return None
 
-        encoded_data = encode_process.stdout.strip()
-        logging.debug(f"Encoded data for collection '{collection_name}': {encoded_data}")
+        logging.debug(f"Encoded payload for collection creation: {encoded_payload}")
 
-        # Step 2: Create the organization collection with the encoded data
-        # Command: bw create org-collection --organizationid <org_id> --pretty
-        # It expects the encoded data via stdin.
-        create_args = [
-            "create",
-            "org-collection",
-            "--organizationid",
-            self.organization_id,
-            # "--pretty" # Optional, for human-readable output if needed, but parsing raw is safer
-        ]
+        returncode_create, stdout_create, stderr_create = self._run_bw_command(
+            ["create", "org-collection", "--organizationid", self.organization_id], input_data=encoded_payload
+        )
 
-        create_process = self._run_bw_command(create_args, input_data=encoded_data, use_session=True)
-
-        if create_process.returncode == 0 and create_process.stdout:
+        if returncode_create == 0:
             try:
-                created_collection_info = json.loads(create_process.stdout)
-                logging.info(
-                    f"BW Coll '{collection_name}' created. ID: {created_collection_info.get('id')}"  # Shortened
+                created_collection_info = json.loads(stdout_create)
+                new_collection_id = created_collection_info.get("id")
+                if new_collection_id:
+                    logging.info(
+                        f"Successfully created Vaultwarden collection '{collection_name}' "
+                        f"with ID: {new_collection_id}"
+                    )
+                    return new_collection_id
+                else:
+                    logging.error(
+                        f"Ran 'bw create org-collection' for '{collection_name}', "
+                        f"but no ID in response: {stdout_create.strip()}"
+                    )
+                    return None
+            except json.JSONDecodeError:
+                logging.error(
+                    f"Failed to parse JSON from 'bw create org-collection' for '{collection_name}'. "
+                    f"Output: {stdout_create.strip()}"
                 )
-                return created_collection_info
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to parse 'bw create org-collection' JSON: {e}.")
-                logging.error(f"Response: {create_process.stdout}")
-                # Sometimes bw might output non-JSON success messages. If creation is confirmed by other means, this might be okay.
-                # For now, strict parsing. If bw create returns non-json on success, need to adapt.
-                # The example shows --pretty, which might be an issue. Removing --pretty for safer JSON.
-                return {
-                    "raw_output": create_process.stdout,
-                    "message": "Collection likely created, but output was not JSON.",
-                }  # Fallback
+                return None
         else:
-            logging.error(f"Failed to create BW coll '{collection_name}'.")  # Shortened
-            logging.error(f"stderr: {create_process.stderr}")
-            logging.error(f"stdout: {create_process.stdout}")
+            if "already exists" in stderr_create.lower() and "collection" in stderr_create.lower():
+                logging.warning(
+                    f"Vaultwarden collection '{collection_name}' may already exist. Attempting to find it."
+                )
+                return self.get_collection_by_name(collection_name)
+            else:
+                logging.error(f"Failed to create Vaultwarden collection '{collection_name}': {stderr_create.strip()}")
+                return None
+
+    def get_collection_by_name(self, collection_name: str) -> str | None:
+        """
+        Retrieves a collection ID by its name.
+        :param collection_name: The name of the collection.
+        :return: The ID of the collection if found, None otherwise.
+        """
+        if not self._get_session():
+            logging.error("Cannot get collection by name: Failed to obtain Vaultwarden session.")
             return None
+
+        logging.debug(
+            f"Attempting to find Vaultwarden collection by name: '{collection_name}' for org '{self.organization_id}'"
+        )
+        returncode, stdout, stderr = self._run_bw_command(
+            ["list", "org-collections", "--organizationid", self.organization_id]
+        )
+
+        if returncode == 0:
+            try:
+                collections = json.loads(stdout)
+                for collection in collections:
+                    if collection.get("name") == collection_name:
+                        collection_id = collection.get("id")
+                        logging.info(f"Found existing collection '{collection_name}' with ID: {collection_id}")
+                        return collection_id
+                logging.info(f"Collection '{collection_name}' not found in organization '{self.organization_id}'.")
+                return None
+            except json.JSONDecodeError:
+                logging.error(
+                    f"Failed to parse JSON response from 'bw list org-collections'. Output: {stdout.strip()}"
+                )
+                return None
+        else:
+            logging.error(f"Failed to list Vaultwarden collections: {stderr.strip()}")
+            return None
+
+
+if __name__ == "__main__":
+    log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+    logging.basicConfig(level=logging.DEBUG, format=log_format)
+    org_id_env = os.getenv("VAULTWARDEN_ORGANIZATION_ID")
+    vw_server_env = os.getenv("VAULTWARDEN_SERVER_URL")
+    bw_pass_env = os.getenv("BW_PASSWORD")
+
+    if not org_id_env:
+        logging.error("Please set VAULTWARDEN_ORGANIZATION_ID environment variable.")
+    elif not bw_pass_env:
+        logging.error("Please set BW_PASSWORD environment variable for testing.")
+    else:
+        client = VaultwardenClient(organization_id=org_id_env, server_url=vw_server_env)
+        test_coll_name = "MartyBot Client Test Collection"
+
+        coll_id = client.create_collection(test_coll_name)
+        if coll_id:
+            logging.info(f"Main test: Collection '{test_coll_name}' created/found with ID: {coll_id}")
+
+            # Verify by name
+            verified_id = client.get_collection_by_name(test_coll_name)
+            if verified_id == coll_id:
+                logging.info(f"Main test: Verification for '{test_coll_name}' by name successful.")
+            else:
+                logging.error(
+                    f"Main test: Verification for '{test_coll_name}' by name failed. Expected {coll_id}, got {verified_id}"
+                )
+        else:
+            logging.error(f"Main test: Failed to create/find collection '{test_coll_name}'.")
+
+        # Test non-existent
+        non_exist_id = client.get_collection_by_name("This Collection Definitely Does Not Exist XYZ")
+        if non_exist_id is None:
+            logging.info("Main test: Correctly determined non-existent collection not found.")
+        else:
+            logging.error(f"Main test: Incorrectly found non-existent collection with ID {non_exist_id}")

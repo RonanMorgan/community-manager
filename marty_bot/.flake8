@@ -3,8 +3,7 @@ max-line-length = 119
 # E203: whitespace before ':' (often conflicts with Black)
 # W503: line break before binary operator (Black sometimes prefers this)
 # E402: module level import not at top of file (for app/bot.py structure)
-# F541: f-string missing placeholders (often due to Black auto-formatting simple strings to f-strings)
-extend-ignore = E203, W503, E402, F541
+extend-ignore = E203, W503, E402
 per-file-ignores =
     marty_bot/app/bot.py:E501
     marty_bot/app/tests/test_bot.py:E501
@@ -17,12 +16,9 @@ per-file-ignores =
     marty_bot/clients/outline_client.py:E501
     marty_bot/scripts/sync_mm_authentik_groups.py: E501
     marty_bot/libraries/group_sync_services.py:E501
-    marty_bot/clients/vaultwarden_client.py:E501
-    marty_bot/app/tests/test_sync_script.py:E501
     marty_bot/app/tests/test_vaultwarden_client.py:E501
     marty_bot/clients/nocodb_client.py:E501
-    # marty_bot/app/bot.py:F541 # Now globally ignored
-    marty_bot/app/tests/test_nocodb_client.py:F401
+    marty_bot/clients/vaultwarden_client.py:E501
     # If other files needed specific ignores, they'd go here:
     # app/another_module.py:W123,E456
     # tests/some_test.py:F401
