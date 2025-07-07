@@ -19,17 +19,18 @@ class NocoDBClient:
             "xc-token": token,  # Based on NoCoDB docs, token is often passed as xc-token
             "Content-Type": "application/json",
         }
-        logger.info(f"NocoDBClient initialized for URL: {self.base_url}")
+        logger.debug(f"NocoDBClient initialized for URL: {self.base_url}")  # Changed to DEBUG
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> dict | list | None:
         """Helper function to make requests to the NoCoDB API."""
         url = f"{self.base_url}/api/v1/db/meta/{endpoint.lstrip('/')}"
-        json_params = kwargs.get("json")
-        json_params = kwargs.get("json")
-        log_message = (
-            f"NoCoDB API >> Request: {method.upper()} {url} - " f"Headers: {self.headers} - JSON Params: {json_params}"
-        )
-        logger.debug(log_message)
+        # Removed detailed logging of headers and full JSON params from DEBUG by default,
+        # as it can be very verbose and contain sensitive info if not careful.
+        # Users can add it back if specific request debugging is needed.
+        logger.debug(f"NoCoDB API >> Request: {method.upper()} {url}")
+        if kwargs.get("json"):
+            logger.debug(f"NoCoDB API >> JSON Payload: {kwargs.get('json')}")
+
         try:
             response = requests.request(method, url, headers=self.headers, **kwargs)
             response.raise_for_status()
@@ -62,12 +63,14 @@ class NocoDBClient:
             # "sources": [], # Default, can be customized if needed
             # "color": "#24716E" # Default color
         }
-        logger.info(f"Creating NoCoDB base with title: {base_title}")
+        logger.info(f"Attempting to create NoCoDB base with title: {base_title}")  # Kept as INFO
         response_data = self._make_request("post", "projects/", json=payload)
         if response_data and isinstance(response_data, dict) and response_data.get("id"):
-            logger.info(f"Successfully created NoCoDB base '{base_title}' with ID: {response_data['id']}")
+            logger.info(
+                f"Successfully created NoCoDB base '{base_title}' with ID: {response_data['id']}"
+            )  # Kept as INFO
             return response_data
-        logger.warning(f"Failed to create NoCoDB base '{base_title}'. Response: {response_data}")
+        logger.warning(f"Failed to create NoCoDB base '{base_title}'. Response: {response_data}")  # Kept as WARNING
         return None
 
     def get_base_by_title(self, base_title: str) -> dict | None:
@@ -95,15 +98,17 @@ class NocoDBClient:
         Role can be: "owner", "creator", "editor", "commenter", "viewer", "guest", "no-access"
         """
         payload = {"email": email, "roles": role}
-        logger.info(f"Inviting user '{email}' to NoCoDB base ID '{base_id}' with role '{role}'")
+        logger.info(
+            f"Attempting to invite user '{email}' to NoCoDB base ID '{base_id}' with role '{role}'"
+        )  # Kept as INFO
         endpoint = f"projects/{base_id}/users"
         response_data = self._make_request("post", endpoint, json=payload)
         # Successful invitation typically returns a message like:
         # {"msg": "The user has been invited successfully"}
         if response_data and isinstance(response_data, dict) and "msg" in response_data:
-            log_message = f"Successfully invited user '{email}' to base ID '{base_id}'. "  # noqa: E501
-            log_message += f"Message: {response_data['msg']}"
-            logger.info(log_message)
+            user_info = f"Successfully invited user '{email}' to base ID '{base_id}'."
+            message_info = f"Message: {response_data['msg']}"
+            logger.info(f"{user_info} {message_info}")  # noqa: E501
             return True
         logger.warning(f"Failed to invite user '{email}' to base ID '{base_id}'. Response: {response_data}")
         return False
@@ -117,7 +122,9 @@ class NocoDBClient:
               For now, following the provided roles example.
         """
         payload = {"roles": role}  # Assuming only role can be updated this way.
-        logger.info(f"Updating user ID '{user_id}' in NoCoDB base ID '{base_id}' to role '{role}'")
+        logger.info(
+            f"Attempting to update user ID '{user_id}' in NoCoDB base ID '{base_id}' to role '{role}'"
+        )  # Kept as INFO
         endpoint = f"projects/{base_id}/users/{user_id}"
         response_data = self._make_request("patch", endpoint, json=payload)
         if (
@@ -126,9 +133,11 @@ class NocoDBClient:
             log_msg = (
                 f"Successfully updated user ID '{user_id}' in base ID '{base_id}'. " f"Message: {response_data['msg']}"
             )
-            logger.info(log_msg)
+            logger.info(log_msg)  # Kept as INFO
             return True
-        logger.warning(f"Failed to update user ID '{user_id}' in base ID '{base_id}'. Response: {response_data}")
+        logger.warning(
+            f"Failed to update user ID '{user_id}' in base ID '{base_id}'. Response: {response_data}"
+        )  # Kept as WARNING
         return False
 
     def list_base_users(self, base_id: str) -> list[dict]:
@@ -164,11 +173,10 @@ class NocoDBClient:
         If NoCoDB has a dedicated DELETE /api/v1/db/meta/projects/{baseId}/users/{userId}, that would be preferred.
         For now, implementing the "no-access" role update.
         """
-        log_msg = (
+        logger.info(  # Kept as INFO, as this is a significant action (semantically a delete)
             f"Attempting to remove user ID '{user_id}' from NoCoDB base ID '{base_id}' "
             "by setting role to 'no-access'."
         )
-        logger.info(log_msg)
         # This effectively uses the update_base_user method with a specific role.
         # If a direct delete is confirmed, this method should be changed.
         return self.update_base_user(base_id, user_id, role="no-access")

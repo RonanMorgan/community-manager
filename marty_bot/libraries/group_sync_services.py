@@ -330,11 +330,12 @@ def _sync_single_nocodb_base(
 ) -> list[dict]:
     results = []
     nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
-    logging.info(f"Starting NoCoDB base sync for '{nocodb_base_title}'. Deletions: {perform_deletions}")
+    # Main entry log changed to DEBUG, INFO will be for specific actions taken.
+    logging.debug(f"Starting NoCoDB base sync for '{nocodb_base_title}'. Deletions: {perform_deletions}")
 
     nocodb_base_obj = nocodb_client.get_base_by_title(nocodb_base_title)
     if not nocodb_base_obj or not nocodb_base_obj.get("id"):
-        logging.warning(
+        logging.warning(  # This is an important warning, so kept as WARNING.
             f"NoCoDB base '{nocodb_base_title}' not found. Skipping sync. It should be created by 'create_antenne/pole' command."
         )
         return [
@@ -359,7 +360,9 @@ def _sync_single_nocodb_base(
         mm_username = mm_user_data["username"]
 
         if mm_username in config.EXCLUDED_USERS:
-            logging.info(f"User '{mm_username}' is excluded. Skipping NoCoDB sync for base '{nocodb_base_title}'.")
+            logging.debug(
+                f"User '{mm_username}' is excluded. Skipping NoCoDB sync for base '{nocodb_base_title}'."
+            )  # DEBUG
             if (
                 email_lower in current_nocodb_users_map
             ):  # If excluded user is already there, ensure they are not removed
@@ -452,11 +455,13 @@ def _sync_single_nocodb_base(
                     )
                 results.append(removal_result)
             elif is_excluded:
-                logging.info(
-                    f"User '{username_for_log}' ({existing_email_lower}) is in NoCoDB base '{nocodb_base_title}' and is excluded from sync-based removal."
+                logging.debug(  # DEBUG for excluded user preservation details
+                    f"User '{username_for_log}' ({existing_email_lower}) is in NoCoDB base "
+                    f"'{nocodb_base_title}' and is excluded from sync-based removal."
                 )
 
-    logging.info(f"Finished NoCoDB base sync for '{nocodb_base_title}'. Total results: {len(results)}")
+    # Summary log changed to DEBUG. INFO logs will be for specific successful/failed actions.
+    logging.debug(f"Finished NoCoDB base sync for '{nocodb_base_title}'. Total results: {len(results)}")
     return results
 
 
