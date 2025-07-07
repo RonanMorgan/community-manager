@@ -29,6 +29,16 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 BREVO_DEFAULT_SENDER_EMAIL = os.getenv("BREVO_DEFAULT_SENDER_EMAIL")
 BREVO_DEFAULT_SENDER_NAME = os.getenv("BREVO_DEFAULT_SENDER_NAME", "Marty Bot")
 
+# Vaultwarden settings
+VAULTWARDEN_ORGANIZATION_ID = os.getenv("VAULTWARDEN_ORGANIZATION_ID")
+VAULTWARDEN_SERVER_URL = os.getenv("VAULTWARDEN_SERVER_URL", "https://vaultwarden.services.dataforgood.fr")
+# BW_SESSION and BW_PASSWORD are not directly used by config.py but are relevant for the VaultwardenClient
+# and are typically set as environment variables. The client will pick them up using os.getenv().
+# We list them here for completeness of documentation within config.
+# BW_SESSION = os.getenv("BW_SESSION")
+# BW_PASSWORD = os.getenv("BW_PASSWORD")
+
+
 # General Configuration
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 

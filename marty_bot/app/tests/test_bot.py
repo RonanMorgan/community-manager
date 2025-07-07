@@ -96,6 +96,7 @@ class TestMartyBot(unittest.TestCase):
         self.bot.outline_client = MagicMock()
         self.bot.mattermost_api_client = MagicMock()
         self.bot.brevo_client = MagicMock()
+        self.bot.vaultwarden_client = MagicMock() # Mock Vaultwarden client
         self.bot.envoyer_message = MagicMock(return_value="mock_post_id")
         self.test_user_id = "test_user_who_posted"
 
@@ -164,10 +165,20 @@ class TestMartyBot(unittest.TestCase):
 
         self.bot.mattermost_api_client.create_channel.side_effect = create_channel_side_effect
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
+
+        # Add Vaultwarden to PERMISSIONS_MATRIX for this test
+        self.mock_config.PERMISSIONS_MATRIX["PROJET"]["vaultwarden"] = {
+            "collection_name_pattern": "vw_projet_{base_name}"
+        }
+        self.bot.vaultwarden_client.create_collection.return_value = {"id": "fake_vw_id", "name": f"vw_projet_{project_name}"}
+        expected_vw_coll_name = f"vw_projet_{project_name}"
+
+
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name}")
         self.bot.authentik_client.create_group.assert_any_call(expected_std_auth_name)
         self.bot.authentik_client.create_group.assert_any_call(expected_adm_auth_name)
         self.bot.outline_client.create_group.assert_called_once_with(expected_outline_coll_name)
+        self.bot.vaultwarden_client.create_collection.assert_called_once_with(expected_vw_coll_name)
         self.bot.brevo_client.get_folder_id_by_name.assert_called_once_with("Dossier Projets Test")
         self.bot.brevo_client.get_list_by_name.assert_called_once_with(expected_brevo_list_name)
         self.bot.brevo_client.create_list.assert_called_once_with(expected_brevo_list_name, folder_id=mocked_folder_id)
@@ -200,6 +211,10 @@ class TestMartyBot(unittest.TestCase):
         self.assertIn(
             f"Brevo Liste `{expected_brevo_list_name}` (Dossier: 'Dossier Projets Test', ID: {mocked_folder_id}): :white_check_mark: Créée",
             summary_text,
+        )
+        self.assertIn(
+            f"Vaultwarden Collection `{expected_vw_coll_name}`: :white_check_mark: Collection assurée (ID: fake_vw_id).",
+            summary_text
         )
 
     @async_test
@@ -451,6 +466,7 @@ class TestMartyBot(unittest.TestCase):
                 self.bot.mattermost_api_client,
                 self.bot.outline_client,
                 self.bot.brevo_client,
+                self.bot.vaultwarden_client, # Pass vaultwarden_client
                 self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,
                 fetch_remote_members=False,
@@ -488,6 +504,7 @@ class TestMartyBot(unittest.TestCase):
                 self.bot.mattermost_api_client,
                 self.bot.outline_client,
                 self.bot.brevo_client,
+                self.bot.vaultwarden_client, # Pass vaultwarden_client
                 self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
                 fetch_remote_members=True,

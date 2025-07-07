@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
     from clients.outline_client import OutlineClient
     from clients.brevo_client import BrevoClient
+    from clients.vaultwarden_client import VaultwardenClient  # Added VaultwardenClient
 
 
 # Copied from mattermost_client.py to avoid import issues and keep it self-contained here for now.
@@ -79,7 +80,8 @@ def sync_entity_permissions(
     authentik_client: "AuthentikClient",
     mattermost_client: "MattermostClient",
     outline_client: Optional["OutlineClient"],
-    brevo_client: Optional["BrevoClient"],  # Added Brevo client
+    brevo_client: Optional["BrevoClient"],
+    vaultwarden_client: Optional["VaultwardenClient"],  # Added vaultwarden_client
     mm_team_id: str,
     base_name: str,
     entity_key: str,
@@ -99,7 +101,8 @@ def sync_entity_permissions(
     std_config = entity_config.get("standard", {})
     admin_config = entity_config.get("admin")
     outline_cfg = entity_config.get("outline", {})
-    brevo_cfg = entity_config.get("brevo", {})  # Added Brevo config
+    brevo_cfg = entity_config.get("brevo", {})
+    vaultwarden_cfg = entity_config.get("vaultwarden", {})  # Added Vaultwarden config
 
     std_auth_group_name = std_config.get("authentik_group_name_pattern", "{base_name}").format(base_name=base_name)
     std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(base_name=base_name)
@@ -291,7 +294,110 @@ def sync_entity_permissions(
             )
         )
 
+    # Vaultwarden Sync
+    if vaultwarden_client and vaultwarden_cfg:
+        vw_coll_name_pattern = vaultwarden_cfg.get("collection_name_pattern", "{base_name}")
+        vw_coll_name = vw_coll_name_pattern.format(base_name=base_name)
+        results.extend(
+            _sync_single_vaultwarden_collection(
+                vaultwarden_client,
+                vw_coll_name,
+                base_name,  # For logging context within the sync function
+                std_mm_channel_name_for_log,  # For logging context
+            )
+        )
+
     logging.info(f"Finished sync for entity '{base_name}'. Total results: {len(results)}")
+    return results
+
+
+def _sync_single_vaultwarden_collection(
+    vaultwarden_client: "VaultwardenClient",
+    collection_name: str,
+    base_name_for_log: str,  # For more specific logging if needed
+    mm_channel_context_name: str,  # For logging/reporting context
+) -> list[dict]:
+    """
+    Ensures a Vaultwarden collection exists.
+    This function primarily calls the create_collection method of the client.
+    The client's create_collection is expected to handle session and API calls.
+    """
+    results = []
+    action_log_base = {
+        "service": "VAULTWARDEN",
+        "target_resource_name": collection_name,
+        "mm_username": f"EntityContext-{base_name_for_log}",  # No specific user for this action
+        "mm_user_email": "N/A",
+        "mm_channel_display_name": mm_channel_context_name,  # Context for where sync was triggered
+    }
+
+    logging.info(f"Attempting to ensure Vaultwarden collection '{collection_name}' for entity '{base_name_for_log}'.")
+    try:
+        # The Vaultwarden client's create_collection should be idempotent if the CLI supports it,
+        # or simply attempt creation. If it returns None on failure or existing, this logic is okay.
+        # If it throws an error for existing, we might need a get_collection_by_name first.
+        # For now, assume create_collection can be called and will either create or confirm.
+        created_collection_info = vaultwarden_client.create_collection(collection_name)
+
+        if created_collection_info and created_collection_info.get("id"):
+            logging.info(
+                f"Vaultwarden collection '{collection_name}' (ID: {created_collection_info.get('id')}) ensured successfully."
+            )
+            results.append(
+                {
+                    **action_log_base,
+                    "status": "SUCCESS",
+                    "action": "VAULTWARDEN_COLLECTION_ENSURED",
+                }
+            )
+        elif created_collection_info and created_collection_info.get("raw_output"):  # Partial success from client
+            logging.warning(
+                f"Vaultwarden collection '{collection_name}' may have been created but response was not clean JSON. Message: {created_collection_info.get('message')}"
+            )
+            results.append(
+                {
+                    **action_log_base,
+                    "status": "WARNING",  # Or SUCCESS, depending on how strict we are
+                    "action": "VAULTWARDEN_COLLECTION_MAYBE_ENSURED_NON_JSON_RESP",
+                    "error_message": created_collection_info.get("message"),
+                    "details": created_collection_info.get("raw_output"),
+                }
+            )
+        else:
+            # This case means client returned None or a dict without 'id' and without 'raw_output'
+            logging.error(
+                f"Failed to ensure Vaultwarden collection '{collection_name}'. Client returned: {created_collection_info}"
+            )
+            results.append(
+                {
+                    **action_log_base,
+                    "status": "FAILURE",
+                    "action": "FAILED_TO_ENSURE_VAULTWARDEN_COLLECTION",
+                    "error_message": "Vaultwarden client failed to create/ensure collection. See client logs.",
+                }
+            )
+    except RuntimeError as re:  # Catch specific runtime errors from client like login needed
+        logging.error(f"Runtime error during Vaultwarden collection sync for '{collection_name}': {re}")
+        results.append(
+            {
+                **action_log_base,
+                "status": "FAILURE",
+                "action": "FAILED_TO_ENSURE_VAULTWARDEN_COLLECTION_RUNTIME_ERROR",
+                "error_message": str(re),
+            }
+        )
+    except Exception as e:
+        logging.error(
+            f"Unexpected error during Vaultwarden collection sync for '{collection_name}': {e}", exc_info=True
+        )
+        results.append(
+            {
+                **action_log_base,
+                "status": "FAILURE",
+                "action": "FAILED_TO_ENSURE_VAULTWARDEN_COLLECTION_UNEXPECTED_ERROR",
+                "error_message": str(e),
+            }
+        )
     return results
 
 
@@ -749,7 +855,8 @@ def orchestrate_group_synchronization(
     authentik_client: "AuthentikClient",
     mattermost_client: "MattermostClient",
     outline_client: Optional["OutlineClient"],
-    brevo_client: Optional["BrevoClient"],  # Added Brevo client
+    brevo_client: Optional["BrevoClient"],
+    vaultwarden_client: Optional["VaultwardenClient"],  # Added vaultwarden_client
     mm_team_id: str,
     perform_deletions: bool = True,
     fetch_remote_members: bool = True,
@@ -775,6 +882,8 @@ def orchestrate_group_synchronization(
         logging.info("Outline client not provided. Outline synchronization will be skipped.")
     if not brevo_client:
         logging.info("Brevo client not provided. Brevo synchronization will be skipped.")
+    if not vaultwarden_client:
+        logging.info("Vaultwarden client not provided. Vaultwarden synchronization will be skipped.")
 
     # Fetch all Authentik users for email-to-PK mapping if Authentik client is available
     email_to_auth_pk_map = {}
@@ -862,7 +971,8 @@ def orchestrate_group_synchronization(
             authentik_client,
             mattermost_client,
             outline_client,
-            brevo_client,  # Pass Brevo client
+            brevo_client,
+            vaultwarden_client,  # Pass vaultwarden_client
             mm_team_id,
             base_name,
             entity_key,

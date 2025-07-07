@@ -16,6 +16,8 @@ per-file-ignores =
     marty_bot/clients/outline_client.py:E501
     marty_bot/scripts/sync_mm_authentik_groups.py: E501
     marty_bot/libraries/group_sync_services.py:E501
+    marty_bot/clients/vaultwarden_client.py:E501
+    marty_bot/app/tests/test_sync_script.py:E501
     # If other files needed specific ignores, they'd go here:
     # app/another_module.py:W123,E456
     # tests/some_test.py:F401

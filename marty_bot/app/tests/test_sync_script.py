@@ -56,24 +56,30 @@ class TestSyncLogic(unittest.TestCase):
 
         mock_auth_instance = MockScriptAuthClient.return_value
         mock_mm_instance = MockScriptMMClient.return_value
-        # Mock OutlineClient and BrevoClient if they are part of initialize_clients
-        with patch("scripts.sync_mm_authentik_groups.OutlineClient") as MockScriptOutlineClient, patch(
-            "scripts.sync_mm_authentik_groups.BrevoClient"
-        ) as MockScriptBrevoClient:
+        # Mock OutlineClient, BrevoClient, and VaultwardenClient if they are part of initialize_clients
+        with patch("scripts.sync_mm_authentik_groups.OutlineClient") as MockScriptOutlineClient, \
+             patch("scripts.sync_mm_authentik_groups.BrevoClient") as MockScriptBrevoClient, \
+             patch("scripts.sync_mm_authentik_groups.VaultwardenClient") as MockScriptVWClient: # Added VW mock
             mock_outline_instance = MockScriptOutlineClient.return_value
             mock_brevo_instance = MockScriptBrevoClient.return_value
+            mock_vw_instance = MockScriptVWClient.return_value # Get VW mock instance
 
-            auth_client, mm_client, outline_client, brevo_client = script_module.initialize_clients()
+            # Initialize clients now returns 5 values
+            auth_client, mm_client, outline_client, brevo_client, vw_client = script_module.initialize_clients()
 
             MockScriptAuthClient.assert_called_once_with("http://auth.example.com", "auth_token")
             MockScriptMMClient.assert_called_once_with("http://mm.example.com", "mm_bot_token", "mm_team_id")
             MockScriptOutlineClient.assert_called_once_with("http://outline.example.com", "outline_token")
             MockScriptBrevoClient.assert_called_once_with("http://brevo.example.com", "brevo_key")
+            # VW client will be None if VAULTWARDEN_ORGANIZATION_ID is not set in mock_script_config for this test
+            # If it were set, we'd assert: MockScriptVWClient.assert_called_once_with(organization_id=..., server_url=...)
+            # For now, just ensure it unpacks fine. vw_client might be None.
 
             self.assertEqual(auth_client, mock_auth_instance)
             self.assertEqual(mm_client, mock_mm_instance)
             self.assertEqual(outline_client, mock_outline_instance)
             self.assertEqual(brevo_client, mock_brevo_instance)
+            # self.assertEqual(vw_client, mock_vw_instance) # Only if VW is expected to be initialized
 
     @patch("scripts.sync_mm_authentik_groups.AuthentikClient")
     @patch("scripts.sync_mm_authentik_groups.config")
@@ -87,7 +93,8 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.OUTLINE_TOKEN = "outline_token"
         mock_script_config.BREVO_API_URL = "http://brevo.example.com"
         mock_script_config.BREVO_API_KEY = "brevo_key"
-        auth_client, _, _, _ = script_module.initialize_clients()  # Unpack 4
+        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None # Ensure VW client is None
+        auth_client, _, _, _, _ = script_module.initialize_clients()  # Unpack 5
         self.assertIsNone(auth_client)
         MockScriptAuthClient.assert_not_called()
 
@@ -103,7 +110,8 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.OUTLINE_TOKEN = "outline_token"
         mock_script_config.BREVO_API_URL = "http://brevo.example.com"
         mock_script_config.BREVO_API_KEY = "brevo_key"
-        _, mm_client, _, _ = script_module.initialize_clients()  # Unpack 4
+        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None # Ensure VW client is None
+        _, mm_client, _, _, _ = script_module.initialize_clients()  # Unpack 5
         self.assertIsNone(mm_client)
         MockScriptMMClient.assert_not_called()
 
@@ -165,6 +173,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_mm_client,
             mock_outline_client,
             self.mock_brevo_client_instance,
+            None,  # vaultwarden_client
             mock_team_id,
             perform_deletions=True,
             fetch_remote_members=True,  # This ensures get_groups_with_users and get_all_user_email_to_pk_map are called
@@ -177,19 +186,23 @@ class TestSyncLogic(unittest.TestCase):
 
         self.assertEqual(mock_sync_entity_permissions.call_count, 2)
         # Construct expected all_auth_groups_by_name from mock_groups_list for assertion
-        expected_all_auth_groups_by_name = {g["name"]: g for g in mock_groups_list}
+        expected_auth_groups = {g["name"]: g for g in mock_groups_list}
+        projet_cfg = mock_lib_config.PERMISSIONS_MATRIX["PROJET"]
+        antenne_cfg = mock_lib_config.PERMISSIONS_MATRIX["ANTENNE"]
+        email_map_sync = mock_email_pk_map_for_sync
 
         mock_sync_entity_permissions.assert_any_call(
             mock_auth_client,
             mock_mm_client,
             mock_outline_client,
             self.mock_brevo_client_instance,
+            None,  # vaultwarden_client
             mock_team_id,
             "alpha",
             "PROJET",
-            mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
-            expected_all_auth_groups_by_name,
-            mock_email_pk_map_for_sync,  # Use the map from get_all_user_email_to_pk_map
+            projet_cfg,
+            expected_auth_groups,
+            email_map_sync,
             True,
         )
         mock_sync_entity_permissions.assert_any_call(
@@ -197,12 +210,13 @@ class TestSyncLogic(unittest.TestCase):
             mock_mm_client,
             mock_outline_client,
             self.mock_brevo_client_instance,
+            None,  # vaultwarden_client
             mock_team_id,
             "beta",
             "ANTENNE",
-            mock_lib_config.PERMISSIONS_MATRIX["ANTENNE"],
-            expected_all_auth_groups_by_name,
-            mock_email_pk_map_for_sync,  # Use the map from get_all_user_email_to_pk_map
+            antenne_cfg,
+            expected_auth_groups,
+            email_map_sync,
             True,
         )
 
@@ -232,6 +246,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_mm_client,
             mock_outline_client_none,
             self.mock_brevo_client_instance,
+            None,  # vaultwarden_client
             mock_team_id,
             perform_deletions=True,
             fetch_remote_members=True,  # Ensures the client methods are called
@@ -245,12 +260,13 @@ class TestSyncLogic(unittest.TestCase):
             mock_mm_client,
             mock_outline_client_none,
             self.mock_brevo_client_instance,
+            None,  # vaultwarden_client
             mock_team_id,
             "gamma",
             "PROJET",
             mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
             expected_all_auth_groups_by_name,
-            mock_email_pk_map_for_sync,  # Assert with the map from get_all_user_email_to_pk_map
+            mock_email_pk_map_for_sync,
             True,
         )
 
@@ -271,6 +287,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_mm_client,
             mock_outline_client,
             self.mock_brevo_client_instance,
+            None,  # vaultwarden_client
             mock_team_id,
             perform_deletions=True,
             fetch_remote_members=True,  # Ensures client methods for group discovery are called
@@ -286,10 +303,11 @@ class TestSyncLogic(unittest.TestCase):
 
         # Test with Authentik client missing
         success_auth, results_auth = orchestrate_group_synchronization(
-            None,
+            None,  # authentik_client
             MagicMock(spec=MattermostClient),
             mock_outline_client,
             self.mock_brevo_client_instance,
+            None,  # vaultwarden_client
             "team_id",
             perform_deletions=True,
         )
@@ -299,9 +317,10 @@ class TestSyncLogic(unittest.TestCase):
         # Test with Mattermost client missing (critical)
         success_mm, results_mm = orchestrate_group_synchronization(
             MagicMock(spec=AuthentikClient),
-            None,
+            None,  # mattermost_client
             mock_outline_client,
             self.mock_brevo_client_instance,
+            None,  # vaultwarden_client
             "team_id",
             perform_deletions=True,
         )
@@ -314,7 +333,8 @@ class TestSyncLogic(unittest.TestCase):
             MagicMock(spec=MattermostClient),
             mock_outline_client,
             self.mock_brevo_client_instance,
-            None,  # team_id is None
+            None,  # vaultwarden_client
+            None,  # mm_team_id is None
             perform_deletions=True,
         )
         self.assertFalse(success_team)
@@ -329,21 +349,19 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
         mock_script_config.OUTLINE_URL = None
         mock_script_config.OUTLINE_TOKEN = None
-        mock_script_config.BREVO_API_URL = None  # Brevo client will be None
+        mock_script_config.BREVO_API_URL = None
         mock_script_config.BREVO_API_KEY = None
+        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None # Ensure VW client is None for this test
         mock_auth_instance = MagicMock(spec=AuthentikClient)
         mock_mm_instance = MagicMock(spec=MattermostClient)
-        mock_script_init_clients.return_value = (mock_auth_instance, mock_mm_instance, None, None)  # Return 4 values
+        # initialize_clients now returns 5 values
+        mock_script_init_clients.return_value = (mock_auth_instance, mock_mm_instance, None, None, None)
         mock_orchestrate_lib.return_value = (True, [])
         script_module.main_sync_logic()
         mock_script_init_clients.assert_called_once()
-        # Script main_sync_logic calls orchestrate_group_synchronization without explicitly setting perform_deletions,
-        # so it relies on the default value (True) in the function's definition.
-        # The mock assertion should reflect the actual call made by the script.
-        # Outline client is None because OUTLINE_URL and OUTLINE_TOKEN are None in this test's config.
-        # Brevo client will also be None as its config is not set here.
+        # orchestrate_group_synchronization expects 5 client args + team_id
         mock_orchestrate_lib.assert_called_once_with(
-            mock_auth_instance, mock_mm_instance, None, None, "script_team_id"
+            mock_auth_instance, mock_mm_instance, None, None, None, "script_team_id"
         )
 
     @patch("scripts.sync_mm_authentik_groups.config")
@@ -355,9 +373,11 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
         mock_script_config.OUTLINE_URL = None  # Ensure Outline client is None
         mock_script_config.OUTLINE_TOKEN = None
-        mock_script_config.BREVO_API_URL = None  # Ensure Brevo client is None
+        mock_script_config.BREVO_API_URL = None
         mock_script_config.BREVO_API_KEY = None
-        mock_script_init_clients.return_value = (None, MagicMock(spec=MattermostClient), None, None)  # Return 4 values
+        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None
+        # initialize_clients now returns 5 values
+        mock_script_init_clients.return_value = (None, MagicMock(spec=MattermostClient), None, None, None)
         script_module.main_sync_logic()
         mock_orchestrate_lib.assert_not_called()
 
@@ -370,9 +390,11 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
         mock_script_config.OUTLINE_URL = None  # Ensure Outline client is None
         mock_script_config.OUTLINE_TOKEN = None
-        mock_script_config.BREVO_API_URL = None  # Ensure Brevo client is None
+        mock_script_config.BREVO_API_URL = None
         mock_script_config.BREVO_API_KEY = None
-        mock_script_init_clients.return_value = (MagicMock(spec=AuthentikClient), None, None, None)  # Return 4 values
+        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None
+        # initialize_clients now returns 5 values
+        mock_script_init_clients.return_value = (MagicMock(spec=AuthentikClient), None, None, None, None)
         script_module.main_sync_logic()
         mock_orchestrate_lib.assert_not_called()
 
@@ -387,12 +409,15 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.OUTLINE_TOKEN = None
         mock_script_config.BREVO_API_URL = None
         mock_script_config.BREVO_API_KEY = None
+        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None
+        # initialize_clients now returns 5 values
         mock_script_init_clients.return_value = (
             MagicMock(spec=AuthentikClient),
             MagicMock(spec=MattermostClient),
-            None,
-            None,
-        )  # Return 4 values
+            None, # Outline
+            None, # Brevo
+            None, # Vaultwarden
+        )
         script_module.main_sync_logic()
         mock_orchestrate_lib.assert_not_called()
 

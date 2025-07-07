@@ -32,6 +32,8 @@ else:
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.mattermost_client import MattermostClient
+from clients.vaultwarden_client import VaultwardenClient  # Added VaultwardenClient
+from clients.brevo_client import BrevoClient  # Ensure BrevoClient is imported if not already
 
 # Import orchestration function for sync command
 from libraries.group_sync_services import orchestrate_group_synchronization
@@ -110,18 +112,39 @@ class MartyBot:
             and self.config.BREVO_API_KEY
         ):
             try:
-                # Ensure BrevoClient is imported
-                from clients.brevo_client import BrevoClient
+                # BrevoClient is already imported at the top of the file.
+                # from clients.brevo_client import BrevoClient # Removed redundant import
 
                 self.brevo_client = BrevoClient(self.config.BREVO_API_URL, self.config.BREVO_API_KEY)
                 logging.info("BrevoClient initialized successfully for MartyBot instance.")
             except ValueError as e:
                 logging.warning(f"Failed to initialize BrevoClient for MartyBot instance: {e}")
-            except ImportError:
-                logging.error("Failed to import BrevoClient. Brevo features will be disabled.")
+            # Removed ImportError specific to local import, as top-level import should work or fail earlier.
+            # Generic Exception catch below might catch if BrevoClient class itself has issues not covered by ValueError.
+            except Exception as e:  # Broader catch if BrevoClient init itself fails for other reasons
+                logging.error(f"Failed to initialize BrevoClient due to an unexpected error: {e}", exc_info=True)
         else:
             logging.warning(
                 "Brevo API URL or Key not configured for MartyBot instance. Brevo features will be disabled."
+            )
+
+        self.vaultwarden_client = None
+        if self.config.VAULTWARDEN_ORGANIZATION_ID:
+            try:
+                # VaultwardenClient takes org_id and optionally server_url.
+                # Session token (BW_SESSION) and BW_PASSWORD are handled by the client via os.getenv.
+                self.vaultwarden_client = VaultwardenClient(
+                    organization_id=self.config.VAULTWARDEN_ORGANIZATION_ID,
+                    server_url=self.config.VAULTWARDEN_SERVER_URL,  # This will use default if config.VAULTWARDEN_SERVER_URL is None
+                )
+                logging.info("VaultwardenClient initialized successfully for MartyBot instance.")
+            except ValueError as e:
+                logging.warning(f"Failed to initialize VaultwardenClient for MartyBot instance: {e}")
+            except Exception as e:  # Catch any other unexpected errors during client init
+                logging.error(f"Unexpected error initializing VaultwardenClient: {e}", exc_info=True)
+        else:
+            logging.warning(
+                "VAULTWARDEN_ORGANIZATION_ID not configured for MartyBot instance. Vaultwarden features will be disabled."
             )
 
         self.websocket = None  # Represents the active WebSocket connection object
@@ -297,6 +320,7 @@ class MartyBot:
                 self.mattermost_api_client,
                 self.outline_client,  # Peut être None, géré par l'orchestrateur
                 self.brevo_client,  # Pass Brevo client
+                self.vaultwarden_client,  # Pass Vaultwarden client
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,  # Assure la suppression
                 fetch_remote_members=True,  # Mode complet pour remove_user_rights
@@ -529,6 +553,38 @@ class MartyBot:
                 brevo_msg += ":information_source: Client non configuré."
             item_results_log.append(brevo_msg)
 
+        # Vaultwarden Collection (unique per entity)
+        vaultwarden_config = entity_config.get("vaultwarden")
+        if vaultwarden_config:
+            vw_coll_pattern = vaultwarden_config.get("collection_name_pattern", "{base_name}")
+            vaultwarden_coll_name = vw_coll_pattern.format(base_name=base_name)
+
+            vw_msg = f"  - Vaultwarden Collection `{vaultwarden_coll_name}`: "
+            if self.vaultwarden_client:
+                try:
+                    # create_collection returns the collection info dict or None
+                    vw_collection_obj = await asyncio.to_thread(
+                        self.vaultwarden_client.create_collection, vaultwarden_coll_name
+                    )
+                    if vw_collection_obj and vw_collection_obj.get("id"):
+                        vw_msg += f":white_check_mark: Collection assurée (ID: {vw_collection_obj.get('id')})."
+                    elif vw_collection_obj and vw_collection_obj.get("raw_output"):  # Partial success
+                        vw_msg += f":warning: Collection probablement créée mais réponse non JSON: {vw_collection_obj.get('message')}"
+                    else:
+                        vw_msg += ":warning: Échec création/vérification."
+                except RuntimeError as re:  # Catch specific runtime errors from client like login needed
+                    vw_msg += f":x: Erreur d'exécution ({re}). Vérifiez la session Vaultwarden."
+                    logging.error(f"Vaultwarden runtime error for collection '{vaultwarden_coll_name}': {re}")
+                except Exception as e:
+                    vw_msg += f":x: Erreur inattendue ({e})."
+                    logging.error(
+                        f"Unexpected error creating Vaultwarden collection '{vaultwarden_coll_name}': {e}",
+                        exc_info=True,
+                    )
+            else:
+                vw_msg += ":information_source: Client non configuré."
+            item_results_log.append(vw_msg)
+
         return item_results_log
 
     async def _execute_batch_create_command(
@@ -640,6 +696,7 @@ class MartyBot:
                 self.mattermost_api_client,
                 self.outline_client,
                 self.brevo_client,  # Pass Brevo client
+                self.vaultwarden_client,  # Pass Vaultwarden client
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,  # Ne pas supprimer d'utilisateurs
                 fetch_remote_members=False,  # Mode "upsert pur" basé sur Mattermost
