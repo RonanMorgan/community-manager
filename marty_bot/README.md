@@ -21,8 +21,6 @@ Configuration for Marty Bot is managed via environment variables.
     *   `AUTHENTIK_TOKEN`: Your Authentik API token with permissions to create groups.
     *   `OUTLINE_URL`: Your Outline instance URL (e.g., `https://app.getoutline.com` or your self-hosted instance URL).
     *   `OUTLINE_TOKEN`: Your Outline API token with permissions to create collections.
-    *   `NOCODB_URL`: (Optional) Your NoCoDB instance URL (e.g., `https://nocodb.yourdomain.com`). Required if NoCoDB integration is used.
-    *   `NOCODB_TOKEN`: (Optional) Your NoCoDB API Token (from Account Settings -> API Tokens). Required if NoCoDB integration is used.
     *   `LOG_LEVEL`: (Optional) Set the logging level for the bot (e.g., `INFO`, `DEBUG`, `WARNING`, `ERROR`). Defaults to `INFO` if not set. Note: `DEBUG` level here is for Python's `logging` module.
     *   `DEBUG`: (Optional) Set to `true` to enable specific debug features in the bot, such as more verbose logging output distinct from `LOG_LEVEL` (e.g., raw WebSocket messages, detailed API payloads). Defaults to `false`. Example: `DEBUG=true`
 
@@ -54,66 +52,26 @@ The bot runs as a standalone Python application.
 
 ## Commands
 
-Marty Bot supports various commands to manage resources across integrated services.
+### `create_group`
 
-### Resource Creation Commands
+This command allows you to create associated groups/channels in Authentik, Outline, and Mattermost.
 
-These commands create associated resources (groups, channels, collections, etc.) in Authentik, Outline, Mattermost, Brevo, and NoCoDB (where applicable based on entity type and configuration).
+**Usage:**
 
-*   **`create_projet <NomProjet1> [NomProjet2 ...]`**
-    *   Creates resources for one or more projects.
-    *   For each project, it typically creates:
-        *   Authentik groups (standard and admin).
-        *   Mattermost channels (standard and admin).
-        *   An Outline collection.
-        *   A Brevo contact list.
-        *   *NoCoDB bases are NOT created for projects.*
-    *   Example: `@marty create_projet MonSuperProjet AutreProjetCool`
+`@<BOT_NAME> create_group <project_name>`
 
-*   **`create_antenne <NomAntenne1> [NomAntenne2 ...]`**
-    *   Creates resources for one or more "antennes" (branches/local groups).
-    *   Similar resources as `create_projet`, but also:
-        *   Creates a NoCoDB base for each antenne.
-    *   Example: `@marty create_antenne AntenneParis AntenneLyon`
+**Example:**
 
-*   **`create_pole <NomPole1> [NomPole2 ...]`**
-    *   Creates resources for one or more "pôles" (departments/teams).
-    *   Similar resources as `create_projet`, but also:
-        *   Creates a NoCoDB base for each pôle.
-    *   Example: `@marty create_pole PoleTechnique PoleCommunication`
+If your bot's name is `marty`, to create a group for a project named "alpha_squad", you would type:
 
-The bot will send a confirmation message back to the channel detailing the actions taken for each created entity. The user issuing the command will typically be added to the created Mattermost channels.
+`@marty create_group alpha_squad`
 
-### User Rights Synchronization Commands
+The bot will then (eventually) perform the following actions:
+- Create a group in Authentik named `project_name`.
+- Create a collection/group in Outline for `project_name`.
+- Create a new channel in Mattermost for `project_name`.
 
-These commands manage user access rights across the integrated services based on their membership in Mattermost channels.
-
-*   **`update_all_user_rights`**
-    *   Ensures users in Mattermost channels have corresponding access in Authentik, Outline, Brevo lists, and NoCoDB bases (for Antennes/Pôles).
-    *   This command **only adds or updates** permissions. It never removes access.
-    *   Useful for quickly granting rights after adding users to Mattermost channels.
-
-*   **`update_user_rights_and_remove`**
-    *   Performs a full synchronization. It ensures that access in Authentik, Outline, Brevo, and NoCoDB exactly mirrors Mattermost channel memberships.
-    *   This means it will **add, update, AND remove** access rights if users are no longer in the relevant Mattermost channels or if their roles (admin vs. standard channel) change.
-    *   This is the command for a complete consistency check but may take longer.
-    *   **Option :** `nocodb=false`
-        *   Ajoutez `nocodb=false` comme argument pour que cette commande ignore complètement la synchronisation des bases de données NoCoDB.
-        *   Exemple : `@marty update_user_rights_and_remove nocodb=false`
-
-### Email Command
-
-*   **`send_email <Sujet> /// <Message>`**
-    *   Sends an email via Brevo to the contact list associated with the "standard" channel of the current entity (projet, antenne, or pôle).
-    *   Must be run from the "admin" Mattermost channel of the entity.
-    *   The subject and the email body (which can be Markdown) are separated by `///`.
-    *   Example: `@marty send_email Annonce Importante /// Bonjour à tous, voici une nouvelle importante...`
-
-### Help Command
-
-*   **`help`**
-    *   Displays a help message listing all available commands and their descriptions.
-    *   Example: `@marty help`
+It will send a confirmation message back to the channel where the command was issued.
 
 ## Running Tests
 

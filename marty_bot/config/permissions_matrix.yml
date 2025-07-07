@@ -15,7 +15,8 @@ permissions:
     brevo:
       list_name_pattern: "projet_{base_name}"
       folder_name: "Projets MartyBot" # Placeholder, user should update
-    # No nocodb section for PROJET as requested
+    # nocodb:
+    #   access: "No" # L'ancienne matrice avait "No" pour PROJET
 
   ANTENNE:
     standard:
@@ -34,9 +35,14 @@ permissions:
       list_name_pattern: "antenne_{base_name}"
       folder_name: "Antennes MartyBot" # Placeholder, user should update
     nocodb:
-      base_title_pattern: "antenne_{base_name}"
-      default_access: "viewer"
-      admin_access: "owner"
+      # L'ancienne matrice avait read/rw pour Antenne et Antenne_Admin
+      # Cette structure devrait être adaptée si NocoDB est utilisé.
+      # Par exemple:
+      # base_name_pattern: "antenne_{base_name}"
+      # default_access: "read"
+      # admin_access: "rw"
+      access: "read" # Simplifié pour l'instant, en supposant que cela s'applique à la ressource standard
+      admin_access: "rw" # Et ceci pour la ressource admin, mais NocoDB n'est pas au focus ici
 
   POLES: # Nom de catégorie au pluriel
     standard:
@@ -54,7 +60,6 @@ permissions:
     brevo:
       list_name_pattern: "pole_{base_name}"
       folder_name: "Poles MartyBot" # Placeholder, user should update
-    nocodb:
-      base_title_pattern: "pole_{base_name}"
-      default_access: "viewer"
-      admin_access: "owner"
+    # nocodb:
+    #   access: "read" # Simplifié
+    #   admin_access: "rw" # Simplifié

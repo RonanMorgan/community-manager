@@ -32,7 +32,6 @@ else:
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.mattermost_client import MattermostClient
-from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
 
 # Import orchestration function for sync command
 from libraries.group_sync_services import orchestrate_group_synchronization
@@ -123,18 +122,6 @@ class MartyBot:
         else:
             logging.warning(
                 "Brevo API URL or Key not configured for MartyBot instance. Brevo features will be disabled."
-            )
-
-        self.nocodb_client = None
-        if self.config.NOCODB_URL and self.config.NOCODB_TOKEN:
-            try:
-                self.nocodb_client = NocoDBClient(self.config.NOCODB_URL, self.config.NOCODB_TOKEN)
-                logging.info("NocoDBClient initialized successfully for MartyBot instance.")
-            except ValueError as e:
-                logging.warning(f"Failed to initialize NocoDBClient for MartyBot instance: {e}")
-        else:
-            logging.warning(
-                "NocoDB URL or Token not configured for MartyBot instance. NocoDB features will be disabled."
             )
 
         self.websocket = None  # Represents the active WebSocket connection object
@@ -274,28 +261,14 @@ class MartyBot:
     async def _handle_update_user_rights_and_remove_command(self, channel_id, arg_string=None):
         """Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes."""
         logging.info(
-            f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id} with args: '{arg_string}'."
+            f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id}."
         )
 
-        skip_services_list = []
-        if arg_string and arg_string.lower() == "nocodb=false":
-            skip_services_list.append("nocodb")
-            logging.info("NoCoDB synchronization will be skipped for this run based on 'nocodb=false' argument.")
-            initial_message_text = (
-                ":hourglass_flowing_sand: Démarrage de la synchronisation complète des droits (avec suppressions, NoCoDB ignoré)... "
-                "Ceci inclut la synchronisation des groupes Authentik et des collections Outline. "
-                "Cela peut prendre un moment."
-            )
-        else:
-            if arg_string:  # Log if there was an argument but it wasn't the recognized one
-                logging.info(
-                    f"Argument '{arg_string}' not recognized as 'nocodb=false', proceeding with full sync including NoCoDB."
-                )
-            initial_message_text = (
-                ":hourglass_flowing_sand: Démarrage de la synchronisation complète des droits (avec suppressions)... "
-                "Ceci inclut la synchronisation des groupes Authentik et des collections Outline. "
-                "Cela peut prendre un moment."
-            )
+        initial_message_text = (
+            ":hourglass_flowing_sand: Démarrage de la synchronisation complète des droits (avec suppressions)... "
+            "Ceci inclut la synchronisation des groupes Authentik et des collections Outline. "
+            "Cela peut prendre un moment."
+        )
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
 
         if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
@@ -322,16 +295,14 @@ class MartyBot:
                 orchestrate_group_synchronization,
                 self.authentik_client,
                 self.mattermost_api_client,
-                self.outline_client,
-                self.brevo_client,
-                self.nocodb_client,
+                self.outline_client,  # Peut être None, géré par l'orchestrateur
+                self.brevo_client,  # Pass Brevo client
                 self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=True,
-                fetch_remote_members=True,
-                skip_services=skip_services_list if skip_services_list else None,  # Pass skip_services
+                perform_deletions=True,  # Assure la suppression
+                fetch_remote_members=True,  # Mode complet pour remove_user_rights
             )
 
-            if not orchestration_success:
+            if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
                 logging.warning(
                     "Group synchronization task (for rights removal) reported critical failure during orchestration."
                 )
@@ -558,36 +529,6 @@ class MartyBot:
                 brevo_msg += ":information_source: Client non configuré."
             item_results_log.append(brevo_msg)
 
-        # NoCoDB Base (for ANTENNE and POLES)
-        nocodb_config = entity_config.get("nocodb")
-        if nocodb_config and entity_key in ["ANTENNE", "POLES"]:  # Only for specific entities
-            base_title_pattern = nocodb_config.get("base_title_pattern", "nocodb_{base_name}")
-            nocodb_base_title = base_title_pattern.format(base_name=base_name)
-            nocodb_msg = f"  - NoCoDB Base `{nocodb_base_title}`: "
-
-            if self.nocodb_client:
-                try:
-                    # Check if base already exists to avoid error and log appropriately
-                    existing_base = await asyncio.to_thread(self.nocodb_client.get_base_by_title, nocodb_base_title)
-                    if existing_base:
-                        nocodb_msg += f":white_check_mark: Existe déjà (ID: {existing_base['id']})."
-                    else:
-                        # Create the base if it doesn't exist
-                        created_base = await asyncio.to_thread(self.nocodb_client.create_base, nocodb_base_title)
-                        if created_base and created_base.get("id"):
-                            nocodb_msg += f":white_check_mark: Créée (ID: {created_base['id']})."
-                        else:
-                            nocodb_msg += ":warning: Échec création."
-                except Exception as e:
-                    nocodb_msg += f":x: Erreur ({e})."
-            else:
-                nocodb_msg += ":information_source: Client non configuré."
-            item_results_log.append(nocodb_msg)
-        elif entity_key in ["ANTENNE", "POLES"]:  # Log if config is missing for relevant types
-            item_results_log.append(
-                f"  - NoCoDB Base: :information_source: Configuration 'nocodb' manquante pour l'entité '{entity_key}'."
-            )
-
         return item_results_log
 
     async def _execute_batch_create_command(
@@ -698,12 +639,10 @@ class MartyBot:
                 self.authentik_client,
                 self.mattermost_api_client,
                 self.outline_client,
-                self.brevo_client,
-                self.nocodb_client,
+                self.brevo_client,  # Pass Brevo client
                 self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=False,
-                fetch_remote_members=False,
-                skip_services=None,  # Explicitly pass None
+                perform_deletions=False,  # Ne pas supprimer d'utilisateurs
+                fetch_remote_members=False,  # Mode "upsert pur" basé sur Mattermost
             )
 
             if not orchestration_success:
@@ -824,10 +763,7 @@ class MartyBot:
             "  - _Rôle : Effectue une synchronisation complète des droits. Garantit que les accès dans Authentik/Outline reflètent exactement la composition des canaux Mattermost._"
         )
         help_lines.append(
-            "  - _Logique : Combine les actions de `update_all_user_rights` (ajouts/mises à jour depuis Mattermost) ET **supprime les accès** des utilisateurs dans Authentik/Outline/NoCoDB s'ils ne sont plus présents dans les canaux Mattermost correspondants (ou si leurs droits ont changé). C'est la commande à utiliser pour une remise en cohérence complète._"
-        )
-        help_lines.append(
-            f"  - _Option :_ Ajoutez `nocodb=false` après la commande (ex: `{self.bot_name_mention} update_user_rights_and_remove nocodb=false`) pour ignorer la synchronisation NoCoDB."
+            "  - _Logique : Combine les actions de `update_all_user_rights` (ajouts/mises à jour depuis Mattermost) ET **supprime les accès** des utilisateurs dans Authentik/Outline s'ils ne sont plus présents dans les canaux Mattermost correspondants (ou si leurs droits ont changé). C'est la commande à utiliser pour une remise en cohérence complète._"
         )
         help_lines.append(
             "\n**Note :** La commande `update_user_rights_and_remove` est plus complète mais peut prendre plus de temps car elle vérifie tous les membres des services distants."
