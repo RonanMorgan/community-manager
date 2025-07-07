@@ -57,12 +57,14 @@ class TestSyncLogic(unittest.TestCase):
         mock_auth_instance = MockScriptAuthClient.return_value
         mock_mm_instance = MockScriptMMClient.return_value
         # Mock OutlineClient, BrevoClient, and VaultwardenClient if they are part of initialize_clients
-        with patch("scripts.sync_mm_authentik_groups.OutlineClient") as MockScriptOutlineClient, \
-             patch("scripts.sync_mm_authentik_groups.BrevoClient") as MockScriptBrevoClient, \
-             patch("scripts.sync_mm_authentik_groups.VaultwardenClient") as MockScriptVWClient: # Added VW mock
+        with patch("scripts.sync_mm_authentik_groups.OutlineClient") as MockScriptOutlineClient, patch(
+            "scripts.sync_mm_authentik_groups.BrevoClient"
+        ) as MockScriptBrevoClient, patch(
+            "scripts.sync_mm_authentik_groups.VaultwardenClient"
+        ):  # Removed 'as MockScriptVWClient'
             mock_outline_instance = MockScriptOutlineClient.return_value
             mock_brevo_instance = MockScriptBrevoClient.return_value
-            mock_vw_instance = MockScriptVWClient.return_value # Get VW mock instance
+            # mock_vw_instance was removed as it was unused
 
             # Initialize clients now returns 5 values
             auth_client, mm_client, outline_client, brevo_client, vw_client = script_module.initialize_clients()
@@ -93,7 +95,7 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.OUTLINE_TOKEN = "outline_token"
         mock_script_config.BREVO_API_URL = "http://brevo.example.com"
         mock_script_config.BREVO_API_KEY = "brevo_key"
-        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None # Ensure VW client is None
+        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None  # Ensure VW client is None
         auth_client, _, _, _, _ = script_module.initialize_clients()  # Unpack 5
         self.assertIsNone(auth_client)
         MockScriptAuthClient.assert_not_called()
@@ -110,7 +112,7 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.OUTLINE_TOKEN = "outline_token"
         mock_script_config.BREVO_API_URL = "http://brevo.example.com"
         mock_script_config.BREVO_API_KEY = "brevo_key"
-        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None # Ensure VW client is None
+        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None  # Ensure VW client is None
         _, mm_client, _, _, _ = script_module.initialize_clients()  # Unpack 5
         self.assertIsNone(mm_client)
         MockScriptMMClient.assert_not_called()
@@ -351,7 +353,7 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.OUTLINE_TOKEN = None
         mock_script_config.BREVO_API_URL = None
         mock_script_config.BREVO_API_KEY = None
-        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None # Ensure VW client is None for this test
+        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = None  # Ensure VW client is None for this test
         mock_auth_instance = MagicMock(spec=AuthentikClient)
         mock_mm_instance = MagicMock(spec=MattermostClient)
         # initialize_clients now returns 5 values
@@ -414,9 +416,9 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_init_clients.return_value = (
             MagicMock(spec=AuthentikClient),
             MagicMock(spec=MattermostClient),
-            None, # Outline
-            None, # Brevo
-            None, # Vaultwarden
+            None,  # Outline
+            None,  # Brevo
+            None,  # Vaultwarden
         )
         script_module.main_sync_logic()
         mock_orchestrate_lib.assert_not_called()

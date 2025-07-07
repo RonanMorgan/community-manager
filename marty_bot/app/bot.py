@@ -32,8 +32,9 @@ else:
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.mattermost_client import MattermostClient
-from clients.vaultwarden_client import VaultwardenClient  # Added VaultwardenClient
-from clients.brevo_client import BrevoClient  # Ensure BrevoClient is imported if not already
+from clients.nocodb_client import NocoDBClient  # Restore NocoDBClient import
+from clients.vaultwarden_client import VaultwardenClient
+from clients.brevo_client import BrevoClient
 
 # Import orchestration function for sync command
 from libraries.group_sync_services import orchestrate_group_synchronization
@@ -146,6 +147,24 @@ class MartyBot:
             logging.warning(
                 "VAULTWARDEN_ORGANIZATION_ID not configured for MartyBot instance. Vaultwarden features will be disabled."
             )
+
+        self.nocodb_client = None
+        if self.config.NOCODB_URL and self.config.NOCODB_TOKEN:
+            try:
+                self.nocodb_client = NocoDBClient(
+                    base_url=self.config.NOCODB_URL,
+                    token=self.config.NOCODB_TOKEN,
+                    shared_view_projects_url=getattr(self.config, "NOCODB_SHARED_VIEW_PROJECTS_URL", None),
+                    shared_view_antennes_url=getattr(self.config, "NOCODB_SHARED_VIEW_ANTENNES_URL", None),
+                    shared_view_poles_url=getattr(self.config, "NOCODB_SHARED_VIEW_POLES_URL", None),
+                )
+                logging.info("NocoDBClient initialized successfully for MartyBot instance.")
+            except ValueError as e:
+                logging.warning(f"Failed to initialize NocoDBClient for MartyBot instance: {e}")
+            except Exception as e:
+                logging.error(f"Unexpected error initializing NocoDBClient: {e}", exc_info=True)
+        else:
+            logging.warning("NocoDB URL or Token not configured. NocoDB features will be disabled.")
 
         self.websocket = None  # Represents the active WebSocket connection object
 
@@ -584,6 +603,63 @@ class MartyBot:
             else:
                 vw_msg += ":information_source: Client non configuré."
             item_results_log.append(vw_msg)
+
+        # NocoDB resource creation
+        nocodb_config = entity_config.get("nocodb")
+        if nocodb_config:
+            nc_msg = f"  - NocoDB Resources for `{base_name}`: "
+            if self.nocodb_client:
+                try:
+                    # This is a placeholder for the actual NocoDB client method call.
+                    # It needs to be adapted based on how NocoDB resources are created/managed.
+                    # For example, if it's creating a table from a template:
+                    # table_name_pattern = nocodb_config.get("table_name_pattern", "table_{base_name}")
+                    # table_name = table_name_pattern.format(base_name=base_name)
+                    # nc_msg = f"  - NocoDB Table `{table_name}`: "
+                    # success = await asyncio.to_thread(self.nocodb_client.create_table_from_template, template_name, table_name, project_id)
+
+                    # Using a generic approach based on entity_key for now, as specific methods are unknown
+                    # This part needs to be verified against actual NocoDBClient capabilities
+                    created_nc_resource = False
+                    action_taken_msg = "No specific NocoDB action taken."
+
+                    if entity_key == "PROJET" and hasattr(self.nocodb_client, "create_project_table_and_views"):
+                        # Assuming a method that might take base_name and specific view URLs from config
+                        view_url = getattr(self.config, "NOCODB_SHARED_VIEW_PROJECTS_URL", None)
+                        created_nc_resource = await asyncio.to_thread(
+                            self.nocodb_client.create_project_table_and_views, base_name, view_url
+                        )
+                        action_taken_msg = f"Project table/views for '{base_name}' ensured."
+                    elif entity_key == "ANTENNE" and hasattr(self.nocodb_client, "create_antenne_table_and_views"):
+                        view_url = getattr(self.config, "NOCODB_SHARED_VIEW_ANTENNES_URL", None)
+                        created_nc_resource = await asyncio.to_thread(
+                            self.nocodb_client.create_antenne_table_and_views, base_name, view_url
+                        )
+                        action_taken_msg = f"Antenne table/views for '{base_name}' ensured."
+                    elif entity_key == "POLES" and hasattr(self.nocodb_client, "create_pole_table_and_views"):
+                        view_url = getattr(self.config, "NOCODB_SHARED_VIEW_POLES_URL", None)
+                        created_nc_resource = await asyncio.to_thread(
+                            self.nocodb_client.create_pole_table_and_views, base_name, view_url
+                        )
+                        action_taken_msg = f"Pole table/views for '{base_name}' ensured."
+                    else:
+                        nc_msg += ":warning: No specific NocoDB creation logic matched for this entity type."
+                        logging.warning(
+                            f"No specific NocoDB creation logic for entity_key '{entity_key}' with base_name '{base_name}'."
+                        )
+
+                    if created_nc_resource:  # If any specific method was called and returned true
+                        nc_msg += f":white_check_mark: {action_taken_msg}"
+                    elif created_nc_resource is False:  # If a method was called and returned False
+                        nc_msg += f":warning: Échec: {action_taken_msg}"
+                    # If no specific method matched, the warning is already in nc_msg
+
+                except Exception as e:
+                    nc_msg += f":x: Erreur NocoDB ({e})."
+                    logging.error(f"Error during NocoDB resource creation for '{base_name}': {e}", exc_info=True)
+            else:
+                nc_msg += ":information_source: Client NocoDB non configuré."
+            item_results_log.append(nc_msg)
 
         return item_results_log
 

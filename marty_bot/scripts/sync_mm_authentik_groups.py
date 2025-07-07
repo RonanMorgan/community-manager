@@ -10,7 +10,7 @@ from clients.authentik_client import AuthentikClient
 from clients.mattermost_client import MattermostClient
 from clients.outline_client import OutlineClient
 from clients.brevo_client import BrevoClient
-from clients.vaultwarden_client import VaultwardenClient # Import VaultwardenClient
+from clients.vaultwarden_client import VaultwardenClient  # Import VaultwardenClient
 
 # Import the orchestrator function
 from libraries.group_sync_services import orchestrate_group_synchronization
@@ -71,13 +71,13 @@ def initialize_clients():
         try:
             vaultwarden_client = VaultwardenClient(
                 organization_id=config.VAULTWARDEN_ORGANIZATION_ID,
-                server_url=config.VAULTWARDEN_SERVER_URL # Client handles default if None
+                server_url=config.VAULTWARDEN_SERVER_URL,  # Client handles default if None
             )
             logging.info("VaultwardenClient initialized for script.")
         except ValueError as e:
             logging.error(f"Failed to initialize VaultwardenClient for script: {e}")
         except Exception as e:
-             logging.error(f"Unexpected error initializing VaultwardenClient for script: {e}", exc_info=True)
+            logging.error(f"Unexpected error initializing VaultwardenClient for script: {e}", exc_info=True)
     else:
         logging.info("VAULTWARDEN_ORGANIZATION_ID not configured for script. Vaultwarden features will be disabled.")
 
@@ -85,7 +85,9 @@ def initialize_clients():
 
 
 def main_sync_logic():
-    logging.info("Attempting to run Mattermost to Authentik, Outline, Brevo, & Vaultwarden group synchronization via script...")
+    logging.info(
+        "Attempting to run Mattermost to Authentik, Outline, Brevo, & Vaultwarden group synchronization via script..."
+    )
 
     authentik_client, mattermost_client, outline_client, brevo_client, vaultwarden_client = initialize_clients()
 
@@ -108,7 +110,7 @@ def main_sync_logic():
         mattermost_client,
         outline_client,
         brevo_client,
-        vaultwarden_client, # Pass the Vaultwarden client
+        vaultwarden_client,  # Pass the Vaultwarden client
         config.MATTERMOST_TEAM_ID,
         # Defaults for perform_deletions=True and fetch_remote_members=True are used from orchestrator
     )
