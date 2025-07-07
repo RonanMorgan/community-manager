@@ -441,10 +441,12 @@ def _sync_single_outline_collection(
             )
             # If an excluded user is already in the collection, ensure they are not removed by adding their Outline ID
             # to the target set if they are a current member.
-            temp_outline_user = outline_client.get_user_by_email(email_lower)
-            if temp_outline_user and temp_outline_user.get("id") in current_outline_member_ids:
-                target_outline_ids_for_collection.add(temp_outline_user.get("id"))
-                # Populate map for removal loop's exclusion check (though primarily for logging if not excluded)
+            # Avoid calling get_user_by_email with potentially invalid placeholder emails like 'marty@localhost'
+            if email_lower and "@" in email_lower and not email_lower.endswith("@localhost"):  # Basic sanity check
+                temp_outline_user = outline_client.get_user_by_email(email_lower)
+                if temp_outline_user and temp_outline_user.get("id") in current_outline_member_ids:
+                    target_outline_ids_for_collection.add(temp_outline_user.get("id"))
+                    # Populate map for removal loop's exclusion check (though primarily for logging if not excluded)
                 outline_id_to_mm_user_map[temp_outline_user.get("id")] = {
                     "username": mm_username,
                     "mm_user_id": mm_user_data.get("mm_user_id"),  # For DM context if needed
@@ -775,10 +777,10 @@ def orchestrate_group_synchronization(
         logging.info("Brevo client not provided. Brevo synchronization will be skipped.")
 
     # Fetch all Authentik users for email-to-PK mapping if Authentik client is available
-    # This map is crucial for Authentik operations.
-    # However, fetching all groups is conditional.
-    _, email_to_auth_pk_map = get_all_authentik_groups_and_user_map(authentik_client)  # We always need the email map
-    if not email_to_auth_pk_map:
+    email_to_auth_pk_map = {}
+    if authentik_client:
+        email_to_auth_pk_map = authentik_client.get_all_user_email_to_pk_map()
+    if not email_to_auth_pk_map and authentik_client:  # Log warning only if client exists but map is empty
         logging.warning(
             "Authentik email-to-user-PK map is empty. Authentik sync operations might not find users effectively."
         )
@@ -787,25 +789,27 @@ def orchestrate_group_synchronization(
     entities_to_process = {}  # Stores { (entity_key, base_name): entity_config }
 
     if fetch_remote_members:
-        logging.info("Fetching all Authentik groups to discover entities...")
-        all_auth_groups_list = []  # Initialize to empty list
-        if authentik_client:  # Check if client exists before using
-            all_auth_groups_list, _ = authentik_client.get_groups_with_users()  # email_map already fetched
+        logging.info("Fetching all Authentik groups (with members) to discover entities...")
+        if authentik_client:
+            # When fetching remote members, we need full group objects including their users.
+            # The email_to_auth_pk_map is already fetched separately.
+            # get_groups_with_users(fetch_members=True) populates its own email map from users_obj,
+            # but we prioritize the one from get_all_user_email_to_pk_map if discrepancies occur.
+            # For simplicity, we'll rely on the map from get_all_user_email_to_pk_map.
+            # The second return value (email map from this specific call) can be ignored or merged.
+            all_auth_groups_list, _ = authentik_client.get_groups_with_users(fetch_members=True)
             if not all_auth_groups_list:
                 logging.info("No Authentik groups found or an error occurred during fetching for discovery.")
             all_auth_groups_by_name = {g["name"]: g for g in all_auth_groups_list}
         else:
             logging.warning("Authentik client not available for fetching remote groups by Authentik discovery.")
-            # all_auth_groups_list is already empty, all_auth_groups_by_name will be empty too.
 
-        if not all_auth_groups_list:  # This check remains, covers both missing client and no groups found
-            logging.info(
-                "No Authentik groups found to process based on remote member fetching. Synchronization might be limited."
-            )
-            # Depending on strictness, could return early, or proceed if MM discovery is also planned
-        # all_auth_groups_by_name is defined inside the if authentik_client block, ensure it's initialized if client is None
-        if not authentik_client:
+        # Ensure all_auth_groups_by_name is initialized if client was None or no groups found
+        if not all_auth_groups_by_name:  # Covers both missing client and no groups found from client
             all_auth_groups_by_name = {}
+            logging.info(
+                "No Authentik groups found to process based on remote member fetching. Synchronization might be limited if solely relying on Authentik for discovery."
+            )
 
         for auth_group_name_iter in all_auth_groups_by_name.keys():
             found_entity_key_auth, current_base_name_auth = _map_auth_group_to_entity_and_base_name(
@@ -918,13 +922,17 @@ def _map_mm_channel_to_entity_and_base_name(
     """
     # Try matching with channel display name first, as it's often more descriptive
     for entity_key, entity_cfg in permissions_matrix.items():
-        if entity_cfg.get("admin"):
-            mm_adm_pattern = entity_cfg.get("admin", {}).get("mattermost_channel_name_pattern")
-            if mm_adm_pattern:
-                base_name = _extract_base_name(mm_channel_display_name, mm_adm_pattern)
-                if base_name is not None:
-                    return entity_key, base_name
-        std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
+        # Try admin pattern first
+        admin_cfg = entity_cfg.get("admin", {})
+        mm_adm_pattern = admin_cfg.get("mattermost_channel_name_pattern")
+        if mm_adm_pattern:
+            base_name = _extract_base_name(mm_channel_display_name, mm_adm_pattern)
+            if base_name is not None:
+                return entity_key, base_name
+
+        # Then try standard pattern
+        std_cfg = entity_cfg.get("standard", {})
+        std_pattern = std_cfg.get("mattermost_channel_name_pattern")
         if std_pattern:
             base_name = _extract_base_name(mm_channel_display_name, std_pattern)
             if base_name is not None:

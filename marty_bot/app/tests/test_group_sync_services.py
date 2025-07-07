@@ -1049,10 +1049,10 @@ permissions:
 
     # --- New tests for orchestrate_group_synchronization ---
     @patch("libraries.group_sync_services.sync_entity_permissions")
-    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
+    # Removed @patch for get_all_authentik_groups_and_user_map as it's no longer directly called for data
     @patch("libraries.group_sync_services.config")
     def test_orchestrate_sync_fetch_remote_false_discover_via_mm_no_deletions(
-        self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
+        self, mock_lib_config, mock_sync_entity_permissions_call  # mock_get_all_auth_groups_and_map removed
     ):
         self.mock_authentik_client.reset_mock()
         self.mock_mattermost_client.reset_mock()
@@ -1070,34 +1070,33 @@ permissions:
         self.mock_outline_client.create_group.side_effect = create_outline_coll_side_effect
 
         mock_team_id = "team_upsert_mode"
-        mock_email_pk_map = {"user.alpha@example.com": "auth_pk_alpha", "user.beta@example.com": "auth_pk_beta"}
-        mock_get_all_auth_groups_and_map.return_value = ([], mock_email_pk_map)
+        # Simulate the email map that would be returned by authentik_client.get_all_user_email_to_pk_map
+        mock_email_pk_map_from_client = {
+            "user.alpha@example.com": "auth_pk_alpha",
+            "user.beta@example.com": "auth_pk_beta",
+        }
+        self.mock_authentik_client.get_all_user_email_to_pk_map.return_value = mock_email_pk_map_from_client
 
-        # mm_channel_projet_alpha = {"id": "mm_alpha_id", "name": "projet-alpha", "display_name": "PROJET Alpha"}
-        # mm_channel_antenne_beta_admin = {"id": "mm_beta_adm_id", "name": "antenne-beta-admin", "display_name": "ANTENNE Beta Admin"}
         self.mock_mattermost_client.get_channels_for_team.return_value = []  # Simulate no channels found
 
-        mock_lib_config.PERMISSIONS_MATRIX = (
-            {  # Matrix still needed for _map_mm_channel_to_entity_and_base_name if it were called
-                "PROJET": {
-                    "standard": {
-                        "mattermost_channel_name_pattern": "PROJET {base_name}",
-                        "authentik_group_name_pattern": "auth_projet_{base_name}",
-                    }
-                },
-                "ANTENNE": {
-                    "admin": {
-                        "mattermost_channel_name_pattern": "ANTENNE {base_name} Admin",
-                        "authentik_group_name_pattern": "auth_antenne_{base_name}_admin",
-                    }
-                },
-                "BREVO_TEST_ENTITY": {  # Added for Brevo specific test
-                    "standard": {"mattermost_channel_name_pattern": "brevo_test_{base_name}"},
-                    "brevo": {"list_name_pattern": "brevo_list_{base_name}"},
-                },
-            }
-        )
-        # mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_UPSERT"}] # Not called if no channels
+        mock_lib_config.PERMISSIONS_MATRIX = {
+            "PROJET": {
+                "standard": {
+                    "mattermost_channel_name_pattern": "PROJET {base_name}",
+                    "authentik_group_name_pattern": "auth_projet_{base_name}",
+                }
+            },
+            "ANTENNE": {
+                "admin": {
+                    "mattermost_channel_name_pattern": "ANTENNE {base_name} Admin",
+                    "authentik_group_name_pattern": "auth_antenne_{base_name}_admin",
+                }
+            },
+            "BREVO_TEST_ENTITY": {
+                "standard": {"mattermost_channel_name_pattern": "brevo_test_{base_name}"},
+                "brevo": {"list_name_pattern": "brevo_list_{base_name}"},
+            },
+        }
 
         success, detailed_results = orchestrate_group_synchronization(
             self.mock_authentik_client,
@@ -1110,17 +1109,19 @@ permissions:
         )
 
         self.assertTrue(success)
-        self.assertEqual(len(detailed_results), 0)  # No entities processed, no results
-        mock_get_all_auth_groups_and_map.assert_called_once_with(self.mock_authentik_client)
-        self.mock_authentik_client.get_groups_with_users.assert_not_called()  # Still not called directly by orchestrate
+        self.assertEqual(len(detailed_results), 0)
+        # Assert that authentik_client.get_all_user_email_to_pk_map was called
+        self.mock_authentik_client.get_all_user_email_to_pk_map.assert_called_once_with()
+        # get_groups_with_users should not be called when fetch_remote_members is False for bulk discovery
+        self.mock_authentik_client.get_groups_with_users.assert_not_called()
         self.mock_mattermost_client.get_channels_for_team.assert_called_once_with(mock_team_id)
-        mock_sync_entity_permissions_call.assert_not_called()  # Not called if no entities discovered
+        mock_sync_entity_permissions_call.assert_not_called()
 
     @patch("libraries.group_sync_services.sync_entity_permissions")
-    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
+    # Removed @patch for get_all_authentik_groups_and_user_map
     @patch("libraries.group_sync_services.config")
     def test_orchestrate_sync_fetch_remote_true_discover_via_auth_with_deletions(
-        self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
+        self, mock_lib_config, mock_sync_entity_permissions_call  # mock_get_all_auth_groups_and_map removed
     ):
         self.mock_authentik_client.reset_mock()
         self.mock_mattermost_client.reset_mock()
@@ -1145,22 +1146,24 @@ permissions:
             "users_obj": [],
         }
         mock_all_auth_groups_list = [auth_group_projet_gamma, auth_group_antenne_delta_admin]
-        mock_email_pk_map = {"user.gamma@example.com": "auth_pk_gamma"}
 
-        mock_get_all_auth_groups_and_map.return_value = (mock_all_auth_groups_list, mock_email_pk_map)
-        # This mock below is for the direct call inside orchestrate_group_synchronization when fetch_remote_members=True
-        self.mock_authentik_client.get_groups_with_users.return_value = (mock_all_auth_groups_list, mock_email_pk_map)
+        # Simulate return for get_groups_with_users (returns groups and its own derived email_map)
+        # The second part of the tuple (email_map) from get_groups_with_users is currently ignored by orchestrate
+        self.mock_authentik_client.get_groups_with_users.return_value = (
+            mock_all_auth_groups_list,
+            {"some_email_from_groups_obj@example.com": "pk_temp"},
+        )
+
+        # Simulate return for get_all_user_email_to_pk_map (this is the primary email map used)
+        mock_email_pk_map_from_all_users = {"user.gamma@example.com": "auth_pk_gamma"}
+        self.mock_authentik_client.get_all_user_email_to_pk_map.return_value = mock_email_pk_map_from_all_users
 
         mock_lib_config.PERMISSIONS_MATRIX = {
             "PROJET": {"standard": {"authentik_group_name_pattern": "auth_projet_{base_name}"}},
             "ANTENNE": {"admin": {"authentik_group_name_pattern": "auth_antenne_{base_name}_admin"}},
-            "BREVO_TEST_ENTITY": {  # Added for Brevo specific test
-                "standard": {
-                    "mattermost_channel_name_pattern": "brevo_test_{base_name}"
-                },  # Not used if discovery is via Auth
-                "brevo": {
-                    "list_name_pattern": "brevo_list_{base_name}"
-                },  # Also not directly used if discovery is Auth only
+            "BREVO_TEST_ENTITY": {
+                "standard": {"mattermost_channel_name_pattern": "brevo_test_{base_name}"},
+                "brevo": {"list_name_pattern": "brevo_list_{base_name}"},
             },
         }
         mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_FULL_SYNC"}]
@@ -1177,8 +1180,10 @@ permissions:
 
         self.assertTrue(success)
         self.assertEqual(len(detailed_results), 2)
-        mock_get_all_auth_groups_and_map.assert_called_once_with(self.mock_authentik_client)
-        self.assertEqual(self.mock_authentik_client.get_groups_with_users.call_count, 1)
+        # Assert that authentik_client methods were called
+        self.mock_authentik_client.get_groups_with_users.assert_called_once_with(fetch_members=True)
+        self.mock_authentik_client.get_all_user_email_to_pk_map.assert_called_once_with()
+
         self.mock_mattermost_client.get_channels_for_team.assert_not_called()
 
         expected_all_auth_groups_by_name = {g["name"]: g for g in mock_all_auth_groups_list}
@@ -1192,7 +1197,7 @@ permissions:
             "PROJET",
             mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
             expected_all_auth_groups_by_name,
-            mock_email_pk_map,
+            mock_email_pk_map_from_all_users,  # Should use the map from get_all_user_email_to_pk_map
             True,
         )
         mock_sync_entity_permissions_call.assert_any_call(
@@ -1205,7 +1210,7 @@ permissions:
             "ANTENNE",
             mock_lib_config.PERMISSIONS_MATRIX["ANTENNE"],
             expected_all_auth_groups_by_name,
-            mock_email_pk_map,
+            mock_email_pk_map_from_all_users,  # Corrected variable name
             True,
         )
 

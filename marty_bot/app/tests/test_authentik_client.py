@@ -84,7 +84,8 @@ class TestAuthentikClient(unittest.TestCase):
         mock_response.json.return_value = mock_response_data
         mock_get.return_value = mock_response
 
-        groups, email_map = self.client.get_groups_with_users()
+        # Test with fetch_members=True to populate email_map
+        groups, email_map = self.client.get_groups_with_users(fetch_members=True)
 
         self.assertEqual(len(groups), 2)
         self.assertEqual(groups[0]["name"], "Group 1")
@@ -93,7 +94,7 @@ class TestAuthentikClient(unittest.TestCase):
         self.assertEqual(email_map["b@b.com"], 2)
         self.assertEqual(email_map["c@c.com"], 3)
         mock_get.assert_called_once_with(
-            f"{self.mock_url}/api/v3/core/groups/?include_users=true", headers=self.client.headers
+            f"{self.mock_url}/api/v3/core/groups/", headers=self.client.headers, params={"include_users": "true"}
         )
 
     @patch("requests.get")
@@ -113,7 +114,8 @@ class TestAuthentikClient(unittest.TestCase):
 
         mock_get.side_effect = [mock_response_page1, mock_response_page2]
 
-        groups, email_map = self.client.get_groups_with_users()
+        # Test with fetch_members=True
+        groups, email_map = self.client.get_groups_with_users(fetch_members=True)
 
         self.assertEqual(len(groups), 2)
         self.assertEqual(groups[1]["name"], "Group 2")
@@ -122,10 +124,10 @@ class TestAuthentikClient(unittest.TestCase):
         self.assertEqual(email_map["b@b.com"], 2)
         self.assertEqual(mock_get.call_count, 2)
         mock_get.assert_any_call(
-            f"{self.mock_url}/api/v3/core/groups/?include_users=true", headers=self.client.headers
+            f"{self.mock_url}/api/v3/core/groups/", headers=self.client.headers, params={"include_users": "true"}
         )
         mock_get.assert_any_call(
-            f"{self.mock_url}/api/v3/core/groups/?page=2&include_users=true", headers=self.client.headers
+            f"{self.mock_url}/api/v3/core/groups/?page=2&include_users=true", headers=self.client.headers, params=None
         )
 
     @patch("requests.get")
@@ -161,9 +163,11 @@ class TestAuthentikClient(unittest.TestCase):
         mock_get.return_value = mock_response
 
         with patch.object(logging, "warning") as mock_log_warning:
-            _, email_map = self.client.get_groups_with_users()
+            # Test with fetch_members=True
+            _, email_map = self.client.get_groups_with_users(fetch_members=True)
             self.assertEqual(email_map["a@a.com"], 2)  # Uses the latest one
-            mock_log_warning.assert_called_once()  # Check if warning was logged
+            # The warning is logged if fetch_members is True and users_obj leads to conflict
+            mock_log_warning.assert_called_once()
 
     # Tests for add_user_to_group
     @patch("requests.post")

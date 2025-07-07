@@ -61,53 +61,64 @@ class AuthentikClient:
             logging.error(f"Error decoding JSON from Authentik group creation response for '{project_name}': {e}")
             return False
 
-    def get_groups_with_users(self):
+    def get_groups_with_users(self, fetch_members: bool = True):
         """
-        Fetches all groups from Authentik and their user objects, handling pagination.
+        Fetches all groups from Authentik, handling pagination.
+        If fetch_members is True, attempts to include user objects for each group.
         Returns a tuple: (list_of_group_objects, dict_email_to_user_pk).
-        Each group object in the list should at least contain 'pk', 'name', and 'users' (list of user PKs).
-        The dict_email_to_user_pk maps user email to their Authentik user PK.
+        The email_to_user_pk_map is populated only if fetch_members is True and users_obj are available.
         """
-        if not self.base_url or not self.token:  # Should be caught by __init__ but good practice
+        if not self.base_url or not self.token:
             logging.error("Authentik client not configured (URL or Token missing).")
             return [], {}
 
         all_groups = []
+        # email_to_user_pk_map will be populated by a separate call if needed,
+        # or if fetch_members is true and users_obj are successfully retrieved here.
         email_to_user_pk_map = {}
 
-        current_url = (
-            f"{self.base_url}/api/v3/core/groups/?include_users=true"  # Assuming include_users provides users_obj
-        )
-        logging.info(f"Fetching Authentik groups (with users) from initial URL: {current_url}")
+        url_params = {}
+        if fetch_members:
+            url_params["include_users"] = "true"
+
+        current_url = f"{self.base_url}/api/v3/core/groups/"
+        logging.info(f"Fetching Authentik groups (fetch_members: {fetch_members}) from initial URL: {current_url}")
 
         page_count = 0
+        first_page = True
         while current_url:
             page_count += 1
             logging.debug(f"Fetching group page {page_count} from {current_url}")
             try:
-                response = requests.get(current_url, headers=self.headers)
+                # Pass params only for the first request, subsequent are full URLs from 'next'
+                response = requests.get(current_url, headers=self.headers, params=url_params if first_page else None)
+                first_page = False  # Params only needed for the very first call
                 response.raise_for_status()
                 data = response.json()
 
                 page_groups = data.get("results", [])
                 all_groups.extend(page_groups)
 
-                # Process users from this page of groups
-                for group in page_groups:
-                    # Assuming users_obj is directly available or via an endpoint per group
-                    # The prompt implies 'users_obj' is part of the group details when fetched correctly.
-                    # If not, this part would need adjustment (e.g. fetch users per group)
-                    users_obj = group.get("users_obj", [])
-                    for user in users_obj:
-                        email = user.get("email")
-                        pk = user.get("pk")
-                        if email and pk is not None:
-                            if email in email_to_user_pk_map and email_to_user_pk_map[email] != pk:
-                                logging.warning(
-                                    f"User email {email} has conflicting PKs: "
-                                    f"{email_to_user_pk_map[email]} vs {pk}. Using the latest one encountered."
-                                )
-                            email_to_user_pk_map[email] = pk
+                if fetch_members:  # Only process users if requested
+                    for group in page_groups:
+                        users_obj_list = group.get("users_obj")
+                        if users_obj_list is None:
+                            logging.warning(
+                                f"Group '{group.get('name')}' (PK: {group.get('pk')}) missing 'users_obj' "
+                                "despite include_users=true. Users for this group won't be mapped by email."
+                            )
+                            group["users_obj"] = []
+
+                        for user in group.get("users_obj", []):
+                            email = user.get("email")
+                            pk = user.get("pk")  # Corrected indentation
+                            if email and pk is not None:
+                                if email in email_to_user_pk_map and email_to_user_pk_map[email] != pk:
+                                    logging.warning(
+                                        f"User email {email} has conflicting PKs: "
+                                        f"{email_to_user_pk_map[email]} vs {pk}. Using the latest one encountered."
+                                    )
+                                email_to_user_pk_map[email] = pk
 
                 current_url = data.get("pagination", {}).get("next")
                 if current_url:
@@ -126,6 +137,59 @@ class AuthentikClient:
             f"from Authentik over {page_count} pages."
         )
         return all_groups, email_to_user_pk_map
+
+    def get_all_user_email_to_pk_map(self) -> dict:
+        """
+        Fetches all users from Authentik and constructs a map of email to user PK.
+        Handles pagination.
+        """
+        if not self.base_url or not self.token:
+            logging.error("Authentik client not configured (URL or Token missing).")
+            return {}
+
+        email_to_user_pk_map = {}
+        current_url = f"{self.base_url}/api/v3/core/users/"
+        logging.info(f"Fetching all Authentik users from initial URL: {current_url}")
+
+        page_count = 0
+        while current_url:
+            page_count += 1
+            logging.debug(f"Fetching user page {page_count} from {current_url}")
+            try:
+                response = requests.get(current_url, headers=self.headers)
+                response.raise_for_status()
+                data = response.json()
+                page_users = data.get("results", [])
+                for user in page_users:
+                    email = user.get("email")
+                    pk = user.get("pk")
+                    # It's possible for users to not have an email, or for email to be non-unique
+                    # depending on Authentik config. For this mapping, we prioritize users with emails.
+                    if email and pk is not None:
+                        if email in email_to_user_pk_map and email_to_user_pk_map[email] != pk:
+                            logging.warning(
+                                f"Duplicate email {email} found for different user PKs: "
+                                f"{email_to_user_pk_map[email]} vs {pk}. Using the latest one encountered."
+                            )
+                        email_to_user_pk_map[email.lower()] = pk  # Store email in lowercase for consistent lookups
+
+                current_url = data.get("pagination", {}).get("next")
+                if current_url:
+                    logging.debug(f"Next page for users: {current_url}")
+                else:
+                    logging.debug("No more pages for users.")
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Error fetching Authentik users from {current_url}: {e}")
+                # Return whatever was mapped so far, or an empty map if critical
+                return email_to_user_pk_map
+            except json.JSONDecodeError as e:
+                logging.error(f"Error decoding JSON from Authentik users response ({current_url}): {e}")
+                return email_to_user_pk_map
+
+        logging.info(
+            f"Fetched {len(email_to_user_pk_map)} user email-PK mappings from Authentik over {page_count} pages."
+        )
+        return email_to_user_pk_map
 
     def get_group_by_name(self, group_name: str) -> Optional[dict]:
         """

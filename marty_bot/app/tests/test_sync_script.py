@@ -122,10 +122,10 @@ class TestSyncLogic(unittest.TestCase):
         self.assertEqual(email_map, {})
 
     @patch("libraries.group_sync_services.sync_entity_permissions")
-    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
+    # Removed @patch for get_all_authentik_groups_and_user_map
     @patch("libraries.group_sync_services.config")
     def test_library_orchestrate_sync_success_all_clients(
-        self, mock_lib_config, mock_get_groups_map, mock_sync_entity_permissions
+        self, mock_lib_config, mock_sync_entity_permissions  # mock_get_groups_map removed
     ):
         mock_auth_client = MagicMock(spec=AuthentikClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
@@ -136,10 +136,14 @@ class TestSyncLogic(unittest.TestCase):
             {"name": "projet_alpha Admin", "pk": "g1_adm", "users": [], "users_obj": []},
             {"name": "antenne_beta", "pk": "g2_std", "users": [], "users_obj": []},
         ]
-        mock_email_pk_map = {"user1@example.com": "upk1"}
-        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map)  # For the email map part
-        # Also mock the direct call to authentik_client.get_groups_with_users for group discovery
-        mock_auth_client.get_groups_with_users.return_value = (mock_groups_list, mock_email_pk_map)
+        # This is the email map that should be used by sync_entity_permissions
+        mock_email_pk_map_for_sync = {"user1@example.com": "upk1"}
+
+        # Setup mock_auth_client calls
+        # get_groups_with_users returns the groups and its own derived email_map (which is ignored by orchestrate)
+        mock_auth_client.get_groups_with_users.return_value = (mock_groups_list, {"temp_email@example.com": "temp_pk"})
+        # get_all_user_email_to_pk_map returns the primary email map
+        mock_auth_client.get_all_user_email_to_pk_map.return_value = mock_email_pk_map_for_sync
 
         mock_lib_config.PERMISSIONS_MATRIX = {
             "PROJET": {
@@ -163,11 +167,18 @@ class TestSyncLogic(unittest.TestCase):
             self.mock_brevo_client_instance,
             mock_team_id,
             perform_deletions=True,
+            fetch_remote_members=True,  # This ensures get_groups_with_users and get_all_user_email_to_pk_map are called
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, expected_detailed_results)
-        mock_get_groups_map.assert_called_once_with(mock_auth_client)
+
+        mock_auth_client.get_groups_with_users.assert_called_once_with(fetch_members=True)
+        mock_auth_client.get_all_user_email_to_pk_map.assert_called_once_with()
+
         self.assertEqual(mock_sync_entity_permissions.call_count, 2)
+        # Construct expected all_auth_groups_by_name from mock_groups_list for assertion
+        expected_all_auth_groups_by_name = {g["name"]: g for g in mock_groups_list}
+
         mock_sync_entity_permissions.assert_any_call(
             mock_auth_client,
             mock_mm_client,
@@ -177,9 +188,9 @@ class TestSyncLogic(unittest.TestCase):
             "alpha",
             "PROJET",
             mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
-            unittest.mock.ANY,  # all_authentik_groups_by_name
-            mock_email_pk_map,
-            True,  # perform_deletions
+            expected_all_auth_groups_by_name,
+            mock_email_pk_map_for_sync,  # Use the map from get_all_user_email_to_pk_map
+            True,
         )
         mock_sync_entity_permissions.assert_any_call(
             mock_auth_client,
@@ -190,28 +201,26 @@ class TestSyncLogic(unittest.TestCase):
             "beta",
             "ANTENNE",
             mock_lib_config.PERMISSIONS_MATRIX["ANTENNE"],
-            unittest.mock.ANY,  # all_authentik_groups_by_name
-            mock_email_pk_map,
-            True,  # perform_deletions
+            expected_all_auth_groups_by_name,
+            mock_email_pk_map_for_sync,  # Use the map from get_all_user_email_to_pk_map
+            True,
         )
 
     @patch("libraries.group_sync_services.sync_entity_permissions")
-    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
+    # Removed @patch for get_all_authentik_groups_and_user_map
     @patch("libraries.group_sync_services.config")
     def test_library_orchestrate_sync_success_outline_client_none(
-        self, mock_lib_config, mock_get_groups_map, mock_sync_entity_permissions
+        self, mock_lib_config, mock_sync_entity_permissions  # mock_get_groups_map removed
     ):
         mock_auth_client = MagicMock(spec=AuthentikClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
         mock_team_id = "team123"
         mock_outline_client_none = None
         mock_groups_list = [{"name": "projet_gamma", "pk": "g_gamma", "users": [], "users_obj": []}]
-        mock_email_pk_map = {"usergamma@example.com": "upk_gamma"}
-        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map)  # For email map
-        mock_auth_client.get_groups_with_users.return_value = (
-            mock_groups_list,
-            mock_email_pk_map,
-        )  # For group discovery
+
+        mock_email_pk_map_for_sync = {"usergamma@example.com": "upk_gamma"}
+        mock_auth_client.get_groups_with_users.return_value = (mock_groups_list, {"temp@example.com": "temp_pk"})
+        mock_auth_client.get_all_user_email_to_pk_map.return_value = mock_email_pk_map_for_sync
 
         mock_lib_config.PERMISSIONS_MATRIX = {
             "PROJET": {"standard": {"authentik_group_name_pattern": "projet_{base_name}"}}
@@ -225,9 +234,12 @@ class TestSyncLogic(unittest.TestCase):
             self.mock_brevo_client_instance,
             mock_team_id,
             perform_deletions=True,
+            fetch_remote_members=True,  # Ensures the client methods are called
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, expected_detailed_results)
+
+        expected_all_auth_groups_by_name = {g["name"]: g for g in mock_groups_list}
         mock_sync_entity_permissions.assert_called_once_with(
             mock_auth_client,
             mock_mm_client,
@@ -237,33 +249,36 @@ class TestSyncLogic(unittest.TestCase):
             "gamma",
             "PROJET",
             mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
-            unittest.mock.ANY,  # all_authentik_groups_by_name
-            mock_email_pk_map,
-            True,  # perform_deletions
+            expected_all_auth_groups_by_name,
+            mock_email_pk_map_for_sync,  # Assert with the map from get_all_user_email_to_pk_map
+            True,
         )
 
-    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
+    # Removed @patch for get_all_authentik_groups_and_user_map
     @patch("libraries.group_sync_services.config")
-    def test_library_orchestrate_sync_no_groups_found(self, mock_lib_config, mock_get_groups_map):
+    def test_library_orchestrate_sync_no_groups_found(self, mock_lib_config):  # mock_get_groups_map removed
         mock_auth_client = MagicMock(spec=AuthentikClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
         mock_outline_client = MagicMock(spec=OutlineClient)
         mock_team_id = "team123"
-        mock_get_groups_map.return_value = ([], {})  # For email map part
-        mock_auth_client.get_groups_with_users.return_value = ([], {})  # For group discovery part
+
+        # Setup mock_auth_client calls
+        mock_auth_client.get_groups_with_users.return_value = ([], {})
+        mock_auth_client.get_all_user_email_to_pk_map.return_value = {}
 
         success, detailed_results = orchestrate_group_synchronization(
             mock_auth_client,
             mock_mm_client,
             mock_outline_client,
-            self.mock_brevo_client_instance,  # Use instance mock
+            self.mock_brevo_client_instance,
             mock_team_id,
             perform_deletions=True,
-            # fetch_remote_members defaults to True, so this will use the mock_auth_client.get_groups_with_users
+            fetch_remote_members=True,  # Ensures client methods for group discovery are called
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, [])
-        mock_get_groups_map.assert_called_once_with(mock_auth_client)
+        mock_auth_client.get_groups_with_users.assert_called_once_with(fetch_members=True)
+        mock_auth_client.get_all_user_email_to_pk_map.assert_called_once_with()
 
     def test_library_orchestrate_sync_core_clients_missing(self):
         mock_outline_client = MagicMock(spec=OutlineClient)
