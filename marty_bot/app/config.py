@@ -28,6 +28,7 @@ NOCODB_TOKEN = os.getenv("NOCODB_TOKEN")
 NOCODB_SHARED_VIEW_PROJECTS_URL = os.getenv("NOCODB_SHARED_VIEW_PROJECTS_URL")
 NOCODB_SHARED_VIEW_ANTENNES_URL = os.getenv("NOCODB_SHARED_VIEW_ANTENNES_URL")
 NOCODB_SHARED_VIEW_POLES_URL = os.getenv("NOCODB_SHARED_VIEW_POLES_URL")
+# NOCODB_PROJECT_ID is removed as each Antenne/Pole will have its own project/database
 
 # Brevo settings
 BREVO_API_URL = os.getenv("BREVO_API_URL", "https://api.brevo.com/v3")
