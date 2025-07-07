@@ -14,7 +14,7 @@ permissions:
       admin_access: "read_write"
     brevo:
       list_name_pattern: "projet_{base_name}"
-      folder_name: "Projets MartyBot" # Placeholder, user should update
+      folder_name: "projets" # Placeholder, user should update
     # No nocodb section for PROJET as requested
 
   ANTENNE:
@@ -32,7 +32,7 @@ permissions:
       admin_access: "read_write"
     brevo:
       list_name_pattern: "antenne_{base_name}"
-      folder_name: "Antennes MartyBot" # Placeholder, user should update
+      folder_name: "antennes" # Placeholder, user should update
     nocodb:
       base_title_pattern: "antenne_{base_name}"
       default_access: "viewer"
@@ -53,7 +53,7 @@ permissions:
       admin_access: "read_write"
     brevo:
       list_name_pattern: "pole_{base_name}"
-      folder_name: "Poles MartyBot" # Placeholder, user should update
+      folder_name: "poles" # Placeholder, user should update
     nocodb:
       base_title_pattern: "pole_{base_name}"
       default_access: "viewer"
