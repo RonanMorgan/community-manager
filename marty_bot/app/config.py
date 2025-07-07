@@ -29,10 +29,6 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 BREVO_DEFAULT_SENDER_EMAIL = os.getenv("BREVO_DEFAULT_SENDER_EMAIL")
 BREVO_DEFAULT_SENDER_NAME = os.getenv("BREVO_DEFAULT_SENDER_NAME", "Marty Bot")
 
-# NoCoDB settings
-NOCODB_URL = os.getenv("NOCODB_URL")
-NOCODB_TOKEN = os.getenv("NOCODB_TOKEN")
-
 # General Configuration
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 

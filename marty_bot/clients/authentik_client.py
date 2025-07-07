@@ -61,53 +61,64 @@ class AuthentikClient:
             logging.error(f"Error decoding JSON from Authentik group creation response for '{project_name}': {e}")
             return False
 
-    def get_groups_with_users(self):
+    def get_groups_with_users(self, fetch_members: bool = True):
         """
-        Fetches all groups from Authentik and their user objects, handling pagination.
+        Fetches all groups from Authentik, handling pagination.
+        If fetch_members is True, attempts to include user objects for each group.
         Returns a tuple: (list_of_group_objects, dict_email_to_user_pk).
-        Each group object in the list should at least contain 'pk', 'name', and 'users' (list of user PKs).
-        The dict_email_to_user_pk maps user email to their Authentik user PK.
+        The email_to_user_pk_map is populated only if fetch_members is True and users_obj are available.
         """
-        if not self.base_url or not self.token:  # Should be caught by __init__ but good practice
+        if not self.base_url or not self.token:
             logging.error("Authentik client not configured (URL or Token missing).")
             return [], {}
 
         all_groups = []
+        # email_to_user_pk_map will be populated by a separate call if needed,
+        # or if fetch_members is true and users_obj are successfully retrieved here.
         email_to_user_pk_map = {}
 
-        current_url = (
-            f"{self.base_url}/api/v3/core/groups/?include_users=true"  # Assuming include_users provides users_obj
-        )
-        logging.info(f"Fetching Authentik groups (with users) from initial URL: {current_url}")
+        url_params = {}
+        if fetch_members:
+            url_params["include_users"] = "true"
+
+        current_url = f"{self.base_url}/api/v3/core/groups/"
+        logging.info(f"Fetching Authentik groups (fetch_members: {fetch_members}) from initial URL: {current_url}")
 
         page_count = 0
+        first_page = True
         while current_url:
             page_count += 1
             logging.debug(f"Fetching group page {page_count} from {current_url}")
             try:
-                response = requests.get(current_url, headers=self.headers)
+                # Pass params only for the first request, subsequent are full URLs from 'next'
+                response = requests.get(current_url, headers=self.headers, params=url_params if first_page else None)
+                first_page = False  # Params only needed for the very first call
                 response.raise_for_status()
                 data = response.json()
 
                 page_groups = data.get("results", [])
                 all_groups.extend(page_groups)
 
-                # Process users from this page of groups
-                for group in page_groups:
-                    # Assuming users_obj is directly available or via an endpoint per group
-                    # The prompt implies 'users_obj' is part of the group details when fetched correctly.
-                    # If not, this part would need adjustment (e.g. fetch users per group)
-                    users_obj = group.get("users_obj", [])
-                    for user in users_obj:
-                        email = user.get("email")
-                        pk = user.get("pk")
-                        if email and pk is not None:
-                            if email in email_to_user_pk_map and email_to_user_pk_map[email] != pk:
-                                logging.warning(
-                                    f"User email {email} has conflicting PKs: "
-                                    f"{email_to_user_pk_map[email]} vs {pk}. Using the latest one encountered."
-                                )
-                            email_to_user_pk_map[email] = pk
+                if fetch_members:  # Only process users if requested
+                    for group in page_groups:
+                        users_obj_list = group.get("users_obj")
+                        if users_obj_list is None:
+                            logging.warning(
+                                f"Group '{group.get('name')}' (PK: {group.get('pk')}) missing 'users_obj' "
+                                "despite include_users=true. Users for this group won't be mapped by email."
+                            )
+                            group["users_obj"] = []
+
+                        for user in group.get("users_obj", []):
+                            email = user.get("email")
+                            pk = user.get("pk")  # Corrected indentation
+                            if email and pk is not None:
+                                if email in email_to_user_pk_map and email_to_user_pk_map[email] != pk:
+                                    logging.warning(
+                                        f"User email {email} has conflicting PKs: "
+                                        f"{email_to_user_pk_map[email]} vs {pk}. Using the latest one encountered."
+                                    )
+                                email_to_user_pk_map[email] = pk
 
                 current_url = data.get("pagination", {}).get("next")
                 if current_url:
@@ -127,6 +138,59 @@ class AuthentikClient:
         )
         return all_groups, email_to_user_pk_map
 
+    def get_all_user_email_to_pk_map(self) -> dict:
+        """
+        Fetches all users from Authentik and constructs a map of email to user PK.
+        Handles pagination.
+        """
+        if not self.base_url or not self.token:
+            logging.error("Authentik client not configured (URL or Token missing).")
+            return {}
+
+        email_to_user_pk_map = {}
+        current_url = f"{self.base_url}/api/v3/core/users/"
+        logging.info(f"Fetching all Authentik users from initial URL: {current_url}")
+
+        page_count = 0
+        while current_url:
+            page_count += 1
+            logging.debug(f"Fetching user page {page_count} from {current_url}")
+            try:
+                response = requests.get(current_url, headers=self.headers)
+                response.raise_for_status()
+                data = response.json()
+                page_users = data.get("results", [])
+                for user in page_users:
+                    email = user.get("email")
+                    pk = user.get("pk")
+                    # It's possible for users to not have an email, or for email to be non-unique
+                    # depending on Authentik config. For this mapping, we prioritize users with emails.
+                    if email and pk is not None:
+                        if email in email_to_user_pk_map and email_to_user_pk_map[email] != pk:
+                            logging.warning(
+                                f"Duplicate email {email} found for different user PKs: "
+                                f"{email_to_user_pk_map[email]} vs {pk}. Using the latest one encountered."
+                            )
+                        email_to_user_pk_map[email.lower()] = pk  # Store email in lowercase for consistent lookups
+
+                current_url = data.get("pagination", {}).get("next")
+                if current_url:
+                    logging.debug(f"Next page for users: {current_url}")
+                else:
+                    logging.debug("No more pages for users.")
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Error fetching Authentik users from {current_url}: {e}")
+                # Return whatever was mapped so far, or an empty map if critical
+                return email_to_user_pk_map
+            except json.JSONDecodeError as e:
+                logging.error(f"Error decoding JSON from Authentik users response ({current_url}): {e}")
+                return email_to_user_pk_map
+
+        logging.info(
+            f"Fetched {len(email_to_user_pk_map)} user email-PK mappings from Authentik over {page_count} pages."
+        )
+        return email_to_user_pk_map
+
     def get_group_by_name(self, group_name: str) -> Optional[dict]:
         """
         Fetches a specific group by its name.
@@ -140,95 +204,43 @@ class AuthentikClient:
             logging.error("Group name must be provided to fetch group by name.")
             return None
 
-        # Step 1: Find group by name (without users initially for performance)
-        # This part will use pagination to be safe, even if we expect one result.
+        # Note: URL encoding for group_name might be necessary if names can contain special characters.
+        # requests usually handles this for query parameters.
+        api_url = f"{self.base_url}/api/v3/core/groups/"
+        params = {"name": group_name, "include_users": "true"}  # Ensure users_obj is included
 
-        groups_found = []
-        current_url = f"{self.base_url}/api/v3/core/groups/"
-        params = {"name": group_name}
+        logging.info(f"Fetching Authentik group by name '{group_name}' from {api_url} with params {params}")
+        try:
+            response = requests.get(api_url, headers=self.headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+            results = data.get("results", [])
+            if results:
+                if len(results) > 1:
+                    logging.warning(
+                        f"Found multiple groups ({len(results)}) with the name '{group_name}'. Returning the first one."
+                    )
+                group_obj = results[0]
+                # Ensure the returned object has the expected structure, especially for users,
+                # similar to how get_groups_with_users structures it for consistency.
+                if "users" not in group_obj:  # List of user PKs
+                    group_obj["users"] = [user["pk"] for user in group_obj.get("users_obj", [])]
 
-        logging.info(f"Fetching Authentik group(s) by name '{group_name}' from {current_url} with params {params}")
-        page_count = 0
-        while current_url:
-            page_count += 1
-            logging.debug(
-                f"Fetching group search page {page_count} from {current_url} with params {params if page_count == 1 else None}"
-            )
-            try:
-                response = requests.get(current_url, headers=self.headers, params=params if page_count == 1 else None)
-                response.raise_for_status()
-                data = response.json()
-                page_results = data.get("results", [])
-                groups_found.extend(page_results)
-                current_url = data.get("pagination", {}).get("next")
-                if current_url:
-                    logging.debug(f"Next page for group search: {current_url}")
-            except requests.exceptions.RequestException as e:
-                logging.error(f"Error fetching Authentik groups by name '{group_name}': {e}")
+                return group_obj
+            else:
+                logging.info(f"No Authentik group found with name '{group_name}'.")
                 return None
-            except json.JSONDecodeError as e:
-                logging.error(f"Error decoding JSON for Authentik groups by name '{group_name}': {e}")
-                return None
-
-        if not groups_found:
-            logging.info(f"No Authentik group found with name '{group_name}'.")
-            return None
-
-        if len(groups_found) > 1:
-            logging.warning(
-                f"Found multiple groups ({len(groups_found)}) with the name '{group_name}'. Returning the first one."
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error fetching Authentik group '{group_name}': {e.response.status_code} - {e.response.text}"
             )
-
-        group_obj = groups_found[0]
-        group_pk = group_obj.get("pk")
-
-        if not group_pk:
-            logging.error(f"Found group '{group_name}' but it has no PK: {group_obj}")
             return None
-
-        # Step 2: Fetch users for this specific group, with pagination
-        users_for_group_pks = []
-        users_for_group_objs = []
-        current_users_url = f"{self.base_url}/api/v3/core/groups/{group_pk}/users/"
-        user_page_count = 0
-        logging.info(f"Fetching users for group '{group_name}' (PK: {group_pk}) from {current_users_url}")
-
-        while current_users_url:
-            user_page_count += 1
-            logging.debug(f"Fetching users page {user_page_count} for group {group_pk} from {current_users_url}")
-            try:
-                response = requests.get(current_users_url, headers=self.headers)
-                response.raise_for_status()
-                user_data = response.json()
-                page_user_results = user_data.get("results", [])
-
-                for user_detail in page_user_results:
-                    users_for_group_pks.append(user_detail.get("pk"))
-                    users_for_group_objs.append(user_detail)  # Assuming this is the user object structure
-
-                current_users_url = user_data.get("pagination", {}).get("next")
-                if current_users_url:
-                    logging.debug(f"Next page for users of group {group_pk}: {current_users_url}")
-
-            except requests.exceptions.RequestException as e:
-                logging.error(f"Error fetching users for Authentik group PK {group_pk}: {e}")
-                # Return group object with potentially partial user list or empty if preferred
-                group_obj["users"] = users_for_group_pks
-                group_obj["users_obj"] = users_for_group_objs
-                return group_obj  # Or None if failure to get users is critical
-            except json.JSONDecodeError as e:
-                logging.error(f"Error decoding JSON for users of Authentik group PK {group_pk}: {e}")
-                group_obj["users"] = users_for_group_pks
-                group_obj["users_obj"] = users_for_group_objs
-                return group_obj  # Or None
-
-        group_obj["users"] = users_for_group_pks
-        group_obj["users_obj"] = users_for_group_objs
-
-        logging.info(
-            f"Successfully fetched group '{group_name}' (PK: {group_pk}) with {len(users_for_group_pks)} users."
-        )
-        return group_obj
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception fetching Authentik group '{group_name}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from Authentik get_group_by_name response for '{group_name}': {e}")
+            return None
 
     def add_user_to_group(self, group_pk, user_pk):
         """Adds a user to an Authentik group."""

@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
     from clients.outline_client import OutlineClient
     from clients.brevo_client import BrevoClient
-    from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
 
 
 # Copied from mattermost_client.py to avoid import issues and keep it self-contained here for now.
@@ -80,8 +79,7 @@ def sync_entity_permissions(
     authentik_client: "AuthentikClient",
     mattermost_client: "MattermostClient",
     outline_client: Optional["OutlineClient"],
-    brevo_client: Optional["BrevoClient"],
-    nocodb_client: Optional["NocoDBClient"],  # Added NocoDBClient
+    brevo_client: Optional["BrevoClient"],  # Added Brevo client
     mm_team_id: str,
     base_name: str,
     entity_key: str,
@@ -89,7 +87,6 @@ def sync_entity_permissions(
     all_authentik_groups_by_name: dict,
     email_to_authentik_user_pk_map: dict,
     perform_deletions: bool,
-    skip_services: list[str] | None = None,  # Added skip_services
 ) -> list[dict]:
     """
     Synchronizes permissions for a single entity (e.g., a project, an antenne)
@@ -102,8 +99,7 @@ def sync_entity_permissions(
     std_config = entity_config.get("standard", {})
     admin_config = entity_config.get("admin")
     outline_cfg = entity_config.get("outline", {})
-    brevo_cfg = entity_config.get("brevo", {})
-    nocodb_cfg = entity_config.get("nocodb", {})  # Added NocoDB config
+    brevo_cfg = entity_config.get("brevo", {})  # Added Brevo config
 
     std_auth_group_name = std_config.get("authentik_group_name_pattern", "{base_name}").format(base_name=base_name)
     std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(base_name=base_name)
@@ -295,175 +291,7 @@ def sync_entity_permissions(
             )
         )
 
-    # NoCoDB Sync (only for ANTENNE and POLES)
-    skip_services = skip_services or []  # Ensure it's a list for safe checking
-    if "nocodb" not in skip_services and nocodb_client and nocodb_cfg and entity_key in ["ANTENNE", "POLES"]:
-        nocodb_base_title_pattern = nocodb_cfg.get("base_title_pattern", "nocodb_{base_name}")
-        # base_name is the entity's base name (e.g., "MyAntenne")
-        # mm_users_for_services contains the necessary user details including 'is_admin_channel_member'
-        default_nocodb_permission = nocodb_cfg.get("default_access", "viewer")
-        admin_nocodb_permission = nocodb_cfg.get("admin_access", "owner")
-        results.extend(
-            _sync_single_nocodb_base(
-                nocodb_client,
-                nocodb_base_title_pattern,
-                base_name,  # This is the base_name of the entity (e.g. "MonAntenne")
-                mm_users_for_services,  # Combined user list with admin flag
-                default_nocodb_permission,
-                admin_nocodb_permission,
-                std_mm_channel_name_for_log,  # Context for logging
-                perform_deletions,
-            )
-        )
-
     logging.info(f"Finished sync for entity '{base_name}'. Total results: {len(results)}")
-    return results
-
-
-def _sync_single_nocodb_base(
-    nocodb_client: "NocoDBClient",
-    base_title_pattern: str,
-    entity_base_name: str,  # e.g., "AntenneParis"
-    mm_users_for_permission: dict,  # email_lower -> {username, mm_user_id, is_admin_channel_member}
-    default_permission: str,
-    admin_permission: str,
-    mm_channel_context_name: str,  # For logging/reporting context
-    perform_deletions: bool,
-) -> list[dict]:
-    results = []
-    nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
-    # Main entry log changed to DEBUG, INFO will be for specific actions taken.
-    logging.debug(f"Starting NoCoDB base sync for '{nocodb_base_title}'. Deletions: {perform_deletions}")
-
-    nocodb_base_obj = nocodb_client.get_base_by_title(nocodb_base_title)
-    if not nocodb_base_obj or not nocodb_base_obj.get("id"):
-        logging.warning(  # This is an important warning, so kept as WARNING.
-            f"NoCoDB base '{nocodb_base_title}' not found. Skipping sync. It should be created by 'create_antenne/pole' command."
-        )
-        return [
-            {
-                "service": "NOCODB",
-                "target_resource_name": nocodb_base_title,
-                "status": "SKIPPED",
-                "action": "SKIPPED_NOCODB_BASE_NOT_FOUND",
-                "error_message": f"Base '{nocodb_base_title}' not found in NoCoDB.",
-            }
-        ]
-
-    base_id = nocodb_base_obj["id"]
-    current_nocodb_users_list = nocodb_client.list_base_users(base_id)
-    # Create a map of email_lower -> user_obj for current NoCoDB users for quick lookup
-    current_nocodb_users_map = {
-        user.get("email", "").lower(): user for user in current_nocodb_users_list if user.get("email")
-    }
-    target_nocodb_user_emails = set()  # Set of emails that should be in the base
-
-    for email_lower, mm_user_data in mm_users_for_permission.items():
-        mm_username = mm_user_data["username"]
-
-        if mm_username in config.EXCLUDED_USERS:
-            logging.debug(
-                f"User '{mm_username}' is excluded. Skipping NoCoDB sync for base '{nocodb_base_title}'."
-            )  # DEBUG
-            if (
-                email_lower in current_nocodb_users_map
-            ):  # If excluded user is already there, ensure they are not removed
-                target_nocodb_user_emails.add(email_lower)
-            continue
-
-        base_user_info = {
-            "mm_username": mm_username,
-            "mm_user_email": email_lower,
-            "mm_channel_display_name": mm_channel_context_name,
-            "target_resource_name": nocodb_base_title,
-            "service": "NOCODB",
-        }
-        nocodb_result = {**base_user_info, "status": "FAILURE", "action": "NOCODB_USER_UNCHANGED"}
-
-        target_role = admin_permission if mm_user_data["is_admin_channel_member"] else default_permission
-        target_nocodb_user_emails.add(email_lower)  # Mark this email as "should be in base"
-
-        existing_nocodb_user = current_nocodb_users_map.get(email_lower)
-
-        if existing_nocodb_user:
-            # User exists in NoCoDB base, check if role needs update
-            nocodb_user_id = existing_nocodb_user["id"]
-            current_role = existing_nocodb_user.get("roles")  # API returns "roles" as a string like "owner"
-            if current_role != target_role:
-                if nocodb_client.update_base_user(base_id, nocodb_user_id, target_role):
-                    nocodb_result.update(
-                        {"status": "SUCCESS", "action": f"NOCODB_USER_ROLE_UPDATED_TO_{target_role.upper()}"}
-                    )
-                else:
-                    nocodb_result.update(
-                        {
-                            "action": "FAILED_TO_UPDATE_NOCODB_USER_ROLE",
-                            "error_message": "API call to update user role failed.",
-                        }
-                    )
-            else:
-                nocodb_result.update({"status": "SUCCESS", "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"})
-        else:
-            # User not in NoCoDB base, invite them
-            if nocodb_client.invite_user_to_base(base_id, email_lower, target_role):
-                nocodb_result.update({"status": "SUCCESS", "action": f"NOCODB_USER_INVITED_AS_{target_role.upper()}"})
-            else:
-                # Check if the user exists in NocoDB but couldn't be invited (e.g. already invited but not accepted, or other issue)
-                # This part might need more specific error handling based on NocoDBClient's invite_user_to_base behavior
-                nocodb_result.update(
-                    {"action": "FAILED_TO_INVITE_NOCODB_USER", "error_message": "API call to invite user failed."}
-                )
-        results.append(nocodb_result)
-
-    if perform_deletions:
-        for existing_email_lower, nocodb_user_obj in current_nocodb_users_map.items():
-            nocodb_user_id_to_remove = nocodb_user_obj["id"]
-            # Try to find original Mattermost username for logging if possible, otherwise use email.
-            # This requires mm_users_for_permission to be comprehensive or another source for username if not in current MM channels.
-            # For simplicity, we'll use the email as the primary identifier from NoCoDB's user list.
-            username_for_log = nocodb_user_obj.get("firstname", "") + " " + nocodb_user_obj.get("lastname", "")
-            if not username_for_log.strip():  # Fallback if no name
-                username_for_log = existing_email_lower
-
-            # Check if this NoCoDB user (by email) is in the EXCLUDED_USERS list via their MM username
-            # This requires a reverse lookup: find if any mm_user_data maps to this email_lower and has an excluded username
-            is_excluded = False
-            for mm_email, mm_data in mm_users_for_permission.items():
-                if mm_email == existing_email_lower and mm_data.get("username") in config.EXCLUDED_USERS:
-                    is_excluded = True
-                    break
-            # Also, if the user was directly added to target_nocodb_user_emails due to exclusion earlier, respect that.
-            if existing_email_lower in target_nocodb_user_emails and any(
-                mm_data.get("username") in config.EXCLUDED_USERS
-                for mm_data in mm_users_for_permission.values()
-                if mm_data.get("email") == existing_email_lower
-            ):
-                is_excluded = True
-
-            if not is_excluded and existing_email_lower not in target_nocodb_user_emails:
-                removal_base_info = {
-                    "mm_username": username_for_log,  # Best effort username from NoCoDB
-                    "mm_user_email": existing_email_lower,
-                    "mm_channel_display_name": mm_channel_context_name,
-                    "target_resource_name": nocodb_base_title,
-                    "service": "NOCODB",
-                }
-                removal_result = {**removal_base_info, "status": "FAILURE", "action": "FAILED_TO_REMOVE_NOCODB_USER"}
-                if nocodb_client.delete_base_user(base_id, nocodb_user_id_to_remove):  # This sets role to "no-access"
-                    removal_result.update({"status": "SUCCESS", "action": "NOCODB_USER_REMOVED_FROM_BASE"})
-                else:
-                    removal_result["error_message"] = (
-                        "API call to remove user (set no-access) from NoCoDB base failed."
-                    )
-                results.append(removal_result)
-            elif is_excluded:
-                logging.debug(  # DEBUG for excluded user preservation details
-                    f"User '{username_for_log}' ({existing_email_lower}) is in NoCoDB base "
-                    f"'{nocodb_base_title}' and is excluded from sync-based removal."
-                )
-
-    # Summary log changed to DEBUG. INFO logs will be for specific successful/failed actions.
-    logging.debug(f"Finished NoCoDB base sync for '{nocodb_base_title}'. Total results: {len(results)}")
     return results
 
 
@@ -613,10 +441,12 @@ def _sync_single_outline_collection(
             )
             # If an excluded user is already in the collection, ensure they are not removed by adding their Outline ID
             # to the target set if they are a current member.
-            temp_outline_user = outline_client.get_user_by_email(email_lower)
-            if temp_outline_user and temp_outline_user.get("id") in current_outline_member_ids:
-                target_outline_ids_for_collection.add(temp_outline_user.get("id"))
-                # Populate map for removal loop's exclusion check (though primarily for logging if not excluded)
+            # Avoid calling get_user_by_email with potentially invalid placeholder emails like 'marty@localhost'
+            if email_lower and "@" in email_lower and not email_lower.endswith("@localhost"):  # Basic sanity check
+                temp_outline_user = outline_client.get_user_by_email(email_lower)
+                if temp_outline_user and temp_outline_user.get("id") in current_outline_member_ids:
+                    target_outline_ids_for_collection.add(temp_outline_user.get("id"))
+                    # Populate map for removal loop's exclusion check (though primarily for logging if not excluded)
                 outline_id_to_mm_user_map[temp_outline_user.get("id")] = {
                     "username": mm_username,
                     "mm_user_id": mm_user_data.get("mm_user_id"),  # For DM context if needed
@@ -919,17 +749,14 @@ def orchestrate_group_synchronization(
     authentik_client: "AuthentikClient",
     mattermost_client: "MattermostClient",
     outline_client: Optional["OutlineClient"],
-    brevo_client: Optional["BrevoClient"],
-    nocodb_client: Optional["NocoDBClient"],  # Added NocoDB client
+    brevo_client: Optional["BrevoClient"],  # Added Brevo client
     mm_team_id: str,
     perform_deletions: bool = True,
     fetch_remote_members: bool = True,
-    skip_services: list[str] | None = None,  # Added skip_services parameter
 ) -> tuple[bool, list[dict]]:
-    skip_services = skip_services or []  # Ensure it's a list
     logging.info(
         f"Starting group synchronization task... "
-        f"(Perform Deletions: {perform_deletions}, Fetch Remote Members: {fetch_remote_members}, Skip Services: {skip_services})"
+        f"(Perform Deletions: {perform_deletions}, Fetch Remote Members: {fetch_remote_members})"
     )
     detailed_results = []
 
@@ -948,14 +775,12 @@ def orchestrate_group_synchronization(
         logging.info("Outline client not provided. Outline synchronization will be skipped.")
     if not brevo_client:
         logging.info("Brevo client not provided. Brevo synchronization will be skipped.")
-    if not nocodb_client:
-        logging.info("NocoDB client not provided. NocoDB synchronization will be skipped.")
 
     # Fetch all Authentik users for email-to-PK mapping if Authentik client is available
-    # This map is crucial for Authentik operations.
-    # However, fetching all groups is conditional.
-    _, email_to_auth_pk_map = get_all_authentik_groups_and_user_map(authentik_client)  # We always need the email map
-    if not email_to_auth_pk_map:
+    email_to_auth_pk_map = {}
+    if authentik_client:
+        email_to_auth_pk_map = authentik_client.get_all_user_email_to_pk_map()
+    if not email_to_auth_pk_map and authentik_client:  # Log warning only if client exists but map is empty
         logging.warning(
             "Authentik email-to-user-PK map is empty. Authentik sync operations might not find users effectively."
         )
@@ -964,25 +789,27 @@ def orchestrate_group_synchronization(
     entities_to_process = {}  # Stores { (entity_key, base_name): entity_config }
 
     if fetch_remote_members:
-        logging.info("Fetching all Authentik groups to discover entities...")
-        all_auth_groups_list = []  # Initialize to empty list
-        if authentik_client:  # Check if client exists before using
-            all_auth_groups_list, _ = authentik_client.get_groups_with_users()  # email_map already fetched
+        logging.info("Fetching all Authentik groups (with members) to discover entities...")
+        if authentik_client:
+            # When fetching remote members, we need full group objects including their users.
+            # The email_to_auth_pk_map is already fetched separately.
+            # get_groups_with_users(fetch_members=True) populates its own email map from users_obj,
+            # but we prioritize the one from get_all_user_email_to_pk_map if discrepancies occur.
+            # For simplicity, we'll rely on the map from get_all_user_email_to_pk_map.
+            # The second return value (email map from this specific call) can be ignored or merged.
+            all_auth_groups_list, _ = authentik_client.get_groups_with_users(fetch_members=True)
             if not all_auth_groups_list:
                 logging.info("No Authentik groups found or an error occurred during fetching for discovery.")
             all_auth_groups_by_name = {g["name"]: g for g in all_auth_groups_list}
         else:
             logging.warning("Authentik client not available for fetching remote groups by Authentik discovery.")
-            # all_auth_groups_list is already empty, all_auth_groups_by_name will be empty too.
 
-        if not all_auth_groups_list:  # This check remains, covers both missing client and no groups found
-            logging.info(
-                "No Authentik groups found to process based on remote member fetching. Synchronization might be limited."
-            )
-            # Depending on strictness, could return early, or proceed if MM discovery is also planned
-        # all_auth_groups_by_name is defined inside the if authentik_client block, ensure it's initialized if client is None
-        if not authentik_client:
+        # Ensure all_auth_groups_by_name is initialized if client was None or no groups found
+        if not all_auth_groups_by_name:  # Covers both missing client and no groups found from client
             all_auth_groups_by_name = {}
+            logging.info(
+                "No Authentik groups found to process based on remote member fetching. Synchronization might be limited if solely relying on Authentik for discovery."
+            )
 
         for auth_group_name_iter in all_auth_groups_by_name.keys():
             found_entity_key_auth, current_base_name_auth = _map_auth_group_to_entity_and_base_name(
@@ -1035,22 +862,19 @@ def orchestrate_group_synchronization(
             authentik_client,
             mattermost_client,
             outline_client,
-            brevo_client,
-            nocodb_client,  # Pass NocoDB client
+            brevo_client,  # Pass Brevo client
             mm_team_id,
             base_name,
             entity_key,
             entity_config_to_use,
-            all_auth_groups_by_name,  # Corrected variable name
+            all_auth_groups_by_name,  # This will be populated if fetch_remote_members=True, empty otherwise
             email_to_auth_pk_map,
             perform_deletions,
-            skip_services=skip_services,
         )
         detailed_results.extend(entity_sync_results)
 
     log_msg = (
-        f"Synchronization task completed. Mode (fetch_remote: {fetch_remote_members}, "
-        f"deletions: {perform_deletions}, skip_services: {skip_services}). "
+        f"Synchronization task completed. Mode (fetch_remote: {fetch_remote_members}, deletions: {perform_deletions}). "
         f"Processed {len(entities_to_process)} unique entities. "
         f"Total individual operations/results reported: {len(detailed_results)}."
     )
@@ -1098,13 +922,17 @@ def _map_mm_channel_to_entity_and_base_name(
     """
     # Try matching with channel display name first, as it's often more descriptive
     for entity_key, entity_cfg in permissions_matrix.items():
-        if entity_cfg.get("admin"):
-            mm_adm_pattern = entity_cfg.get("admin", {}).get("mattermost_channel_name_pattern")
-            if mm_adm_pattern:
-                base_name = _extract_base_name(mm_channel_display_name, mm_adm_pattern)
-                if base_name is not None:
-                    return entity_key, base_name
-        std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
+        # Try admin pattern first
+        admin_cfg = entity_cfg.get("admin", {})
+        mm_adm_pattern = admin_cfg.get("mattermost_channel_name_pattern")
+        if mm_adm_pattern:
+            base_name = _extract_base_name(mm_channel_display_name, mm_adm_pattern)
+            if base_name is not None:
+                return entity_key, base_name
+
+        # Then try standard pattern
+        std_cfg = entity_cfg.get("standard", {})
+        std_pattern = std_cfg.get("mattermost_channel_name_pattern")
         if std_pattern:
             base_name = _extract_base_name(mm_channel_display_name, std_pattern)
             if base_name is not None:

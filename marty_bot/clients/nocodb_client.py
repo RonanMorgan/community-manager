@@ -16,27 +16,25 @@ class NocoDBClient:
 
         self.base_url = nocodb_url.rstrip("/")
         self.headers = {
-            "xc-token": token,  # Based on NoCoDB docs, token is often passed as xc-token
+            "xc-token": token,
             "Content-Type": "application/json",
         }
-        logger.debug(f"NocoDBClient initialized for URL: {self.base_url}")  # Changed to DEBUG
+        logger.debug(f"NocoDBClient initialized for URL: {self.base_url}")
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> dict | list | None:
         """Helper function to make requests to the NoCoDB API."""
         url = f"{self.base_url}/api/v1/db/meta/{endpoint.lstrip('/')}"
-        # Removed detailed logging of headers and full JSON params from DEBUG by default,
-        # as it can be very verbose and contain sensitive info if not careful.
-        # Users can add it back if specific request debugging is needed.
-        logger.debug(f"NoCoDB API >> Request: {method.upper()} {url}")
-        if kwargs.get("json"):
-            logger.debug(f"NoCoDB API >> JSON Payload: {kwargs.get('json')}")
-
+        json_params = kwargs.get("json")
+        log_message = (
+            f"NoCoDB API >> Request: {method.upper()} {url} - " f"Headers: {self.headers} - JSON Params: {json_params}"
+        )
+        logger.debug(log_message)
         try:
             response = requests.request(method, url, headers=self.headers, **kwargs)
             response.raise_for_status()
-            if response.content:  # Handle cases where response might be empty (e.g., 204 No Content)
+            if response.content:
                 return response.json()
-            return None  # Or return a specific success indicator if appropriate for empty responses
+            return None
         except requests.exceptions.HTTPError as e:
             if e.response is not None:
                 log_msg = (
@@ -60,17 +58,13 @@ class NocoDBClient:
         payload = {
             "title": base_title,
             "description": description,
-            # "sources": [], # Default, can be customized if needed
-            # "color": "#24716E" # Default color
         }
-        logger.info(f"Attempting to create NoCoDB base with title: {base_title}")  # Kept as INFO
+        logger.info(f"Attempting to create NoCoDB base with title: {base_title}")
         response_data = self._make_request("post", "projects/", json=payload)
         if response_data and isinstance(response_data, dict) and response_data.get("id"):
-            logger.info(
-                f"Successfully created NoCoDB base '{base_title}' with ID: {response_data['id']}"
-            )  # Kept as INFO
+            logger.info(f"Successfully created NoCoDB base '{base_title}' with ID: {response_data['id']}")
             return response_data
-        logger.warning(f"Failed to create NoCoDB base '{base_title}'. Response: {response_data}")  # Kept as WARNING
+        logger.warning(f"Failed to create NoCoDB base '{base_title}'. Response: {response_data}")
         return None
 
     def get_base_by_title(self, base_title: str) -> dict | None:
@@ -80,6 +74,11 @@ class NocoDBClient:
         Filters locally as NoCoDB API for listing projects doesn't seem to have a direct name filter.
         """
         logger.debug(f"Attempting to find NoCoDB base with title: {base_title}")
+        logger.debug(
+            "NocoDBClient.get_base_by_title: This method lists all bases to find one by title. "
+            "If many bases exist, this can be inefficient and contribute to DB connection load. "
+            "Consider caching base IDs or implementing server-side filtering if available."
+        )
         response_data = self._make_request("get", "projects/")
         if response_data and isinstance(response_data, dict) and "list" in response_data:
             for base in response_data["list"]:
@@ -98,17 +97,14 @@ class NocoDBClient:
         Role can be: "owner", "creator", "editor", "commenter", "viewer", "guest", "no-access"
         """
         payload = {"email": email, "roles": role}
-        logger.info(
-            f"Attempting to invite user '{email}' to NoCoDB base ID '{base_id}' with role '{role}'"
-        )  # Kept as INFO
+        logger.info(f"Attempting to invite user '{email}' to NoCoDB base ID '{base_id}' with role '{role}'")
         endpoint = f"projects/{base_id}/users"
         response_data = self._make_request("post", endpoint, json=payload)
-        # Successful invitation typically returns a message like:
-        # {"msg": "The user has been invited successfully"}
         if response_data and isinstance(response_data, dict) and "msg" in response_data:
-            user_info = f"Successfully invited user '{email}' to base ID '{base_id}'."
-            message_info = f"Message: {response_data['msg']}"
-            logger.info(f"{user_info} {message_info}")  # noqa: E501
+            logger.info(
+                f"Successfully invited user '{email}' to base ID '{base_id}'. "
+                f"Message: {response_data['msg']}"  # noqa: E501
+            )
             return True
         logger.warning(f"Failed to invite user '{email}' to base ID '{base_id}'. Response: {response_data}")
         return False
@@ -117,27 +113,18 @@ class NocoDBClient:
         """
         Updates a user's role in a specific base.
         API: PATCH /api/v1/db/meta/projects/{baseId}/users/{userId}
-        Note: The API doc provided shows "email" in payload, but typically PATCH for a specific user ID wouldn't need email.
-              Assuming role is the primary updatable field here. If email change is needed, API might differ.
-              For now, following the provided roles example.
         """
-        payload = {"roles": role}  # Assuming only role can be updated this way.
-        logger.info(
-            f"Attempting to update user ID '{user_id}' in NoCoDB base ID '{base_id}' to role '{role}'"
-        )  # Kept as INFO
+        payload = {"roles": role}
+        logger.info(f"Attempting to update user ID '{user_id}' in NoCoDB base ID '{base_id}' to role '{role}'")
         endpoint = f"projects/{base_id}/users/{user_id}"
         response_data = self._make_request("patch", endpoint, json=payload)
-        if (
-            response_data and isinstance(response_data, dict) and "msg" in response_data
-        ):  # e.g. {"msg": "The user has been updated successfully"}
+        if response_data and isinstance(response_data, dict) and "msg" in response_data:
             log_msg = (
                 f"Successfully updated user ID '{user_id}' in base ID '{base_id}'. " f"Message: {response_data['msg']}"
             )
-            logger.info(log_msg)  # Kept as INFO
+            logger.info(log_msg)
             return True
-        logger.warning(
-            f"Failed to update user ID '{user_id}' in base ID '{base_id}'. Response: {response_data}"
-        )  # Kept as WARNING
+        logger.warning(f"Failed to update user ID '{user_id}' in base ID '{base_id}'. Response: {response_data}")
         return False
 
     def list_base_users(self, base_id: str) -> list[dict]:
@@ -164,27 +151,17 @@ class NocoDBClient:
 
     def delete_base_user(self, base_id: str, user_id: str) -> bool:
         """
-        Deletes/removes a user from a specific base.
-        The provided API docs do not show a direct DELETE user endpoint.
-        Common practice might be to use PATCH with role "no-access" or look for a specific DELETE verb.
-        Attempting PATCH with "no-access" as a common alternative. If a true DELETE exists, this should be updated.
-        Considered:
-        PATCH /api/v1/db/meta/projects/{baseId}/users/{userId} with {"roles": "no-access"}
-        If NoCoDB has a dedicated DELETE /api/v1/db/meta/projects/{baseId}/users/{userId}, that would be preferred.
-        For now, implementing the "no-access" role update.
+        Deletes/removes a user from a specific base by setting role to 'no-access'.
         """
-        logger.info(  # Kept as INFO, as this is a significant action (semantically a delete)
+        logger.info(
             f"Attempting to remove user ID '{user_id}' from NoCoDB base ID '{base_id}' "
             "by setting role to 'no-access'."
         )
-        # This effectively uses the update_base_user method with a specific role.
-        # If a direct delete is confirmed, this method should be changed.
         return self.update_base_user(base_id, user_id, role="no-access")
 
     def get_user_by_email_in_base(self, base_id: str, email: str) -> dict | None:
         """
-        Helper to find a user's details (like ID) by their email within a specific base.
-        This is not a direct API call but uses list_base_users and filters locally.
+        Helper to find a user's details by their email within a specific base.
         """
         logger.debug(f"Searching for user with email '{email}' in base ID '{base_id}'.")
         users = self.list_base_users(base_id)
@@ -198,62 +175,4 @@ class NocoDBClient:
 
 
 if __name__ == "__main__":
-    # This block is for example usage and local testing.
-    # It's commented out to prevent flake8 errors about unused 'os' and 'dotenv'
-    # when this file is linted as part of the project's production code.
-    # To run this example:
-    # 1. Uncomment the block.
-    # 2. Ensure you have a .env file with NOCODB_URL and NOCODB_TOKEN in the marty_bot/clients/ directory
-    #    or in the project root, or have these environment variables set.
-    # 3. Run this script directly: python marty_bot/clients/nocodb_client.py
-
-    # import os
-    # from dotenv import load_dotenv
-    #
-    # dotenv_path = os.path.join(os.path.dirname(__file__), ".env")
-    # if not os.path.exists(dotenv_path):
-    #     dotenv_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env") # Project root
-    # load_dotenv(dotenv_path=dotenv_path)
-    #
-    # NOCODB_URL_ENV = os.getenv("NOCODB_URL")
-    # NOCODB_TOKEN_ENV = os.getenv("NOCODB_TOKEN")
-    #
-    # if not NOCODB_URL_ENV or not NOCODB_TOKEN_ENV:
-    #     print("NOCODB_URL and NOCODB_TOKEN must be set for example usage.")
-    # else:
-    #     logging.basicConfig(level=logging.DEBUG)
-    #     client = NocoDBClient(nocodb_url=NOCODB_URL_ENV, token=NOCODB_TOKEN_ENV)
-    #     print(f"\n--- Testing with NocoDB instance: {NOCODB_URL_ENV[:20]}... ---")
-    #
-    #     # Example: List existing bases
-    #     print("\n--- Listing existing bases (first few) ---")
-    #     existing_bases = client._make_request("get", "projects/")
-    #     if existing_bases and existing_bases.get("list"):
-    #         for i, b in enumerate(existing_bases["list"][:3]):
-    #             print(f"  Base {i+1}: Title='{b.get('title')}', ID='{b.get('id')}'")
-    #         if len(existing_bases["list"]) > 3:
-    #             print(f"  ... and {len(existing_bases['list']) - 3} more.")
-    #     else:
-    #         print("  Could not list bases or no bases found.")
-    #
-    #     # Example: Get a specific base by title (replace with an actual title from your instance)
-    #     # target_title_to_find = "YourActualBaseTitle"
-    #     # print(f"\n--- Attempting to get base by title: {target_title_to_find} ---")
-    #     # found_base = client.get_base_by_title(target_title_to_find)
-    #     # if found_base:
-    #     #     print(f"  Found base: {found_base}")
-    #     #     base_id_for_user_tests = found_base.get("id")
-    #     #
-    #     #     if base_id_for_user_tests:
-    #     #         print(f"\n--- Listing users for base ID: {base_id_for_user_tests} ---")
-    #     #         users = client.list_base_users(base_id_for_user_tests)
-    #     #         if users:
-    #     #             for user in users:
-    #     #                 print(f"  User: {user.get('email')}, Roles: {user.get('roles')}, ID: {user.get('id')}")
-    #     #         else:
-    #     #             print(f"  No users found for base {base_id_for_user_tests} or failed to list.")
-    #     # else:
-    #     #     print(f"  Base with title '{target_title_to_find}' not found.")
-    #
-    #     print("\n--- Example usage script finished. ---")
     pass
