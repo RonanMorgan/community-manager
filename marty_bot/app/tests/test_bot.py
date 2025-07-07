@@ -606,6 +606,7 @@ class TestMartyBot(unittest.TestCase):
                 self.assertIn("Le bot n'est pas correctement configuré", error_message_text)
         self.bot.authentik_client = original_auth_client
 
+    @async_test  # Moved decorator order
     @patch("app.bot.orchestrate_group_synchronization")
     async def test_handle_update_user_rights_and_remove_command_with_skip_nocodb(self, mock_orchestrate_sync):
         command_name = "update_user_rights_and_remove"
@@ -636,6 +637,10 @@ if __name__ == "__main__":
 
 # Tests for _handle_send_email_command
 class TestSendEmailCommand(TestMartyBot):
+    # This class inherits from TestMartyBot.
+    # If test_handle_update_user_rights_and_remove_command_with_skip_nocodb
+    # is defined in TestMartyBot and decorated, TestSendEmailCommand will inherit it correctly.
+    # The warning for TestSendEmailCommand is a consequence of the missing decorator in the parent.
 
     def setUp(self):
         super().setUp()
