@@ -274,14 +274,28 @@ class MartyBot:
     async def _handle_update_user_rights_and_remove_command(self, channel_id, arg_string=None):
         """Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes."""
         logging.info(
-            f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id}."
+            f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id} with args: '{arg_string}'."
         )
 
-        initial_message_text = (
-            ":hourglass_flowing_sand: Démarrage de la synchronisation complète des droits (avec suppressions)... "
-            "Ceci inclut la synchronisation des groupes Authentik et des collections Outline. "
-            "Cela peut prendre un moment."
-        )
+        skip_services_list = []
+        if arg_string and arg_string.lower() == "nocodb=false":
+            skip_services_list.append("nocodb")
+            logging.info("NoCoDB synchronization will be skipped for this run based on 'nocodb=false' argument.")
+            initial_message_text = (
+                ":hourglass_flowing_sand: Démarrage de la synchronisation complète des droits (avec suppressions, NoCoDB ignoré)... "
+                "Ceci inclut la synchronisation des groupes Authentik et des collections Outline. "
+                "Cela peut prendre un moment."
+            )
+        else:
+            if arg_string:  # Log if there was an argument but it wasn't the recognized one
+                logging.info(
+                    f"Argument '{arg_string}' not recognized as 'nocodb=false', proceeding with full sync including NoCoDB."
+                )
+            initial_message_text = (
+                ":hourglass_flowing_sand: Démarrage de la synchronisation complète des droits (avec suppressions)... "
+                "Ceci inclut la synchronisation des groupes Authentik et des collections Outline. "
+                "Cela peut prendre un moment."
+            )
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
 
         if not self.authentik_client or not self.mattermost_api_client or not self.config.MATTERMOST_TEAM_ID:
@@ -310,13 +324,14 @@ class MartyBot:
                 self.mattermost_api_client,
                 self.outline_client,
                 self.brevo_client,
-                self.nocodb_client,  # Pass NocoDB client
+                self.nocodb_client,
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
                 fetch_remote_members=True,
+                skip_services=skip_services_list if skip_services_list else None,  # Pass skip_services
             )
 
-            if not orchestration_success:  # Erreur critique dans l'orchestrateur lui-même
+            if not orchestration_success:
                 logging.warning(
                     "Group synchronization task (for rights removal) reported critical failure during orchestration."
                 )
@@ -684,10 +699,11 @@ class MartyBot:
                 self.mattermost_api_client,
                 self.outline_client,
                 self.brevo_client,
-                self.nocodb_client,  # Pass NocoDB client
+                self.nocodb_client,
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,
                 fetch_remote_members=False,
+                skip_services=None,  # Explicitly pass None
             )
 
             if not orchestration_success:
@@ -808,7 +824,10 @@ class MartyBot:
             "  - _Rôle : Effectue une synchronisation complète des droits. Garantit que les accès dans Authentik/Outline reflètent exactement la composition des canaux Mattermost._"
         )
         help_lines.append(
-            "  - _Logique : Combine les actions de `update_all_user_rights` (ajouts/mises à jour depuis Mattermost) ET **supprime les accès** des utilisateurs dans Authentik/Outline s'ils ne sont plus présents dans les canaux Mattermost correspondants (ou si leurs droits ont changé). C'est la commande à utiliser pour une remise en cohérence complète._"
+            "  - _Logique : Combine les actions de `update_all_user_rights` (ajouts/mises à jour depuis Mattermost) ET **supprime les accès** des utilisateurs dans Authentik/Outline/NoCoDB s'ils ne sont plus présents dans les canaux Mattermost correspondants (ou si leurs droits ont changé). C'est la commande à utiliser pour une remise en cohérence complète._"
+        )
+        help_lines.append(
+            f"  - _Option :_ Ajoutez `nocodb=false` après la commande (ex: `{self.bot_name_mention} update_user_rights_and_remove nocodb=false`) pour ignorer la synchronisation NoCoDB."
         )
         help_lines.append(
             "\n**Note :** La commande `update_user_rights_and_remove` est plus complète mais peut prendre plus de temps car elle vérifie tous les membres des services distants."

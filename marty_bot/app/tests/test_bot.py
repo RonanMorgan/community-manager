@@ -504,6 +504,7 @@ class TestMartyBot(unittest.TestCase):
                 self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,
                 fetch_remote_members=False,
+                skip_services=None,  # For calls without the arg_string
             )
             # The actual call from bot.py for orchestrate_group_synchronization is:
             # orchestrate_group_synchronization(
@@ -549,10 +550,11 @@ class TestMartyBot(unittest.TestCase):
                 self.bot.mattermost_api_client,
                 self.bot.outline_client,
                 self.bot.brevo_client,
-                self.bot.nocodb_client,  # Added nocodb_client
+                self.bot.nocodb_client,
                 self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
                 fetch_remote_members=True,
+                skip_services=None,  # Expect None when no arg_string
             )
             self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
             summary_call_found = False
@@ -603,6 +605,29 @@ class TestMartyBot(unittest.TestCase):
                 error_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                 self.assertIn("Le bot n'est pas correctement configuré", error_message_text)
         self.bot.authentik_client = original_auth_client
+
+    @patch("app.bot.orchestrate_group_synchronization")
+    async def test_handle_update_user_rights_and_remove_command_with_skip_nocodb(self, mock_orchestrate_sync):
+        command_name = "update_user_rights_and_remove"
+        arg_string = "nocodb=false"
+        mock_orchestrate_sync.return_value = (True, [])  # Minimal successful result
+
+        await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}")
+
+        mock_orchestrate_sync.assert_called_once_with(
+            self.bot.authentik_client,
+            self.bot.mattermost_api_client,
+            self.bot.outline_client,
+            self.bot.brevo_client,
+            self.bot.nocodb_client,
+            self.bot.config.MATTERMOST_TEAM_ID,
+            perform_deletions=True,
+            fetch_remote_members=True,
+            skip_services=["nocodb"],  # Crucial check
+        )
+        # Check if initial message indicates skipping nocodb
+        initial_message_call = self.bot.envoyer_message.call_args_list[0][0][1]
+        self.assertIn("NoCoDB ignoré", initial_message_call)
 
 
 if __name__ == "__main__":

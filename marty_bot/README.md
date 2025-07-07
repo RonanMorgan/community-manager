@@ -97,6 +97,9 @@ These commands manage user access rights across the integrated services based on
     *   Performs a full synchronization. It ensures that access in Authentik, Outline, Brevo, and NoCoDB exactly mirrors Mattermost channel memberships.
     *   This means it will **add, update, AND remove** access rights if users are no longer in the relevant Mattermost channels or if their roles (admin vs. standard channel) change.
     *   This is the command for a complete consistency check but may take longer.
+    *   **Option :** `nocodb=false`
+        *   Ajoutez `nocodb=false` comme argument pour que cette commande ignore complètement la synchronisation des bases de données NoCoDB.
+        *   Exemple : `@marty update_user_rights_and_remove nocodb=false`
 
 ### Email Command
 

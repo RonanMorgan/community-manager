@@ -89,6 +89,7 @@ def sync_entity_permissions(
     all_authentik_groups_by_name: dict,
     email_to_authentik_user_pk_map: dict,
     perform_deletions: bool,
+    skip_services: list[str] | None = None,  # Added skip_services
 ) -> list[dict]:
     """
     Synchronizes permissions for a single entity (e.g., a project, an antenne)
@@ -295,7 +296,8 @@ def sync_entity_permissions(
         )
 
     # NoCoDB Sync (only for ANTENNE and POLES)
-    if nocodb_client and nocodb_cfg and entity_key in ["ANTENNE", "POLES"]:
+    skip_services = skip_services or []  # Ensure it's a list for safe checking
+    if "nocodb" not in skip_services and nocodb_client and nocodb_cfg and entity_key in ["ANTENNE", "POLES"]:
         nocodb_base_title_pattern = nocodb_cfg.get("base_title_pattern", "nocodb_{base_name}")
         # base_name is the entity's base name (e.g., "MyAntenne")
         # mm_users_for_services contains the necessary user details including 'is_admin_channel_member'
@@ -922,10 +924,12 @@ def orchestrate_group_synchronization(
     mm_team_id: str,
     perform_deletions: bool = True,
     fetch_remote_members: bool = True,
+    skip_services: list[str] | None = None,  # Added skip_services parameter
 ) -> tuple[bool, list[dict]]:
+    skip_services = skip_services or []  # Ensure it's a list
     logging.info(
         f"Starting group synchronization task... "
-        f"(Perform Deletions: {perform_deletions}, Fetch Remote Members: {fetch_remote_members})"
+        f"(Perform Deletions: {perform_deletions}, Fetch Remote Members: {fetch_remote_members}, Skip Services: {skip_services})"
     )
     detailed_results = []
 
@@ -1037,14 +1041,16 @@ def orchestrate_group_synchronization(
             base_name,
             entity_key,
             entity_config_to_use,
-            all_auth_groups_by_name,  # This will be populated if fetch_remote_members=True, empty otherwise
+            all_auth_groups_by_name,  # Corrected variable name
             email_to_auth_pk_map,
             perform_deletions,
+            skip_services=skip_services,
         )
         detailed_results.extend(entity_sync_results)
 
     log_msg = (
-        f"Synchronization task completed. Mode (fetch_remote: {fetch_remote_members}, deletions: {perform_deletions}). "
+        f"Synchronization task completed. Mode (fetch_remote: {fetch_remote_members}, "
+        f"deletions: {perform_deletions}, skip_services: {skip_services}). "
         f"Processed {len(entities_to_process)} unique entities. "
         f"Total individual operations/results reported: {len(detailed_results)}."
     )

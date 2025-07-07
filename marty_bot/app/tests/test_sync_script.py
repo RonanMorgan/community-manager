@@ -184,13 +184,14 @@ class TestSyncLogic(unittest.TestCase):
             unittest.mock.ANY,
             mock_email_pk_map,
             True,
+            skip_services=[],  # Added expected default
         )
         mock_sync_entity_permissions.assert_any_call(
             mock_auth_client,
             mock_mm_client,
             mock_outline_client,
             self.mock_brevo_client_instance,
-            unittest.mock.ANY,  # nocodb_client
+            unittest.mock.ANY,
             mock_team_id,
             "beta",
             "ANTENNE",
@@ -198,6 +199,7 @@ class TestSyncLogic(unittest.TestCase):
             unittest.mock.ANY,
             mock_email_pk_map,
             True,
+            skip_services=[],  # Corrected: ensure only one skip_services
         )
 
     @patch("libraries.group_sync_services.sync_entity_permissions")
@@ -247,6 +249,7 @@ class TestSyncLogic(unittest.TestCase):
             unittest.mock.ANY,
             mock_email_pk_map,
             True,
+            skip_services=[],  # Added expected default
         )
 
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")

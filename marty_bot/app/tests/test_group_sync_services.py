@@ -257,7 +257,7 @@ class TestGroupSyncServices(unittest.TestCase):
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,  # Added
+            nocodb_client=self.mock_nocodb_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -265,6 +265,7 @@ class TestGroupSyncServices(unittest.TestCase):
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
             email_to_authentik_user_pk_map=self.email_to_authentik_user_pk_map_fixture,
             perform_deletions=True,
+            skip_services=None,  # Default case
         )
 
         user1_pk = self.email_to_authentik_user_pk_map_fixture["user1@example.com"]
@@ -475,6 +476,7 @@ permissions:
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
             email_to_authentik_user_pk_map=email_map_for_dm,
             perform_deletions=True,
+            skip_services=None,
         )
         self.assertEqual(len([r for r in results if r["status"] == "SUCCESS"]), 3)  # Auth, Outline, Brevo
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
@@ -555,6 +557,7 @@ permissions:
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
             email_to_authentik_user_pk_map=email_map_for_dm,
             perform_deletions=True,
+            skip_services=None,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
         self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_FAILED")
@@ -620,6 +623,7 @@ permissions:
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
             email_to_authentik_user_pk_map=email_map_already,
             perform_deletions=True,
+            skip_services=None,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
         self.assertEqual(outline_result["action"], "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED")
@@ -670,7 +674,7 @@ permissions:
             mattermost_client=self.mock_mattermost_client,
             outline_client=None,
             brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,  # Added
+            nocodb_client=self.mock_nocodb_client,
             mm_team_id=self.mm_team_id,
             entity_key="PROJET",
             base_name="",
@@ -678,6 +682,7 @@ permissions:
             all_authentik_groups_by_name=all_auth_groups_fixture,
             email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
+            skip_services=None,
         )
 
         self.mock_authentik_client.remove_user_from_group.assert_called_once_with(
@@ -736,7 +741,7 @@ permissions:
             mattermost_client=self.mock_mattermost_client,
             outline_client=None,
             brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,  # Added
+            nocodb_client=self.mock_nocodb_client,
             mm_team_id=self.mm_team_id,
             entity_key="PROJET",
             base_name="",
@@ -744,6 +749,7 @@ permissions:
             all_authentik_groups_by_name=all_auth_groups_fixture,
             email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
+            skip_services=None,
         )
         self.mock_authentik_client.remove_user_from_group.assert_not_called()
         self.mock_authentik_client.add_user_to_group.assert_not_called()
@@ -816,7 +822,7 @@ permissions:
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,  # Added
+            nocodb_client=self.mock_nocodb_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key_for_test,
             base_name=base_name_for_test,
@@ -824,6 +830,7 @@ permissions:
             all_authentik_groups_by_name=all_auth_groups_fixture,
             email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
+            skip_services=None,
         )
 
         self.mock_outline_client.remove_user_from_collection.assert_called_once_with(
@@ -894,7 +901,7 @@ permissions:
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,  # Added
+            nocodb_client=self.mock_nocodb_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key_for_test,
             base_name=base_name_for_test,
@@ -902,6 +909,7 @@ permissions:
             all_authentik_groups_by_name=all_auth_groups_fixture,
             email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
+            skip_services=None,
         )
         self.mock_outline_client.add_user_to_collection.assert_not_called()
         self.mock_outline_client.remove_user_from_collection.assert_not_called()
@@ -1041,7 +1049,7 @@ permissions:
                     mattermost_client=self.mock_mattermost_client,
                     outline_client=self.mock_outline_client,
                     brevo_client=self.mock_brevo_client,
-                    nocodb_client=self.mock_nocodb_client,  # Added
+                    nocodb_client=self.mock_nocodb_client,
                     mm_team_id=self.mm_team_id,
                     entity_key=entity_key_for_test,
                     base_name=base_name_from_case,
@@ -1049,6 +1057,7 @@ permissions:
                     all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
                     email_to_authentik_user_pk_map=email_to_pk_map,
                     perform_deletions=True,
+                    skip_services=None,
                 )
 
                 self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
@@ -1219,13 +1228,14 @@ permissions:
             expected_all_auth_groups_by_name,
             mock_email_pk_map,
             True,
+            skip_services=[],  # Added expected default
         )
         mock_sync_entity_permissions_call.assert_any_call(
             self.mock_authentik_client,
             self.mock_mattermost_client,
             self.mock_outline_client,
             self.mock_brevo_client,
-            self.mock_nocodb_client,  # Pass NocoDB client
+            self.mock_nocodb_client,
             mock_team_id,
             "Delta",
             "ANTENNE",
@@ -1233,6 +1243,7 @@ permissions:
             expected_all_auth_groups_by_name,
             mock_email_pk_map,
             True,
+            skip_services=[],  # Added expected default
         )
 
     # --- Tests for Brevo list synchronization ---
@@ -1600,6 +1611,62 @@ permissions:
         self.assertEqual(results[0]["status"], "SKIPPED")
         self.assertEqual(results[0]["action"], "SKIPPED_NOCODB_BASE_NOT_FOUND")
         self.mock_nocodb_client.list_base_users.assert_not_called()
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_entity_permissions_skip_nocodb(self, mock_lib_config):
+        mock_lib_config.EXCLUDED_USERS = set()
+        entity_key = "ANTENNE"  # An entity type that would normally sync NoCoDB
+        base_name = "TestAntenneSkip"
+        mock_entity_config = {
+            "standard": {"mattermost_channel_name_pattern": f"{entity_key.lower()}_{{base_name}}"},
+            "nocodb": {
+                "base_title_pattern": "nocodb_{base_name}",
+                "default_access": "viewer",
+                "admin_access": "owner",
+            },
+        }
+        # Simulate that the MM channel exists and has one user
+        self.mock_mattermost_client.get_channel_by_name.return_value = {
+            "id": "mm_chan_skip_id",
+            "display_name": f"{entity_key.lower()}_{base_name}",
+        }
+        mm_user_data = {"username": "testuser", "email": "test@example.com", "id": "mm_user_id_skip"}
+        self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user_data]
+
+        # Ensure other clients are minimally mocked if their sync logic were to be called (though not expected for this test focus)
+        self.mock_authentik_client.get_group_by_name.return_value = {
+            "pk": "auth_pk_skip",
+            "name": "auth_group_skip",
+            "users": [],
+            "users_obj": [],
+        }
+        self.mock_outline_client.create_group.return_value = {
+            "id": "outline_coll_skip_id",
+            "name": "outline_coll_skip",
+        }
+        self.mock_brevo_client.get_list_by_name.return_value = {"id": "brevo_list_skip_id", "name": "brevo_list_skip"}
+
+        sync_entity_permissions(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            mm_team_id=self.mm_team_id,
+            entity_key=entity_key,
+            base_name=base_name,
+            entity_config=mock_entity_config,
+            all_authentik_groups_by_name={},  # Minimal
+            email_to_authentik_user_pk_map={},  # Minimal
+            perform_deletions=True,
+            skip_services=["nocodb"],  # Crucial part of this test
+        )
+        # Assert that NoCoDB client methods were NOT called
+        self.mock_nocodb_client.get_base_by_title.assert_not_called()
+        self.mock_nocodb_client.list_base_users.assert_not_called()
+        self.mock_nocodb_client.invite_user_to_base.assert_not_called()
+        # Other client methods might be called if their configs were present, ensure they are if needed
+        # For this test, focus is on NoCoDB not being called.
 
 
 if __name__ == "__main__":
