@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock, call
 import os
 import json
+import requests
 
 from marty_bot.clients.vaultwarden_client import VaultwardenClient
 
