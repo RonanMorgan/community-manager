@@ -10,7 +10,8 @@ from clients.authentik_client import AuthentikClient
 from clients.mattermost_client import MattermostClient
 from clients.outline_client import OutlineClient
 from clients.brevo_client import BrevoClient
-from clients.nocodb_client import NocoDBClient  # Import NocoDBClient
+from clients.nocodb_client import NocoDBClient
+from clients.vaultwarden_client import VaultwardenClient # Import VaultwardenClient
 
 # Import the orchestrator function
 from libraries.group_sync_services import orchestrate_group_synchronization
@@ -76,18 +77,42 @@ def initialize_clients():
     else:
         logging.info("NocoDB URL or Token not configured for script. NocoDB sync will be skipped.")
 
-    return auth_client, mm_client, outline_client, brevo_client, nocodb_client
+    logging.info("NocoDB URL or Token not configured for script. NocoDB sync will be skipped.")
+
+    vw_client = None
+    # VaultwardenClient needs organization_id. Server URL and API creds are read from config/env by default.
+    # BW_PASSWORD is for CLI unlock, not directly used by API invite functions here.
+    if config.VAULTWARDEN_ORGANIZATION_ID and config.VAULTWARDEN_SERVER_URL and \
+       config.VAULTWARDEN_API_USERNAME and config.VAULTWARDEN_API_PASSWORD:
+        try:
+            vw_client = VaultwardenClient(
+                organization_id=config.VAULTWARDEN_ORGANIZATION_ID,
+                server_url=config.VAULTWARDEN_SERVER_URL
+                # API username/password are picked by VaultwardenClient from config/env
+            )
+            logging.info("VaultwardenClient initialized successfully for sync script.")
+        except ValueError as e: # Catch specific init errors if any
+            logging.error(f"Failed to initialize VaultwardenClient for script: {e}. Vaultwarden sync will be skipped.")
+        except Exception as e: # Catch any other unexpected error during init
+            logging.error(f"An unexpected error occurred during VaultwardenClient initialization: {e}. Vaultwarden sync will be skipped.")
+    else:
+        logging.info(
+            "Vaultwarden Organization ID, Server URL, API Username, or API Password not configured for script. "
+            "Vaultwarden sync will be skipped."
+        )
+
+    return auth_client, mm_client, outline_client, brevo_client, nocodb_client, vw_client
 
 
 def main_sync_logic():
     logging.info(
-        "Attempting to run Mattermost to Authentik, Outline, Brevo, & NocoDB group synchronization via script..."
+        "Attempting to run Mattermost to Authentik, Outline, Brevo, NocoDB, & Vaultwarden group synchronization via script..."
     )
 
-    authentik_client, mattermost_client, outline_client, brevo_client, nocodb_client = initialize_clients()
+    authentik_client, mattermost_client, outline_client, brevo_client, nocodb_client, vaultwarden_client = initialize_clients()
 
     if not authentik_client:
-        logging.critical("Authentik client not initialized in script. Aborting sync.")
+        logging.critical("Authentik client not initialized in script. Aborting sync for Authentik dependent parts.")
         return
     if not mattermost_client:
         logging.critical("Mattermost client not initialized in script. Aborting sync.")
@@ -105,7 +130,8 @@ def main_sync_logic():
         mattermost_client,
         outline_client,
         brevo_client,
-        nocodb_client,  # Pass NocoDB client
+        nocodb_client,
+        vaultwarden_client, # Pass Vaultwarden client
         config.MATTERMOST_TEAM_ID,
         # Defaults for perform_deletions=True and fetch_remote_members=True are used from orchestrator
     )

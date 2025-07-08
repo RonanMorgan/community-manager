@@ -14,7 +14,8 @@ from clients.mattermost_client import MattermostClient, slugify
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.brevo_client import BrevoClient
-from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
+from clients.nocodb_client import NocoDBClient
+from clients.vaultwarden_client import VaultwardenClient # Added VaultwardenClient
 
 
 def reload_config_module():
@@ -31,7 +32,8 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mock_mattermost_client = MagicMock(spec=MattermostClient)
         self.mock_outline_client = MagicMock(spec=OutlineClient)
         self.mock_brevo_client = MagicMock(spec=BrevoClient)
-        self.mock_nocodb_client = MagicMock(spec=NocoDBClient)  # Added NocoDB mock
+        self.mock_nocodb_client = MagicMock(spec=NocoDBClient)
+        self.mock_vaultwarden_client = MagicMock(spec=VaultwardenClient) # Added Vaultwarden mock
         self.mm_team_id = "test_team_id"
 
         self.email_to_authentik_user_pk_map_fixture = {
@@ -468,7 +470,8 @@ permissions:
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,  # Added
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client, # Added
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -1131,12 +1134,13 @@ permissions:
         # mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_UPSERT"}] # Not called if no channels
 
         success, detailed_results = orchestrate_group_synchronization(
-            self.mock_authentik_client,
-            self.mock_mattermost_client,
-            self.mock_outline_client,
-            self.mock_brevo_client,
-            self.mock_nocodb_client,  # Pass NocoDB client
-            mock_team_id,
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client, # Pass Vaultwarden client
+            mm_team_id=mock_team_id,
             perform_deletions=False,
             fetch_remote_members=False,
         )
@@ -1198,12 +1202,13 @@ permissions:
         mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_FULL_SYNC"}]
 
         success, detailed_results = orchestrate_group_synchronization(
-            self.mock_authentik_client,
-            self.mock_mattermost_client,
-            self.mock_outline_client,
-            self.mock_brevo_client,
-            self.mock_nocodb_client,  # Pass NocoDB client
-            mock_team_id,
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client, # Pass Vaultwarden client
+            mm_team_id=mock_team_id,
             perform_deletions=True,
             fetch_remote_members=True,
         )
@@ -1220,7 +1225,8 @@ permissions:
             self.mock_mattermost_client,
             self.mock_outline_client,
             self.mock_brevo_client,
-            self.mock_nocodb_client,  # Pass NocoDB client
+            self.mock_nocodb_client,
+            self.mock_vaultwarden_client, # Pass mock Vaultwarden client
             mock_team_id,
             "Gamma",
             "PROJET",
@@ -1236,6 +1242,7 @@ permissions:
             self.mock_outline_client,
             self.mock_brevo_client,
             self.mock_nocodb_client,
+            self.mock_vaultwarden_client, # Pass mock Vaultwarden client
             mock_team_id,
             "Delta",
             "ANTENNE",
@@ -1667,6 +1674,92 @@ permissions:
         self.mock_nocodb_client.invite_user_to_base.assert_not_called()
         # Other client methods might be called if their configs were present, ensure they are if needed
         # For this test, focus is on NoCoDB not being called.
+
+    @patch("libraries.group_sync_services.sync_entity_permissions")
+    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
+    @patch("libraries.group_sync_services.config")
+    def test_orchestrate_sync_with_vaultwarden_integration(
+        self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
+    ):
+        # Setup mocks for a scenario where Vaultwarden sync should occur
+        self.mock_authentik_client.reset_mock()
+        self.mock_mattermost_client.reset_mock()
+        self.mock_vaultwarden_client.reset_mock() # Reset VW mock
+
+        mock_team_id = "vw_team_sync_mode"
+
+        # Simulate discovery via Mattermost (fetch_remote_members=False)
+        mm_channel_projet_vw = {"id": "mm_vw_proj_id", "name": "projet-vw-test", "display_name": "PROJET VW Test"}
+        self.mock_mattermost_client.get_channels_for_team.return_value = [mm_channel_projet_vw]
+
+        # Mock PERMISSIONS_MATRIX for the "PROJET" entity, including a Vaultwarden config
+        mock_lib_config.PERMISSIONS_MATRIX = {
+            "PROJET": {
+                "standard": {
+                    "mattermost_channel_name_pattern": "PROJET {base_name}", # Used for discovery if MM based
+                    # Other patterns for Auth, Outline, etc. would be here if testing them simultaneously
+                },
+                "vaultwarden": { # Add vaultwarden configuration for this entity type
+                    "collection_name_pattern": "VW Collection {base_name}"
+                }
+            }
+        }
+        # Mock users in the Mattermost channel
+        mm_user_vw_sync = {"username": "vw_user", "email": "vw.user@example.com", "id": "mm_vw_user_id"}
+        self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user_vw_sync]
+
+        # Mock Authentik user map (even if not primary focus, orchestrator uses it)
+        mock_email_pk_map = {"vw.user@example.com": "auth_pk_vw_user"}
+        mock_get_all_auth_groups_and_map.return_value = ([], mock_email_pk_map)
+
+        # Mock Vaultwarden client methods
+        self.mock_vaultwarden_client.get_api_access_token.return_value = "fake_vw_api_token"
+        expected_vw_collection_name = "VW Collection VW Test" # Derived from pattern and "PROJET VW Test" base name
+        self.mock_vaultwarden_client.get_collection_id_by_name_via_api_or_cli.return_value = "vw_coll_id_123"
+        self.mock_vaultwarden_client.invite_user_to_collection_api.return_value = True
+
+        # Mock the call to sync_entity_permissions (as it handles other services)
+        # It will be called, but Vaultwarden logic is now separate in the orchestrator
+        mock_sync_entity_permissions_call.return_value = [{"service": "OTHER_SERVICE", "status": "SUCCESS"}]
+
+
+        success, detailed_results = orchestrate_group_synchronization(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=None, # Skipping other clients for focus
+            brevo_client=None,
+            nocodb_client=None,
+            vaultwarden_client=self.mock_vaultwarden_client, # Provide the VW client
+            mm_team_id=mock_team_id,
+            perform_deletions=False, # Simple case, no deletions
+            fetch_remote_members=False # Discover via MM
+        )
+
+        self.assertTrue(success)
+
+        # Verify Vaultwarden client method calls
+        self.mock_vaultwarden_client.get_api_access_token.assert_called_once()
+        self.mock_vaultwarden_client.get_collection_id_by_name_via_api_or_cli.assert_called_once_with(expected_vw_collection_name)
+        self.mock_vaultwarden_client.invite_user_to_collection_api.assert_called_once_with(
+            api_access_token="fake_vw_api_token",
+            user_email="vw.user@example.com",
+            collection_id="vw_coll_id_123"
+        )
+
+        # Check results for Vaultwarden action
+        vaultwarden_invite_result = next((r for r in detailed_results if r.get("service") == "VAULTWARDEN"), None)
+        self.assertIsNotNone(vaultwarden_invite_result, "Vaultwarden synchronization result not found.")
+        if vaultwarden_invite_result:
+            self.assertEqual(vaultwarden_invite_result["status"], "SUCCESS")
+            self.assertEqual(vaultwarden_invite_result["action"], "VAULTWARDEN_USER_INVITED")
+            self.assertEqual(vaultwarden_invite_result["target_resource_name"], expected_vw_collection_name)
+            self.assertEqual(vaultwarden_invite_result["mm_user_email"], "vw.user@example.com")
+
+        # Ensure sync_entity_permissions was still called (for other services, though none are active in this minimal setup)
+        mock_sync_entity_permissions_call.assert_called_once()
+        args, kwargs = mock_sync_entity_permissions_call.call_args
+        self.assertEqual(kwargs.get('base_name'), "VW Test") # Base name extracted from "PROJET VW Test"
+        self.assertEqual(kwargs.get('entity_key'), "PROJET")
 
 
 if __name__ == "__main__":

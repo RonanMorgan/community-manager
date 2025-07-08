@@ -89,17 +89,20 @@ The bot will send a confirmation message back to the channel detailing the actio
 These commands manage user access rights across the integrated services based on their membership in Mattermost channels.
 
 *   **`update_all_user_rights`**
-    *   Ensures users in Mattermost channels have corresponding access in Authentik, Outline, Brevo lists, and NoCoDB bases (for Antennes/Pôles).
+    *   Ensures users in Mattermost channels have corresponding access in Authentik, Outline, Brevo lists, NoCoDB bases (for Antennes/Pôles), and **Vaultwarden collections**.
+    *   For Vaultwarden, users in standard Mattermost channels are invited to corresponding collections (typically named after the channel).
     *   This command **only adds or updates** permissions. It never removes access.
     *   Useful for quickly granting rights after adding users to Mattermost channels.
 
 *   **`update_user_rights_and_remove`**
-    *   Performs a full synchronization. It ensures that access in Authentik, Outline, Brevo, and NoCoDB exactly mirrors Mattermost channel memberships.
-    *   This means it will **add, update, AND remove** access rights if users are no longer in the relevant Mattermost channels or if their roles (admin vs. standard channel) change.
+    *   Performs a full synchronization. It ensures that access in Authentik, Outline, Brevo, NoCoDB, and **Vaultwarden** exactly mirrors Mattermost channel memberships.
+    *   For Vaultwarden, this means users in standard channels are invited to the corresponding collection. *Note: Vaultwarden user removal from collections via this command is not implemented; it only adds/ensures invites.*
+    *   This means it will **add, update, AND remove** access rights for most services if users are no longer in the relevant Mattermost channels or if their roles change.
     *   This is the command for a complete consistency check but may take longer.
-    *   **Option :** `nocodb=false`
-        *   Ajoutez `nocodb=false` comme argument pour que cette commande ignore complètement la synchronisation des bases de données NoCoDB.
-        *   Exemple : `@marty update_user_rights_and_remove nocodb=false`
+    *   **Options :**
+        *   `nocodb=false`: Ignores NoCoDB base synchronization.
+        *   `vaultwarden=false`: Ignores Vaultwarden collection synchronization.
+        *   Example : `@marty update_user_rights_and_remove nocodb=false vaultwarden=false`
 
 ### Email Command
 

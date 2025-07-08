@@ -18,7 +18,8 @@ if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
     from clients.outline_client import OutlineClient
     from clients.brevo_client import BrevoClient
-    from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
+    from clients.nocodb_client import NocoDBClient
+    from clients.vaultwarden_client import VaultwardenClient # Added VaultwardenClient
 
 
 # Copied from mattermost_client.py to avoid import issues and keep it self-contained here for now.
@@ -81,7 +82,8 @@ def sync_entity_permissions(
     mattermost_client: "MattermostClient",
     outline_client: Optional["OutlineClient"],
     brevo_client: Optional["BrevoClient"],
-    nocodb_client: Optional["NocoDBClient"],  # Added NocoDBClient
+    nocodb_client: Optional["NocoDBClient"],
+    vaultwarden_client: Optional["VaultwardenClient"], # Added vaultwarden_client
     mm_team_id: str,
     base_name: str,
     entity_key: str,
@@ -103,7 +105,8 @@ def sync_entity_permissions(
     admin_config = entity_config.get("admin")
     outline_cfg = entity_config.get("outline", {})
     brevo_cfg = entity_config.get("brevo", {})
-    nocodb_cfg = entity_config.get("nocodb", {})  # Added NocoDB config
+    nocodb_cfg = entity_config.get("nocodb", {})
+    vaultwarden_cfg = entity_config.get("vaultwarden", {}) # Added Vaultwarden config
 
     std_auth_group_name = std_config.get("authentik_group_name_pattern", "{base_name}").format(base_name=base_name)
     std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(base_name=base_name)
@@ -296,27 +299,63 @@ def sync_entity_permissions(
         )
 
     # NoCoDB Sync (only for ANTENNE and POLES)
-    skip_services = skip_services or []  # Ensure it's a list for safe checking
+    skip_services = skip_services or []
     if "nocodb" not in skip_services and nocodb_client and nocodb_cfg and entity_key in ["ANTENNE", "POLES"]:
         nocodb_base_title_pattern = nocodb_cfg.get("base_title_pattern", "nocodb_{base_name}")
-        # base_name is the entity's base name (e.g., "MyAntenne")
-        # mm_users_for_services contains the necessary user details including 'is_admin_channel_member'
         default_nocodb_permission = nocodb_cfg.get("default_access", "viewer")
         admin_nocodb_permission = nocodb_cfg.get("admin_access", "owner")
         results.extend(
             _sync_single_nocodb_base(
                 nocodb_client,
                 nocodb_base_title_pattern,
-                base_name,  # This is the base_name of the entity (e.g. "MonAntenne")
-                mm_users_for_services,  # Combined user list with admin flag
+                base_name,
+                mm_users_for_services,
                 default_nocodb_permission,
                 admin_nocodb_permission,
-                std_mm_channel_name_for_log,  # Context for logging
+                std_mm_channel_name_for_log,
                 perform_deletions,
             )
         )
 
-    logging.info(f"Finished sync for entity '{base_name}'. Total results: {len(results)}")
+    # Vaultwarden Sync
+    if "vaultwarden" not in skip_services and vaultwarden_client and vaultwarden_cfg:
+        # Assuming vaultwarden_cfg might contain collection_name_pattern, default_read_only, etc.
+        # For now, using channel display name as collection name, and client defaults for permissions.
+        # The orchestrator's global_vaultwarden_api_token is passed to this function.
+        # mm_users_for_services contains all users from std and admin channels of the current entity.
+        # We will iterate through them and invite.
+        # The `global_vaultwarden_api_token` is now passed into `orchestrate_group_synchronization`
+        # and then potentially to this helper if it's refactored.
+        # For now, it's assumed `sync_entity_permissions` has access to it or `vaultwarden_client` handles it.
+        # This part of the logic might need to be inside a new helper `_sync_single_vaultwarden_collection`
+        # or integrated here if simple enough.
+
+        # This logic is a placeholder and will be more fully developed in the next step
+        # when _sync_single_vaultwarden_collection is created or this section is fleshed out.
+        # For now, it just indicates where Vaultwarden sync would go.
+        # The actual calls to vw_client methods will happen in the main orchestrator loop or a helper.
+        logging.debug(f"Vaultwarden sync would be processed here for entity '{base_name}'.")
+        # This section will be expanded significantly in the main orchestrator function or a dedicated helper.
+        # It will involve:
+        # 1. Getting the collection name (e.g., from std_mm_channel_name_for_log or base_name).
+        # 2. Getting the collection ID.
+        # 3. Iterating mm_users_for_services (or just std_mm_users_in_channel if preferred for VW)
+        #    and inviting each user email to the collection ID using the global API token.
+        # This part is complex enough to warrant its own function or careful integration into the main loop.
+        # The current `sync_entity_permissions` is getting very long.
+        # For this step, we are just adding the parameter to the function signature.
+        # The actual implementation that calls vw_client.invite_user_to_collection_api will be in orchestrate_group_synchronization.
+        # This placeholder inside sync_entity_permissions will be removed as logic moves to orchestrator or a new helper.
+
+    # The main Vaultwarden invitation logic will now be directly in `orchestrate_group_synchronization`'s loop.
+    # This `sync_entity_permissions` function will no longer handle Vaultwarden directly.
+    # The `vaultwarden_cfg` and `vaultwarden_client` parameters are for its signature consistency for now,
+    # but the actual calls will be made from the orchestrator.
+    # This placeholder block for Vaultwarden within sync_entity_permissions will be removed.
+    # The check `if "vaultwarden" not in skip_services and vaultwarden_client and vaultwarden_cfg:`
+    # will be done in the main loop of `orchestrate_group_synchronization`.
+
+    logging.info(f"Finished sync for entity '{base_name}' (excluding Vaultwarden invites handled by orchestrator). Total results: {len(results)}")
     return results
 
 
@@ -920,16 +959,18 @@ def orchestrate_group_synchronization(
     mattermost_client: "MattermostClient",
     outline_client: Optional["OutlineClient"],
     brevo_client: Optional["BrevoClient"],
-    nocodb_client: Optional["NocoDBClient"],  # Added NocoDB client
+    nocodb_client: Optional["NocoDBClient"],
+    vaultwarden_client: Optional["VaultwardenClient"] = None, # Added vaultwarden_client
     mm_team_id: str,
     perform_deletions: bool = True,
     fetch_remote_members: bool = True,
-    skip_services: list[str] | None = None,  # Added skip_services parameter
+    skip_services: list[str] | None = None,
 ) -> tuple[bool, list[dict]]:
-    skip_services = skip_services or []  # Ensure it's a list
+    skip_services = skip_services or []
     logging.info(
         f"Starting group synchronization task... "
-        f"(Perform Deletions: {perform_deletions}, Fetch Remote Members: {fetch_remote_members}, Skip Services: {skip_services})"
+        f"(Perform Deletions: {perform_deletions}, Fetch Remote Members: {fetch_remote_members}, Skip Services: {skip_services}, "
+        f"Vaultwarden Sync: {'Enabled' if vaultwarden_client else 'Disabled'})"
     )
     detailed_results = []
 
@@ -950,6 +991,23 @@ def orchestrate_group_synchronization(
         logging.info("Brevo client not provided. Brevo synchronization will be skipped.")
     if not nocodb_client:
         logging.info("NocoDB client not provided. NocoDB synchronization will be skipped.")
+    if not vaultwarden_client:
+        logging.info("Vaultwarden client not provided. Vaultwarden synchronization will be skipped.")
+    elif "vaultwarden" in skip_services:
+        logging.info("Vaultwarden synchronization explicitly skipped via skip_services.")
+        vaultwarden_client = None # Effectively disable it if skipped
+
+    global_vaultwarden_api_token: str | None = None
+    if vaultwarden_client and "vaultwarden" not in skip_services:
+        logging.info("Attempting to fetch Vaultwarden API access token for synchronization run...")
+        global_vaultwarden_api_token = vaultwarden_client.get_api_access_token()
+        if not global_vaultwarden_api_token:
+            logging.warning(
+                "Failed to obtain Vaultwarden API access token. Vaultwarden collection sync will be skipped for all entities."
+            )
+            vaultwarden_client = None # Disable client if token acquisition fails
+        else:
+            logging.info("Successfully obtained Vaultwarden API access token.")
 
     # Fetch all Authentik users for email-to-PK mapping if Authentik client is available
     # This map is crucial for Authentik operations.
@@ -1031,22 +1089,108 @@ def orchestrate_group_synchronization(
         )
         # When fetch_remote_members is False, all_auth_groups_by_name is initially empty.
         # sync_entity_permissions will need to handle this by potentially fetching/creating groups on demand.
-        entity_sync_results = sync_entity_permissions(
+        entity_sync_results = sync_entity_permissions( # This call still includes vaultwarden_client for now
             authentik_client,
             mattermost_client,
             outline_client,
             brevo_client,
-            nocodb_client,  # Pass NocoDB client
+            nocodb_client,
+            vaultwarden_client,
             mm_team_id,
             base_name,
             entity_key,
             entity_config_to_use,
-            all_auth_groups_by_name,  # Corrected variable name
+            all_auth_groups_by_name,
             email_to_auth_pk_map,
             perform_deletions,
             skip_services=skip_services,
         )
         detailed_results.extend(entity_sync_results)
+
+        # --- Vaultwarden Synchronization Logic for the current entity ---
+        if vaultwarden_client and global_vaultwarden_api_token and "vaultwarden" not in skip_services:
+            vaultwarden_cfg = entity_config_to_use.get("vaultwarden", {}) # Get VW config for this entity type
+            # Use standard channel name for collection name mapping by default
+            # Get standard Mattermost channel details again for this entity to ensure we have the right context
+            std_mm_channel_name_pattern_vw = entity_config_to_use.get("standard", {}).get("mattermost_channel_name_pattern", "{base_name}")
+            std_mm_channel_name_vw = std_mm_channel_name_pattern_vw.format(base_name=base_name)
+
+            # Use display name of the channel for collection name if available, otherwise slugified name
+            # This requires fetching channel details if not already available from entity discovery phase
+            # For simplicity, let's assume std_mm_channel_name_vw is the intended base for the collection name
+            # If PERMISSIONS_MATRIX defines a specific vaultwarden collection name pattern, use that.
+            vw_collection_name_pattern = vaultwarden_cfg.get("collection_name_pattern", std_mm_channel_name_vw)
+            # If pattern is just base_name, format it. Otherwise, it might be a direct name.
+            # This logic might need refinement based on how collection names are truly derived.
+            # Assuming for now, if it contains {base_name}, it's a pattern.
+            if "{base_name}" in vw_collection_name_pattern:
+                 vw_collection_name = vw_collection_name_pattern.format(base_name=base_name)
+            else: # Assumed to be a direct name or already formatted if it came from std_mm_channel_name_vw
+                 vw_collection_name = vw_collection_name_pattern
+
+
+            logging.info(f"Processing Vaultwarden sync for entity '{base_name}', target collection '{vw_collection_name}'.")
+
+            vw_collection_id = vaultwarden_client.get_collection_id_by_name_via_api_or_cli(vw_collection_name)
+
+            if not vw_collection_id:
+                logging.warning(
+                    f"Vaultwarden collection '{vw_collection_name}' for entity '{base_name}' not found. Skipping user invites."
+                )
+                detailed_results.append({
+                    "service": "VAULTWARDEN",
+                    "target_resource_name": vw_collection_name,
+                    "status": "SKIPPED",
+                    "action": "VAULTWARDEN_COLLECTION_NOT_FOUND",
+                    "error_message": f"Collection '{vw_collection_name}' not found.",
+                    "mm_channel_display_name": std_mm_channel_name_vw, # Context
+                })
+            else:
+                # Get users for this entity's standard channel to invite to Vaultwarden
+                # Re-fetch or use users from `sync_entity_permissions`'s `mm_users_for_services`
+                # `sync_entity_permissions` gathers users from std and admin MM channels.
+                # We need a clear list of emails for the standard users of this entity.
+
+                # Simplified: Get standard channel users again.
+                # This could be optimized by passing user lists from sync_entity_permissions.
+                temp_std_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(std_mm_channel_name_vw))
+                emails_to_invite_vw = set()
+                if temp_std_mm_channel:
+                    temp_std_mm_users = mattermost_client.get_users_in_channel(temp_std_mm_channel["id"])
+                    for user in temp_std_mm_users:
+                        if user.get("email") and user.get("username") not in config.EXCLUDED_USERS:
+                            emails_to_invite_vw.add(user.get("email").lower())
+
+                if not emails_to_invite_vw:
+                    logging.info(f"No users to invite to Vaultwarden collection '{vw_collection_name}' for entity '{base_name}'.")
+
+                for email_to_invite in emails_to_invite_vw:
+                    # Default permissions for invite, can be made configurable via vaultwarden_cfg if needed
+                    # e.g., read_only = vaultwarden_cfg.get("default_read_only", True)
+                    # hide_passwords = vaultwarden_cfg.get("default_hide_passwords", False) # etc.
+                    success = vaultwarden_client.invite_user_to_collection_api(
+                        api_access_token=global_vaultwarden_api_token,
+                        user_email=email_to_invite,
+                        collection_id=vw_collection_id
+                        # Permissions use client method defaults for now
+                    )
+                    action_taken = "VAULTWARDEN_USER_INVITED" if success else "VAULTWARDEN_INVITE_FAILED"
+                    status = "SUCCESS" if success else "FAILURE"
+                    detailed_results.append({
+                        "service": "VAULTWARDEN",
+                        "target_resource_name": vw_collection_name,
+                        "mm_user_email": email_to_invite,
+                        # "mm_username" could be fetched if needed for richer logs
+                        "status": status,
+                        "action": action_taken,
+                        "mm_channel_display_name": std_mm_channel_name_vw, # Context
+                    })
+                    if success:
+                        logging.info(f"Successfully invited {email_to_invite} to Vaultwarden collection '{vw_collection_name}'.")
+                    else:
+                        logging.error(f"Failed to invite {email_to_invite} to Vaultwarden collection '{vw_collection_name}'.")
+        # --- End of Vaultwarden Synchronization Logic ---
+
 
     log_msg = (
         f"Synchronization task completed. Mode (fetch_remote: {fetch_remote_members}, "
