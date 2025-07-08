@@ -49,9 +49,34 @@ class VaultwardenClient:
             if self.bw_session:  # Pass current session if available
                 env_for_subprocess["BW_SESSION"] = self.bw_session
             if custom_env:  # Allow overriding with a fully custom environment
-                env_for_subprocess = custom_env
+                # This was the source of confusion in tests. The 'custom_env' kwarg to the mock
+                # was reflecting this fully merged env_for_subprocess.
+                # For clarity, if custom_env is passed, it should *replace* os.environ.copy(),
+                # or be used to selectively update. The current logic is that `custom_env`
+                # IS the fully prepared environment if provided by the caller.
+                # If the caller (e.g. _check_and_perform_login) wants to pass specific vars,
+                # it should build them upon os.environ.copy() itself and pass that as custom_env.
+                # Let's refine: custom_env is for *additional* vars or *overrides* to the default os.environ.copy()
+                # So, the original logic: copy os.environ, then update with custom_env if provided.
+                # No, if custom_env is passed, it should be the one used, not merged with os.environ by default here.
+                # The caller should do the os.environ.copy() and update if it wants that.
+                # However, the existing client code calls _run_bw_command with custom_env being a *small* dict.
+                # And _run_bw_command then copies os.environ and updates it.
+                # This means env_for_subprocess = os.environ.copy(); env_for_subprocess.update(custom_env if custom_env else {})
+                # Let's stick to the interpretation that custom_env as an argument is a set of *additional* variables or overrides.
+                base_env = os.environ.copy()
+                if self.bw_session: # Ensure bw_session from client is respected if no specific one in custom_env
+                    base_env.setdefault("BW_SESSION", self.bw_session)
+                if custom_env:
+                    base_env.update(custom_env)
+                env_for_subprocess = base_env
+            else: # custom_env is None
+                env_for_subprocess = os.environ.copy()
+                if self.bw_session:
+                     env_for_subprocess["BW_SESSION"] = self.bw_session
 
-            logging.debug(f"Running bw command: {' '.join(['bw'] + command_parts)}")  # Ensure 'bw' is part of log
+
+            logging.debug(f"Running bw command: {' '.join(['bw'] + command_parts)}")
             process = subprocess.run(
                 ["bw"] + command_parts,
                 input=input_data.encode() if input_data else None,
@@ -73,13 +98,19 @@ class VaultwardenClient:
     def _ensure_server_configuration(self):
         """Ensures the Vaultwarden server URL is configured if provided."""
         if self.server_url:
-            returncode, stdout, _ = self._run_bw_command(["config", "server"])
+            # For checking config, don't use instance's bw_session as it might be stale/irrelevant
+            env_for_config_check = os.environ.copy()
+            env_for_config_check.pop("BW_SESSION", None)
+            returncode, stdout, _ = self._run_bw_command(["config", "server"], custom_env=env_for_config_check)
             if returncode == 0 and self.server_url in stdout:
                 logging.info(f"Vaultwarden server URL is already set to {self.server_url}.")
                 return True
 
             logging.info(f"Attempting to set Vaultwarden server URL to {self.server_url}...")
-            returncode, _, stderr = self._run_bw_command(["config", "server", self.server_url])
+            # For setting config, also don't use instance's bw_session
+            env_for_config_set = os.environ.copy()
+            env_for_config_set.pop("BW_SESSION", None)
+            returncode, _, stderr = self._run_bw_command(["config", "server", self.server_url], custom_env=env_for_config_set)
             if returncode != 0:
                 error_message = f"Failed to configure Vaultwarden server URL to {self.server_url}: {stderr.strip()}"
                 logging.error(error_message)
@@ -90,34 +121,33 @@ class VaultwardenClient:
     def _check_and_perform_login(self) -> bool:
         """
         Checks current Bitwarden status and performs login if necessary using API key.
-        Returns True if login is successful or not needed, False if login fails.
+        Returns True if login is successful or status is okay, False if a critical login step fails.
         """
         logging.debug("Checking Bitwarden login status...")
-        # Run with a clean env for status check, no session key needed/wanted here for status itself.
-        # BW_CLIENTID and BW_CLIENTSECRET might be needed by 'bw status' if not fully logged out,
-        # or if the CLI uses them to determine which account's status to check.
-        # For safety, pass them if available.
+
         env_for_status = os.environ.copy()
-        env_for_status.pop("BW_SESSION", None)  # Ensure no session key is used for status check
-        if self.client_id:
+        env_for_status.pop("BW_SESSION", None)
+        if self.client_id: # These might be None, subprocess env needs strings.
             env_for_status["BW_CLIENTID"] = self.client_id
         if self.client_secret:
             env_for_status["BW_CLIENTSECRET"] = self.client_secret
-        # Server config is handled by _ensure_server_configuration called in __init__
-        # and can be re-checked if status implies wrong server.
 
-        rc_status, stdout_status, stderr_status = self._run_bw_command(["status", "--raw"], custom_env=env_for_status)
+        # Ensure PATH is present for consistency if tests are very sensitive
+        if "PATH" not in env_for_status:
+            env_for_status["PATH"] = os.getenv("PATH", "")
+
+
+        rc_status, stdout_status, stderr_status = self._run_bw_command(
+            ["status", "--raw"], custom_env=env_for_status
+        )
 
         if rc_status != 0:
-            # If status itself fails, it might be because server is not configured yet
-            # or other fundamental CLI issue.
             logging.error(f"Failed to get Bitwarden status: {stderr_status.strip()}")
             if self.server_url and "not logged in to a server" in stderr_status.lower():
                 logging.info("Attempting to configure server as status check failed...")
                 if not self._ensure_server_configuration():
                     logging.error("Server configuration failed. Cannot proceed.")
                     return False
-                # Retry status after server configuration
                 rc_status, stdout_status, stderr_status = self._run_bw_command(
                     ["status", "--raw"], custom_env=env_for_status
                 )
@@ -125,59 +155,51 @@ class VaultwardenClient:
                     logging.error(f"Still failed to get Bitwarden status after server config: {stderr_status.strip()}")
                     return False
             else:
-                return False  # Unrecoverable status error
+                return False
 
         try:
             status_data = json.loads(stdout_status)
             current_cli_status = status_data.get("status")
-            # current_server_url_from_status = status_data.get("serverUrl")
-            # Re-check server URL if self.server_url is provided and differs
-            # if self.server_url and current_server_url_from_status != self.server_url:
-            #    logging.warning(f"Server URL mismatch: Expected '{self.server_url}', got '{current_server_url_from_status}'. Re-configuring.")
-            #    if not self._ensure_server_configuration(): return False
-            # Potentially need to re-fetch status here. For now, assume 'unauthenticated' will trigger login.
         except json.JSONDecodeError:
             logging.error(f"Failed to parse Bitwarden status JSON: {stdout_status.strip()}")
             return False
 
         if current_cli_status == "unauthenticated":
-            logging.info("Bitwarden status is 'unauthenticated'. Attempting API key login.")
-            if not self.client_id or not self.client_secret:
-                logging.error(
-                    "Cannot login with API key: VaultwardenClient not configured with client_id and client_secret."
+            logging.info("Bitwarden status is 'unauthenticated'.")
+            if self.client_id and self.client_secret:
+                logging.info("Attempting API key login as client_id and client_secret are configured.")
+
+                login_env_for_api = os.environ.copy()
+                login_env_for_api["BW_CLIENTID"] = self.client_id
+                login_env_for_api["BW_CLIENTSECRET"] = self.client_secret
+                login_env_for_api.pop("BW_SESSION", None)
+                if "PATH" not in login_env_for_api: # Ensure PATH for consistency
+                    login_env_for_api["PATH"] = os.getenv("PATH", "")
+
+
+                rc_login, _, stderr_login = self._run_bw_command(
+                    ["login", "--apikey"], custom_env=login_env_for_api, capture_output=True
                 )
-                return False
 
-            login_env_for_api = os.environ.copy()
-            login_env_for_api["BW_CLIENTID"] = self.client_id
-            login_env_for_api["BW_CLIENTSECRET"] = self.client_secret
-            login_env_for_api.pop("BW_SESSION", None)
+                if rc_login == 0:
+                    logging.info("Successfully logged in using API key.")
+                    if not self._sync_vault_after_api_login(login_env_for_api):
+                        logging.warning("Sync after API key login failed. Proceeding, but vault might be stale.")
 
-            rc_login, _, stderr_login = self._run_bw_command(
-                ["login", "--apikey"], custom_env=login_env_for_api, capture_output=True
-            )
-
-            if rc_login == 0:
-                logging.info("Successfully logged in using API key.")
-                # Sync after login to ensure local cache is up to date.
-                if not self._sync_vault_after_api_login(login_env_for_api):
-                    # Log warning but still consider API login part successful for now,
-                    # as the main goal was to authenticate the CLI.
-                    # Sync issues can be handled separately if they persist.
-                    logging.warning("Sync after API key login failed. Proceeding, but vault might be stale.")
-
-                # Critical: `bw login --apikey` authenticates the CLI but does not output a session key
-                # suitable for BW_SESSION. We must clear self.bw_session here to ensure that
-                # the main _get_session logic proceeds to a proper unlock sequence (e.g., using BW_PASSWORD)
-                # to obtain a usable session key.
-                logging.info("API key login and sync successful. Clearing internal/env BW_SESSION to force proper unlock.")
-                self.bw_session = None
-                if "BW_SESSION" in os.environ:
-                    del os.environ["BW_SESSION"]
-                return True
+                    logging.info("API key login and sync successful. Clearing internal/env BW_SESSION to force proper unlock.")
+                    self.bw_session = None
+                    if "BW_SESSION" in os.environ:
+                        del os.environ["BW_SESSION"]
+                    return True
+                else:
+                    logging.error(f"Failed to login using API key: {stderr_login.strip()}")
+                    return False
             else:
-                logging.error(f"Failed to login using API key: {stderr_login.strip()}")
-                return False
+                logging.warning(
+                    "VaultwardenClient not configured with client_id and client_secret for API key login. "
+                    "Will rely on password unlock if BW_PASSWORD is set."
+                )
+                return True
         elif current_cli_status in ["locked", "unlocked"]:
             logging.info(f"Bitwarden status is '{current_cli_status}'. API key login not immediately needed.")
             return True
@@ -191,6 +213,7 @@ class VaultwardenClient:
         that was successful for the login (containing API keys, no session key).
         """
         logging.info("Syncing Vaultwarden local cache after API key login...")
+        # The login_env_with_api_keys already has necessary creds and no session.
         returncode, _, stderr = self._run_bw_command(["sync"], custom_env=login_env_with_api_keys)
         if returncode != 0:
             logging.error(f"Failed to sync Vaultwarden after API key login: {stderr.strip()}")
@@ -204,34 +227,24 @@ class VaultwardenClient:
         Performs login via API key if needed, then unlocks using master password.
         Manages self.bw_session.
         """
-        # Step 1: Ensure server config is set if self.server_url is provided.
-        # _ensure_server_configuration is called in __init__.
-        # It could be called again here if status indicated a server mismatch,
-        # but _check_and_perform_login also has a basic check.
-
-        # Step 2: Check login status and perform API key login if client is unauthenticated.
         if not self._check_and_perform_login():
             logging.error("Initial login check/API key login failed. Cannot proceed to get session key.")
             return None
 
-        # Step 3: If we have an existing session key (self.bw_session), check if it's still valid.
         if self.bw_session:
             logging.debug("Checking existing BW_SESSION...")
-            # Use default env for _run_bw_command, which will include self.bw_session if set
-            rc_check, _, err_check = self._run_bw_command(["unlock", "--check"])
-            if rc_check == 0:
-                logging.info("Existing BW_SESSION is valid.")
+            rc_check, _, err_check = self._run_bw_command(["unlock", "--check"]) # Uses self.bw_session if set
+            if rc_check == 0: # unlock --check returns 0 if session is valid and vault is unlocked
+                logging.info("Existing BW_SESSION is valid and vault is unlocked.")
                 return self.bw_session
-            else:
+            else: # Session invalid or vault locked
                 logging.warning(
-                    f"Existing BW_SESSION is invalid or expired: {err_check.strip()}. Attempting to unlock for new session key."
+                    f"Existing BW_SESSION is invalid/expired or vault is locked: {err_check.strip()}. Attempting to unlock for new session key."
                 )
-                self.bw_session = None
+                self.bw_session = None # Clear invalid/locked session
                 if "BW_SESSION" in os.environ:
                     del os.environ["BW_SESSION"]
 
-        # Step 4: If no valid session, attempt to unlock using master password to get/refresh the session key.
-        # This is necessary even after API key login to get the BW_SESSION for command execution.
         bw_password = os.getenv("BW_PASSWORD")
         if not bw_password:
             logging.error("BW_PASSWORD environment variable is not set. Cannot unlock Vaultwarden.")
@@ -239,34 +252,33 @@ class VaultwardenClient:
 
         logging.info("Attempting to unlock Vaultwarden using BW_PASSWORD...")
 
-        # Use --passwordenv for passing password
         unlock_env = os.environ.copy()
         unlock_env["BW_PASSWORD"] = bw_password
-        # Clear BW_SESSION from this custom_env if it was there, to ensure clean unlock
         unlock_env.pop("BW_SESSION", None)
+        if "PATH" not in unlock_env: # Ensure PATH for consistency
+             unlock_env["PATH"] = os.getenv("PATH", "")
 
-        # Assign to distinct local variables
+
         rc_unlock_attempt, sout_unlock_attempt, err_unlock_attempt = self._run_bw_command(
             ["unlock", "--passwordenv", "BW_PASSWORD", "--raw"],
-            custom_env=unlock_env,  # Pass the environment with BW_PASSWORD
+            custom_env=unlock_env,
         )
         new_session_key_val = sout_unlock_attempt.strip()
 
-        # DEBUGGING LOG to see the exact values before the conditional
         logging.debug(
             f"VaultwardenClient._get_session: unlock with password results - "
             f"rc_unlock={rc_unlock_attempt}, "
-            f"new_session_key='{new_session_key_val}', "
+            f"new_session_key='{new_session_key_val[:10]}...', " # Log only prefix
             f"stderr_unlock='{err_unlock_attempt.strip()}'"
         )
 
         if rc_unlock_attempt == 0 and new_session_key_val:
             logging.info("Successfully unlocked Vaultwarden and obtained new session key.")
             self.bw_session = new_session_key_val
-            os.environ["BW_SESSION"] = self.bw_session
+            os.environ["BW_SESSION"] = self.bw_session # Make it available to subsequent direct CLI calls if any
             return self.bw_session
         else:
-            logging.error(f"Failed to unlock Vaultwarden: {err_unlock_attempt.strip()}")
+            logging.error(f"Failed to unlock Vaultwarden (rc={rc_unlock_attempt}): {err_unlock_attempt.strip() or new_session_key_val}")
             self.bw_session = None
             if "BW_SESSION" in os.environ:
                 del os.environ["BW_SESSION"]
@@ -277,11 +289,12 @@ class VaultwardenClient:
         Runs 'bw sync' to ensure the local cache is up-to-date.
         Requires a valid session.
         """
-        if not self.bw_session:  # Relies on _get_session having been called if needed
+        if not self.bw_session:
             logging.error("Cannot sync vault: No active BW_SESSION available to client.")
             return False
 
         logging.info("Syncing Vaultwarden local cache...")
+        # Uses self.bw_session via default env prep in _run_bw_command
         returncode, _, stderr = self._run_bw_command(["sync"])
         if returncode != 0:
             logging.error(f"Failed to sync Vaultwarden: {stderr.strip()}")
@@ -301,7 +314,7 @@ class VaultwardenClient:
         :param group_ids: Optional. A list of group associations.
         :return: The ID of the created collection if successful, None otherwise.
         """
-        if not self._get_session():  # This will attempt to unlock if needed
+        if not self._get_session():
             logging.error("Cannot create collection: Failed to obtain Vaultwarden session.")
             return None
         if not self._sync_vault():
@@ -327,6 +340,7 @@ class VaultwardenClient:
 
         logging.debug(f"Encoded payload for collection creation: {encoded_payload}")
 
+        # Uses self.bw_session via default env prep in _run_bw_command
         returncode_create, stdout_create, stderr_create = self._run_bw_command(
             ["create", "org-collection", "--organizationid", self.organization_id], input_data=encoded_payload
         )
@@ -376,6 +390,7 @@ class VaultwardenClient:
         logging.debug(
             f"Attempting to find Vaultwarden collection by name: '{collection_name}' for org '{self.organization_id}'"
         )
+        # Uses self.bw_session via default env prep in _run_bw_command
         returncode, stdout, stderr = self._run_bw_command(
             ["list", "org-collections", "--organizationid", self.organization_id]
         )
