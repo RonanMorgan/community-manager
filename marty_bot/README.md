@@ -115,6 +115,26 @@ These commands manage user access rights across the integrated services based on
     *   Displays a help message listing all available commands and their descriptions.
     *   Example: `@marty help`
 
+### Synchronization Scripts
+
+Beyond interactive bot commands, Marty Bot includes scripts for more comprehensive synchronization tasks that can be run on a schedule (e.g., via cron).
+
+*   **`scripts/sync_mm_authentik_groups.py`**:
+    *   Synchronizes Mattermost channel memberships to Authentik groups, Outline collections, Brevo contact lists, and NoCoDB user roles.
+    *   This script typically uses the `orchestrate_group_synchronization` function which can add and remove users from target services to match Mattermost channel memberships.
+
+*   **`scripts/sync_mm_vaultwarden_collections.py`**:
+    *   Synchronizes users from Mattermost public channels to corresponding Vaultwarden collections.
+    *   For each public channel in the configured Mattermost team, it attempts to find a Vaultwarden collection with the same name (channel's display name).
+    *   If the collection exists, users in the Mattermost channel are invited to the Vaultwarden collection with read-only access by default.
+    *   This script uses direct Vaultwarden API calls for inviting users.
+
+These scripts are typically run from the project's root directory, for example:
+```bash
+python marty_bot/scripts/sync_mm_vaultwarden_collections.py
+```
+Ensure your `.env` file is configured with all necessary credentials for the services the script interacts with.
+
 ## Running Tests
 
 To run the unit tests, navigate to the root directory of the project (`marty_bot/`) and run the following command:
