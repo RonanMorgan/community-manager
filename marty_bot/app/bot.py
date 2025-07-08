@@ -607,10 +607,6 @@ class MartyBot:
             else:
                 nocodb_msg += ":information_source: Client non configuré."
             item_results_log.append(nocodb_msg)
-        elif entity_key in ["ANTENNE", "POLES"]:  # Log if config is missing for relevant types
-            item_results_log.append(
-                f"  - NoCoDB Base: :information_source: Configuration 'nocodb' manquante pour l'entité '{entity_key}'."
-            )
 
         # Vaultwarden Collection (unique per entity)
         vaultwarden_config = entity_config.get("vaultwarden")
@@ -651,11 +647,7 @@ class MartyBot:
             else:
                 vw_msg += ":information_source: Client non configuré."
             item_results_log.append(vw_msg)
-        elif entity_key in ["PROJET", "ANTENNE", "POLES"]:  # Log if config is missing for relevant types
-            item_results_log.append(
-                f"  - Vaultwarden Collection: :information_source: Configuration 'vaultwarden' manquante pour l'entité '{entity_key}'."
-            )
-
+            
         return item_results_log
 
     async def _execute_batch_create_command(

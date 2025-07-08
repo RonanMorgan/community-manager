@@ -59,18 +59,12 @@ class VaultwardenClient:
                 # The current logic is fine: custom_env overrides, then self.bw_session if not in custom_env.
                 pass
 
-            logging.debug(f"Running bw command: {' '.join(['bw'] + command_parts)}")
-            # Robust handling for input_data: encode if str, pass through if bytes/None
-            processed_input = None
-            if isinstance(input_data, str):
-                processed_input = input_data.encode()
-            elif isinstance(input_data, bytes):  # Should not happen based on type hints, but defensive
-                processed_input = input_data
-            # If input_data is None, processed_input remains None
+            logging.debug(f"Running bw command: {' '.join(['bw'] + command_parts)}")            
+            logging.debug(f"input_data: { input_data }")
 
             process = subprocess.run(
                 ["bw"] + command_parts,
-                input=processed_input,
+                input=input_data,
                 capture_output=capture_output,
                 text=True,
                 check=False,
@@ -279,29 +273,55 @@ class VaultwardenClient:
                 return None
 
     def get_collection_by_name(self, collection_name: str) -> str | None:
-        if not self._get_session():
-            logging.error("Cannot get collection by name: Failed to obtain Vaultwarden session.")
+        """
+        Retrieves a collection ID by its name using the `bw list collections` CLI command.
+        This command lists all collections accessible to the logged-in user.
+        Filters by organization_id if provided to the client.
+
+        :param collection_name: The name of the collection to find.
+        :return: The ID of the collection if found, otherwise None.
+        """
+        if not self._get_session(): # Ensures CLI is unlocked and session is active
+            logging.error("Cannot get collection by name: Failed to obtain Vaultwarden CLI session.")
             return None
 
-        logging.debug(f"Attempting to find Vaultwarden collection by name: '{collection_name}'")
+        # Sync vault to ensure local cache is up-to-date before listing
+        if not self._sync_vault():
+            logging.warning("Vault sync failed before listing collections. Proceeding, but data might be stale.")
+
+        logging.debug(f"Attempting to find Vaultwarden collection by name: '{collection_name}' using 'bw list collections'.")
+
+        # The command `bw list collections` lists all collections the user has access to.
+        # We will filter this list for the matching name and organization ID.
         rc_list, sout_list, err_list = self._run_bw_command(
-            ["list", "org-collections", "--organizationid", self.organization_id]
+            ["list", "collections"]
         )
+
         if rc_list == 0:
             try:
                 collections = json.loads(sout_list)
                 for collection in collections:
-                    if collection.get("name") == collection_name:
+                    # Check if the collection name matches and if it belongs to the target organization
+                    if collection.get("name") == collection_name and collection.get("organizationId") == self.organization_id:
                         coll_id = collection.get("id")
-                        logging.info(f"Found collection '{collection_name}' with ID: {coll_id}")
-                        return coll_id
-                logging.info(f"Collection '{collection_name}' not found.")
+                        if coll_id: # Ensure ID is not null or empty
+                            logging.info(
+                                f"Found collection '{collection_name}' with ID: {coll_id} in organization {self.organization_id}."
+                            )
+                            return coll_id
+                        else:
+                            logging.warning(f"Collection '{collection_name}' found but has no ID.")
+
+                logging.info(
+                    f"Collection '{collection_name}' not found in organization '{self.organization_id}' "
+                    f"or user does not have access."
+                )
                 return None
             except json.JSONDecodeError:
-                logging.error(f"Failed to parse JSON from 'bw list org-collections': {sout_list.strip()}")
+                logging.error(f"Failed to parse JSON from 'bw list collections': {sout_list.strip()}")
                 return None
         else:
-            logging.error(f"Failed to list collections: {err_list.strip()}")
+            logging.error(f"Failed to list collections using 'bw list collections': {err_list.strip()}")
             return None
 
 

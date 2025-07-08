@@ -424,7 +424,7 @@ class MattermostClient:
             logging.error("Mattermost Team ID is not available for fetching channels.")
             return []
 
-        api_url = f"{self.base_url}/api/v4/teams/{current_team_id}/channels"
+        api_url = f"{self.base_url}/api/v4/teams/{current_team_id}/channels/private"
         # This endpoint might be paginated for teams with many channels,
         # but often for typical setups, it might return all in one go or a reasonable first page.
         # For full robustness, pagination handling (page, per_page) would be needed here too.
@@ -434,6 +434,8 @@ class MattermostClient:
             response = requests.get(api_url, headers=self.headers)
             response.raise_for_status()
             channels_data = response.json()
+            logging.debug(f"channels_data : {channels_data} from {api_url}")
+
             if isinstance(channels_data, list):
                 logging.info(f"Successfully fetched {len(channels_data)} channels for team {current_team_id}.")
                 return channels_data
