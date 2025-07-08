@@ -7,19 +7,29 @@ import logging
 
 
 class VaultwardenClient:
-    def __init__(self, organization_id: str, server_url: str | None = None):
+    def __init__(
+        self,
+        organization_id: str,
+        server_url: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+    ):
         """
         Initializes the VaultwardenClient.
         :param organization_id: The ID of the organization in Vaultwarden.
         :param server_url: The URL of the Vaultwarden server. If None, it's assumed 'bw config server' was already run.
+        :param client_id: The BW_CLIENTID for API key login.
+        :param client_secret: The BW_CLIENTSECRET for API key login.
         """
         if not organization_id:
             raise ValueError("Vaultwarden organization_id must be provided.")
         self.organization_id = organization_id
         self.server_url = server_url
+        self.client_id = client_id
+        self.client_secret = client_secret
         # Try to get BW_SESSION from env first, might be set by a wrapper or previous run
         self.bw_session = os.getenv("BW_SESSION")
-        self._ensure_server_configuration()
+        self._ensure_server_configuration()  # Initial server config check
 
     def _run_bw_command(
         self,
@@ -77,23 +87,151 @@ class VaultwardenClient:
             logging.info(f"Vaultwarden server URL configured to {self.server_url}.")
         return True
 
+    def _check_and_perform_login(self) -> bool:
+        """
+        Checks current Bitwarden status and performs login if necessary using API key.
+        Returns True if login is successful or not needed, False if login fails.
+        """
+        logging.debug("Checking Bitwarden login status...")
+        # Run with a clean env for status check, no session key needed/wanted here for status itself.
+        # BW_CLIENTID and BW_CLIENTSECRET might be needed by 'bw status' if not fully logged out,
+        # or if the CLI uses them to determine which account's status to check.
+        # For safety, pass them if available.
+        env_for_status = os.environ.copy()
+        env_for_status.pop("BW_SESSION", None)  # Ensure no session key is used for status check
+        if self.client_id:
+            env_for_status["BW_CLIENTID"] = self.client_id
+        if self.client_secret:
+            env_for_status["BW_CLIENTSECRET"] = self.client_secret
+        # Server config is handled by _ensure_server_configuration called in __init__
+        # and can be re-checked if status implies wrong server.
+
+        rc_status, stdout_status, stderr_status = self._run_bw_command(["status", "--raw"], custom_env=env_for_status)
+
+        if rc_status != 0:
+            # If status itself fails, it might be because server is not configured yet
+            # or other fundamental CLI issue.
+            logging.error(f"Failed to get Bitwarden status: {stderr_status.strip()}")
+            if self.server_url and "not logged in to a server" in stderr_status.lower():
+                logging.info("Attempting to configure server as status check failed...")
+                if not self._ensure_server_configuration():
+                    logging.error("Server configuration failed. Cannot proceed.")
+                    return False
+                # Retry status after server configuration
+                rc_status, stdout_status, stderr_status = self._run_bw_command(
+                    ["status", "--raw"], custom_env=env_for_status
+                )
+                if rc_status != 0:
+                    logging.error(f"Still failed to get Bitwarden status after server config: {stderr_status.strip()}")
+                    return False
+            else:
+                return False  # Unrecoverable status error
+
+        try:
+            status_data = json.loads(stdout_status)
+            current_cli_status = status_data.get("status")
+            # current_server_url_from_status = status_data.get("serverUrl")
+            # Re-check server URL if self.server_url is provided and differs
+            # if self.server_url and current_server_url_from_status != self.server_url:
+            #    logging.warning(f"Server URL mismatch: Expected '{self.server_url}', got '{current_server_url_from_status}'. Re-configuring.")
+            #    if not self._ensure_server_configuration(): return False
+            # Potentially need to re-fetch status here. For now, assume 'unauthenticated' will trigger login.
+        except json.JSONDecodeError:
+            logging.error(f"Failed to parse Bitwarden status JSON: {stdout_status.strip()}")
+            return False
+
+        if current_cli_status == "unauthenticated":
+            logging.info("Bitwarden status is 'unauthenticated'. Attempting API key login.")
+            if not self.client_id or not self.client_secret:
+                logging.error(
+                    "Cannot login with API key: VaultwardenClient not configured with client_id and client_secret."
+                )
+                return False
+
+            login_env_for_api = os.environ.copy()
+            login_env_for_api["BW_CLIENTID"] = self.client_id
+            login_env_for_api["BW_CLIENTSECRET"] = self.client_secret
+            login_env_for_api.pop("BW_SESSION", None)
+
+            rc_login, _, stderr_login = self._run_bw_command(
+                ["login", "--apikey"], custom_env=login_env_for_api, capture_output=True
+            )
+
+            if rc_login == 0:
+                logging.info("Successfully logged in using API key.")
+                # Sync after login to ensure local cache is up to date.
+                if not self._sync_vault_after_api_login(login_env_for_api):
+                    # Log warning but still consider API login part successful for now,
+                    # as the main goal was to authenticate the CLI.
+                    # Sync issues can be handled separately if they persist.
+                    logging.warning("Sync after API key login failed. Proceeding, but vault might be stale.")
+
+                # Critical: `bw login --apikey` authenticates the CLI but does not output a session key
+                # suitable for BW_SESSION. We must clear self.bw_session here to ensure that
+                # the main _get_session logic proceeds to a proper unlock sequence (e.g., using BW_PASSWORD)
+                # to obtain a usable session key.
+                logging.info("API key login and sync successful. Clearing internal/env BW_SESSION to force proper unlock.")
+                self.bw_session = None
+                if "BW_SESSION" in os.environ:
+                    del os.environ["BW_SESSION"]
+                return True
+            else:
+                logging.error(f"Failed to login using API key: {stderr_login.strip()}")
+                return False
+        elif current_cli_status in ["locked", "unlocked"]:
+            logging.info(f"Bitwarden status is '{current_cli_status}'. API key login not immediately needed.")
+            return True
+        else:
+            logging.warning(f"Unknown Bitwarden status: '{current_cli_status}'. Proceeding with caution.")
+            return True
+
+    def _sync_vault_after_api_login(self, login_env_with_api_keys: dict) -> bool:
+        """
+        Runs 'bw sync' specifically after an API key login, using the environment
+        that was successful for the login (containing API keys, no session key).
+        """
+        logging.info("Syncing Vaultwarden local cache after API key login...")
+        returncode, _, stderr = self._run_bw_command(["sync"], custom_env=login_env_with_api_keys)
+        if returncode != 0:
+            logging.error(f"Failed to sync Vaultwarden after API key login: {stderr.strip()}")
+            return False
+        logging.info("Vaultwarden sync after API key login successful.")
+        return True
+
     def _get_session(self) -> str | None:
         """
-        Ensures a valid Bitwarden session is available.
+        Ensures a valid Bitwarden session key (BW_SESSION) is available.
+        Performs login via API key if needed, then unlocks using master password.
         Manages self.bw_session.
         """
+        # Step 1: Ensure server config is set if self.server_url is provided.
+        # _ensure_server_configuration is called in __init__.
+        # It could be called again here if status indicated a server mismatch,
+        # but _check_and_perform_login also has a basic check.
+
+        # Step 2: Check login status and perform API key login if client is unauthenticated.
+        if not self._check_and_perform_login():
+            logging.error("Initial login check/API key login failed. Cannot proceed to get session key.")
+            return None
+
+        # Step 3: If we have an existing session key (self.bw_session), check if it's still valid.
         if self.bw_session:
             logging.debug("Checking existing BW_SESSION...")
-            returncode, _, stderr = self._run_bw_command(["unlock", "--check"])
-            if returncode == 0:
+            # Use default env for _run_bw_command, which will include self.bw_session if set
+            rc_check, _, err_check = self._run_bw_command(["unlock", "--check"])
+            if rc_check == 0:
                 logging.info("Existing BW_SESSION is valid.")
                 return self.bw_session
             else:
-                logging.warning(f"Existing BW_SESSION is invalid or expired: {stderr.strip()}. Attempting to unlock.")
+                logging.warning(
+                    f"Existing BW_SESSION is invalid or expired: {err_check.strip()}. Attempting to unlock for new session key."
+                )
                 self.bw_session = None
-                if "BW_SESSION" in os.environ:  # Remove from current process env too if it was there
+                if "BW_SESSION" in os.environ:
                     del os.environ["BW_SESSION"]
 
+        # Step 4: If no valid session, attempt to unlock using master password to get/refresh the session key.
+        # This is necessary even after API key login to get the BW_SESSION for command execution.
         bw_password = os.getenv("BW_PASSWORD")
         if not bw_password:
             logging.error("BW_PASSWORD environment variable is not set. Cannot unlock Vaultwarden.")

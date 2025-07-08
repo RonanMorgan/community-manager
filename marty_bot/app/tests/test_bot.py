@@ -39,6 +39,8 @@ class TestMartyBot(unittest.TestCase):
         self.mock_config.DEBUG = False
         self.mock_config.VAULTWARDEN_ORGANIZATION_ID = "fake_vw_org_id"  # Added
         self.mock_config.VAULTWARDEN_SERVER_URL = "http://fake-vw.com"  # Added
+        self.mock_config.VAULTWARDEN_CLIENT_ID = "fake_vw_client_id"  # Added for new client init
+        self.mock_config.VAULTWARDEN_CLIENT_SECRET = "fake_vw_client_secret"  # Added for new client init
 
         # Updated PERMISSIONS_MATRIX to include folder_name for Brevo and vaultwarden config
         self.mock_config.PERMISSIONS_MATRIX = {
