@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import patch, MagicMock, call
 import os
 import json
-import requests
 
 from marty_bot.clients.vaultwarden_client import VaultwardenClient
 
@@ -268,9 +267,10 @@ class TestVaultwardenClient(unittest.TestCase):
         existing_id = "existing-uuid"
 
         mock_run_bw.side_effect = [
-            (0, "encoded_payload", ""),
-            (1, "", "ERROR: Collection with this name already exists."),
-            (0, json.dumps([{"id": existing_id, "name": collection_name}]), ""),
+            (0, "encoded_payload", ""),  # encode
+            (1, "", "ERROR: Collection with this name already exists."),  # create org-collection
+            # list collections (this is the one that needs organizationId)
+            (0, json.dumps([{"id": existing_id, "name": collection_name, "organizationId": self.organization_id}]), ""),
         ]
 
         found_id = self.client.create_collection(collection_name)
@@ -281,19 +281,27 @@ class TestVaultwardenClient(unittest.TestCase):
         )
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
+    @patch.object(VaultwardenClient, "_sync_vault", return_value=True) # Added missing mock for _sync_vault
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_collection_by_name_found(self, mock_run_bw, mock_get_session):
+    def test_get_collection_by_name_found(self, mock_run_bw, mock_sync_vault, mock_get_session): # Added mock_sync_vault
         self.client.bw_session = "fake_session"
         collection_name = "Target Collection"
         expected_id = "target-uuid"
         mock_run_bw.return_value = (
             0,
-            json.dumps([{"name": "Other", "id": "other-id"}, {"name": collection_name, "id": expected_id}]),
+            # Ensure mocked data includes organizationId for filtering
+            json.dumps([
+                {"name": "Other", "id": "other-id", "organizationId": self.organization_id},
+                {"name": collection_name, "id": expected_id, "organizationId": self.organization_id}
+            ]),
             "",
         )
         found_id = self.client.get_collection_by_name(collection_name)
         self.assertEqual(found_id, expected_id)
-        mock_run_bw.assert_called_once_with(["list", "org-collections", "--organizationid", self.organization_id])
+        # Verify it's called with 'list collections' and that sync and session were checked
+        mock_run_bw.assert_called_once_with(["list", "collections"])
+        mock_sync_vault.assert_called_once()
+        mock_get_session.assert_called_once()
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
     @patch.object(VaultwardenClient, "_sync_vault", return_value=True) # Mock sync as it's called by get_collection_by_name
