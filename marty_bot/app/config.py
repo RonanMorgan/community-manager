@@ -36,8 +36,8 @@ NOCODB_TOKEN = os.getenv("NOCODB_TOKEN")
 # Vaultwarden settings
 VAULTWARDEN_ORGANIZATION_ID = os.getenv("VAULTWARDEN_ORGANIZATION_ID")
 VAULTWARDEN_SERVER_URL = os.getenv("VAULTWARDEN_SERVER_URL")
-VAULTWARDEN_CLIENT_ID = os.getenv("BW_CLIENTID")  # Read from BW_CLIENTID directly
-VAULTWARDEN_CLIENT_SECRET = os.getenv("BW_CLIENTSECRET")  # Read from BW_CLIENTSECRET directly
+# VAULTWARDEN_CLIENT_ID and VAULTWARDEN_CLIENT_SECRET are no longer used by VaultwardenClient.
+# The client now relies on a one-time manual 'bw login' and uses BW_PASSWORD for 'bw unlock'.
 # BW_PASSWORD is intentionally not loaded into the config object directly for security.
 # The VaultwardenClient will attempt to read it from the environment itself using os.getenv("BW_PASSWORD").
 # This avoids storing it in a config object that might be logged or exposed.

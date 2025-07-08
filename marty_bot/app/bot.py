@@ -146,8 +146,7 @@ class MartyBot:
                 self.vaultwarden_client = VaultwardenClient(
                     organization_id=self.config.VAULTWARDEN_ORGANIZATION_ID,
                     server_url=self.config.VAULTWARDEN_SERVER_URL,
-                    client_id=self.config.VAULTWARDEN_CLIENT_ID,
-                    client_secret=self.config.VAULTWARDEN_CLIENT_SECRET,
+                    # client_id and client_secret are no longer used by VaultwardenClient
                 )
                 logging.info("VaultwardenClient initialized successfully for MartyBot instance.")
             except ValueError as e:  # Catch specific error from client if org_id is missing (already checked by if)
