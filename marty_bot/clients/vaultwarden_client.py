@@ -60,9 +60,17 @@ class VaultwardenClient:
                 pass
 
             logging.debug(f"Running bw command: {' '.join(['bw'] + command_parts)}")
+            # Robust handling for input_data: encode if str, pass through if bytes/None
+            processed_input = None
+            if isinstance(input_data, str):
+                processed_input = input_data.encode()
+            elif isinstance(input_data, bytes):  # Should not happen based on type hints, but defensive
+                processed_input = input_data
+            # If input_data is None, processed_input remains None
+
             process = subprocess.run(
                 ["bw"] + command_parts,
-                input=input_data.encode() if input_data else None,
+                input=processed_input,
                 capture_output=capture_output,
                 text=True,
                 check=False,
