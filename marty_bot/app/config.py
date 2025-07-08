@@ -41,8 +41,6 @@ VAULTWARDEN_SERVER_URL = os.getenv("VAULTWARDEN_SERVER_URL")
 # BW_PASSWORD is intentionally not loaded into the config object directly for security.
 # The VaultwardenClient will attempt to read it from the environment itself using os.getenv("BW_PASSWORD").
 # This avoids storing it in a config object that might be logged or exposed.
-VAULTWARDEN_API_USERNAME = os.getenv("VAULTWARDEN_API_USERNAME")
-VAULTWARDEN_API_PASSWORD = os.getenv("VAULTWARDEN_API_PASSWORD")
 
 # General Configuration
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"

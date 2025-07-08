@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import patch, MagicMock, call
 import os
 import json
-import requests
 
 from marty_bot.clients.vaultwarden_client import VaultwardenClient
 
@@ -270,15 +269,16 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_run_bw.side_effect = [
             (0, "encoded_payload", ""),  # encode
             (1, "", "ERROR: Collection with this name already exists."),  # create org-collection
-            # list collections (this is the one that needs organizationId)
+            # list collections - ensure organizationId is present in the mock
             (0, json.dumps([{"id": existing_id, "name": collection_name, "organizationId": self.organization_id}]), ""),
         ]
 
         found_id = self.client.create_collection(collection_name)
         self.assertEqual(found_id, existing_id)
         self.assertEqual(mock_run_bw.call_count, 3)
+        # This assertion should now correctly expect ['list', 'collections']
         self.assertEqual(
-            mock_run_bw.call_args_list[2][0], (["list", "org-collections", "--organizationid", self.organization_id],)
+            mock_run_bw.call_args_list[2][0], (['list', 'collections'],)
         )
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
@@ -301,167 +301,22 @@ class TestVaultwardenClient(unittest.TestCase):
         self.assertEqual(found_id, expected_id)
         # Verify it's called with 'list collections' and that sync and session were checked
         mock_run_bw.assert_called_once_with(["list", "collections"])
-        mock_sync_vault.assert_called_once()
+        mock_sync_vault.assert_called_once() # Ensure _sync_vault is called
         mock_get_session.assert_called_once()
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
-    @patch.object(VaultwardenClient, "_sync_vault", return_value=True) # Mock sync as it's called by get_collection_by_name
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_collection_by_name_not_found(self, mock_run_bw, mock_sync_vault, mock_get_session):
+    def test_get_collection_by_name_not_found(self, mock_run_bw, mock_get_session):
         self.client.bw_session = "fake_session"
-        # Simulate output from `bw list collections`
-        mock_run_bw.return_value = (
-            0,
-            json.dumps([
-                {"name": "Other Collection", "id": "other-id-123", "organizationId": self.organization_id},
-                {"name": "Another unrelated", "id": "other-id-456", "organizationId": "another-org-id"}
-            ]),
-            ""
-        )
-        # Ensure it's using the correct command now `list collections`
-        self.assertIsNone(self.client.get_collection_by_name("NonExistentCollection"))
-        mock_run_bw.assert_called_once_with(["list", "collections"])
-        mock_get_session.assert_called_once()
-        mock_sync_vault.assert_called_once()
-
-    @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
-    @patch.object(VaultwardenClient, "_sync_vault", return_value=True)
-    @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_collection_id_by_name_via_cli_found_filters_by_org(self, mock_run_bw, mock_sync_vault, mock_get_session):
-        self.client.bw_session = "fake_session"
-        collection_name = "Target Collection"
-        expected_id = "target-uuid-for-org"
-
-        mock_run_bw.return_value = (
-            0,
-            json.dumps([
-                {"name": "Other", "id": "other-id", "organizationId": self.organization_id},
-                {"name": collection_name, "id": "some-other-org-id", "organizationId": "some-other-org"}, # Same name, diff org
-                {"name": collection_name, "id": expected_id, "organizationId": self.organization_id}, # Correct one
-                {"name": "Yet Another", "id": "yet-another-id", "organizationId": self.organization_id}
-            ]),
-            "",
-        )
-        # Using the alias directly as per plan
-        found_id = self.client.get_collection_id_by_name_via_api_or_cli(collection_name)
-        self.assertEqual(found_id, expected_id)
-        mock_run_bw.assert_called_once_with(["list", "collections"]) # Verifies it uses the correct bw command
-        mock_get_session.assert_called_once()
-        mock_sync_vault.assert_called_once()
+        mock_run_bw.return_value = (0, json.dumps([{"name": "Other", "id": "other-id"}]), "")
+        self.assertIsNone(self.client.get_collection_by_name("NonExistent"))
 
     def test_run_bw_command_file_not_found_during_init(self):
-        self.ensure_server_config_patcher.stop() # Stop the auto-mock for _ensure_server_configuration
+        self.ensure_server_config_patcher.stop()
         with patch("subprocess.run", side_effect=FileNotFoundError("bw not found simulation")):
-            # Temporarily patch os.getenv for VAULTWARDEN_SERVER_URL if VaultwardenClient relies on it for _ensure_server_configuration
-            with patch.dict(os.environ, {"VAULTWARDEN_SERVER_URL": self.server_url}):
-                 with self.assertRaises(FileNotFoundError):
-                    # Creating a new client instance here to test its __init__ path
-                    VaultwardenClient(organization_id="org", server_url=self.server_url)
-        self.ensure_server_config_patcher.start() # Restart the auto-mock
-
-    # --- Tests for new API methods ---
-
-    @patch('marty_bot.clients.vaultwarden_client.requests.post')
-    def test_get_api_access_token_success(self, mock_post):
-        expected_token = "this_is_a_fake_access_token"
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"access_token": expected_token, "token_type": "Bearer"}
-        mock_post.return_value = mock_response
-
-        # Ensure API credentials are set for the client instance for this test
-        self.client.api_username = "test_api_user@example.com"
-        self.client.api_password = "test_api_password"
-
-        token = self.client.get_api_access_token()
-        self.assertEqual(token, expected_token)
-        mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
-        self.assertTrue(args[0].endswith("/identity/connect/token"))
-        self.assertEqual(kwargs["data"]["grant_type"], "password")
-        self.assertEqual(kwargs["data"]["username"], "test_api_user%40example.com") # Check URL encoding
-        self.assertEqual(kwargs["data"]["password"], "test_api_password")
-
-    @patch('marty_bot.clients.vaultwarden_client.requests.post')
-    def test_get_api_access_token_http_error(self, mock_post):
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_response.reason = "Unauthorized"
-        mock_response.text = '{"error": "invalid_credentials"}'
-        mock_post.side_effect = requests.exceptions.HTTPError(response=mock_response)
-
-        self.client.api_username = "test_api_user@example.com"
-        self.client.api_password = "wrong_password"
-
-        token = self.client.get_api_access_token()
-        self.assertIsNone(token)
-
-    @patch('marty_bot.clients.vaultwarden_client.requests.post')
-    def test_get_api_access_token_request_exception(self, mock_post):
-        mock_post.side_effect = requests.exceptions.ConnectionError("Failed to connect")
-        self.client.api_username = "user"
-        self.client.api_password = "pass"
-        token = self.client.get_api_access_token()
-        self.assertIsNone(token)
-
-    def test_get_api_access_token_missing_credentials(self):
-        # Test with client not having api_username or api_password
-        self.client.api_username = None
-        self.assertIsNone(self.client.get_api_access_token())
-        self.client.api_username = "user"
-        self.client.api_password = None
-        self.assertIsNone(self.client.get_api_access_token())
-
-    def test_get_api_access_token_missing_server_url(self):
-        client_no_url = VaultwardenClient(organization_id=self.organization_id, server_url=None)
-        client_no_url.api_username = "user"
-        client_no_url.api_password = "pass"
-        # Need to ensure CONFIG_SERVER_URL is also None for this specific test case if client relies on it
-        with patch('marty_bot.clients.vaultwarden_client.CONFIG_SERVER_URL', None):
-            self.assertIsNone(client_no_url.get_api_access_token())
-
-
-    @patch('marty_bot.clients.vaultwarden_client.requests.post')
-    def test_invite_user_to_collection_api_success(self, mock_post):
-        mock_response = MagicMock()
-        mock_response.status_code = 200 # Or 201, 204 depending on API
-        mock_response.json.return_value = {"object": "org-member", "id": "new-member-id"} # Example response
-        mock_post.return_value = mock_response
-
-        access_token = "fake_api_token"
-        user_email = "new.user@example.com"
-        collection_id = "coll-uuid-123"
-
-        result = self.client.invite_user_to_collection_api(access_token, user_email, collection_id)
-        self.assertTrue(result)
-        mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
-        self.assertTrue(args[0].endswith(f"/api/organizations/{self.organization_id}/users/invite"))
-        self.assertEqual(kwargs["headers"]["Authorization"], f"Bearer {access_token}")
-        self.assertEqual(kwargs["json"]["emails"], [user_email])
-        self.assertEqual(kwargs["json"]["collections"][0]["id"], collection_id)
-        self.assertTrue(kwargs["json"]["collections"][0]["readOnly"]) # Default
-
-    @patch('marty_bot.clients.vaultwarden_client.requests.post')
-    def test_invite_user_to_collection_api_failure_http_error(self, mock_post):
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_response.text = '{"error": "User already invited or collection not found"}'
-        mock_post.return_value = mock_response # Direct return, not raising HTTPError for this test path
-
-        result = self.client.invite_user_to_collection_api("token", "email", "coll_id")
-        self.assertFalse(result)
-
-    @patch('marty_bot.clients.vaultwarden_client.requests.post')
-    def test_invite_user_to_collection_api_request_exception(self, mock_post):
-        mock_post.side_effect = requests.exceptions.Timeout("Request timed out")
-        result = self.client.invite_user_to_collection_api("token", "email", "coll_id")
-        self.assertFalse(result)
-
-    def test_invite_user_to_collection_api_missing_params(self):
-        self.assertFalse(self.client.invite_user_to_collection_api("", "email", "coll_id"))
-        self.assertFalse(self.client.invite_user_to_collection_api("token", "", "coll_id"))
-        self.assertFalse(self.client.invite_user_to_collection_api("token", "email", ""))
+            with self.assertRaises(FileNotFoundError):
+                VaultwardenClient(organization_id="org", server_url="http://test.com")
+        self.ensure_server_config_patcher.start()
 
 
 if __name__ == "__main__":

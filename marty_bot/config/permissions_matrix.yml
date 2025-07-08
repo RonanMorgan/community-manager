@@ -17,7 +17,7 @@ permissions:
       folder_name: "projets" # Placeholder, user should update
     # No nocodb section for PROJET as requested
     vaultwarden:
-      collection_name_pattern: "projet_{base_name}"
+      collection_name_pattern: "Projet - {base_name}"
 
   ANTENNE:
     standard:
@@ -40,7 +40,7 @@ permissions:
       default_access: "viewer"
       admin_access: "owner"
     vaultwarden:
-      collection_name_pattern: "antenne_{base_name}"
+      collection_name_pattern: "Antenne - {base_name}"
 
   POLES: # Nom de catégorie au pluriel
     standard:
@@ -63,4 +63,4 @@ permissions:
       default_access: "viewer"
       admin_access: "owner"
     vaultwarden:
-      collection_name_pattern: "pole_{base_name}"
+      collection_name_pattern: "Pôle - {base_name}"
