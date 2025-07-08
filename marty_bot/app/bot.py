@@ -1,6 +1,7 @@
 import websockets
 import json
 import re  # Import re for regular expressions
+import os  # IMPORT MANQUANT !
 
 # import threading # No longer used
 import requests
@@ -33,6 +34,7 @@ from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.mattermost_client import MattermostClient
 from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
+from clients.vaultwarden_client import VaultwardenClient  # Added VaultwardenClient
 
 # Import orchestration function for sync command
 from libraries.group_sync_services import orchestrate_group_synchronization
@@ -135,6 +137,28 @@ class MartyBot:
         else:
             logging.warning(
                 "NocoDB URL or Token not configured for MartyBot instance. NocoDB features will be disabled."
+            )
+
+        self.vaultwarden_client = None
+        if self.config.VAULTWARDEN_ORGANIZATION_ID:
+            try:
+                # VAULTWARDEN_SERVER_URL is optional for the client constructor
+                self.vaultwarden_client = VaultwardenClient(
+                    organization_id=self.config.VAULTWARDEN_ORGANIZATION_ID,
+                    server_url=self.config.VAULTWARDEN_SERVER_URL,
+                    # client_id and client_secret are no longer used by VaultwardenClient
+                )
+                logging.info("VaultwardenClient initialized successfully for MartyBot instance.")
+            except ValueError as e:  # Catch specific error from client if org_id is missing (already checked by if)
+                logging.warning(f"Failed to initialize VaultwardenClient for MartyBot instance: {e}")
+            except Exception as e:  # Catch other potential errors like 'bw' not found
+                logging.error(
+                    f"An unexpected error occurred during VaultwardenClient initialization: {e}", exc_info=True
+                )
+                self.vaultwarden_client = None  # Ensure client is None if init fails
+        else:
+            logging.warning(
+                "Vaultwarden Organization ID not configured for MartyBot instance. Vaultwarden features will be disabled."
             )
 
         self.websocket = None  # Represents the active WebSocket connection object
@@ -586,6 +610,50 @@ class MartyBot:
         elif entity_key in ["ANTENNE", "POLES"]:  # Log if config is missing for relevant types
             item_results_log.append(
                 f"  - NoCoDB Base: :information_source: Configuration 'nocodb' manquante pour l'entité '{entity_key}'."
+            )
+
+        # Vaultwarden Collection (unique per entity)
+        vaultwarden_config = entity_config.get("vaultwarden")
+        if vaultwarden_config:
+            vw_coll_pattern = vaultwarden_config.get(
+                "collection_name_pattern", "Shared - {base_name}"
+            )  # Default pattern
+            vw_coll_name = vw_coll_pattern.format(base_name=base_name)
+
+            vw_msg = f"  - Vaultwarden Collection `{vw_coll_name}`: "
+            if self.vaultwarden_client:
+                # The create_collection method in the client handles checking for existing collections.
+                # It requires BW_PASSWORD to be set in the environment.
+                if not os.getenv("BW_PASSWORD"):
+                    vw_msg += ":warning: Échec - BW_PASSWORD non défini dans l'environnement."
+                    logging.warning(
+                        f"Vaultwarden: BW_PASSWORD not set in environment. Cannot create collection '{vw_coll_name}'."
+                    )
+                else:
+                    try:
+                        # Assuming create_collection returns the collection ID if successful/exists, None otherwise
+                        collection_id = await asyncio.to_thread(
+                            self.vaultwarden_client.create_collection, vw_coll_name
+                        )
+                        if collection_id:
+                            # We don't easily know if it was "created" vs "existed" without more client logic,
+                            # so a generic success message.
+                            vw_msg += f":white_check_mark: Collection assurée (ID: {collection_id})."
+                        else:
+                            vw_msg += ":warning: Échec création/vérification."
+                    except FileNotFoundError:  # Raised by client if 'bw' CLI is not found
+                        error_message = "CLI 'bw' non trouvée."
+                        vw_msg += f":x: Erreur ({error_message})."
+                        logging.error(f"Vaultwarden client error for collection '{vw_coll_name}': {error_message}")
+                    except Exception as e:
+                        vw_msg += f":x: Erreur ({e})."
+                        logging.error(f"Error creating Vaultwarden collection '{vw_coll_name}': {e}", exc_info=True)
+            else:
+                vw_msg += ":information_source: Client non configuré."
+            item_results_log.append(vw_msg)
+        elif entity_key in ["PROJET", "ANTENNE", "POLES"]:  # Log if config is missing for relevant types
+            item_results_log.append(
+                f"  - Vaultwarden Collection: :information_source: Configuration 'vaultwarden' manquante pour l'entité '{entity_key}'."
             )
 
         return item_results_log

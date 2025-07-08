@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 import json
 import asyncio
+import os  # Added import
 
 from app.bot import MartyBot
 from clients.mattermost_client import slugify
@@ -18,6 +19,10 @@ def async_test(f):
 class TestMartyBot(unittest.TestCase):
 
     def setUp(self):
+        # Patch VaultwardenClient avant que MartyBot ne soit instancié
+        self.vaultwarden_client_patcher = patch("app.bot.VaultwardenClient", MagicMock())
+        self.mock_vaultwarden_class = self.vaultwarden_client_patcher.start()
+
         self.mock_config = MagicMock()
         self.mock_config.BOT_NAME = "martytest"
         self.mock_config.MATTERMOST_URL = "http://fake-mm.com"
@@ -32,8 +37,12 @@ class TestMartyBot(unittest.TestCase):
         self.mock_config.BREVO_DEFAULT_SENDER_EMAIL = "sender@example.com"
         self.mock_config.BREVO_DEFAULT_SENDER_NAME = "Marty Test Sender"
         self.mock_config.DEBUG = False
+        self.mock_config.VAULTWARDEN_ORGANIZATION_ID = "fake_vw_org_id"  # Added
+        self.mock_config.VAULTWARDEN_SERVER_URL = "http://fake-vw.com"  # Added
+        self.mock_config.VAULTWARDEN_CLIENT_ID = "fake_vw_client_id"  # Added for new client init
+        self.mock_config.VAULTWARDEN_CLIENT_SECRET = "fake_vw_client_secret"  # Added for new client init
 
-        # Updated PERMISSIONS_MATRIX to include folder_name for Brevo
+        # Updated PERMISSIONS_MATRIX to include folder_name for Brevo and vaultwarden config
         self.mock_config.PERMISSIONS_MATRIX = {
             "PROJET": {
                 "standard": {
@@ -52,6 +61,7 @@ class TestMartyBot(unittest.TestCase):
                     "admin_access": "read_write",
                 },
                 "brevo": {"list_name_pattern": "brevo_projet_{base_name}", "folder_name": "Dossier Projets Test"},
+                "vaultwarden": {"collection_name_pattern": "VW_Projet_{base_name}"},  # Added
             },
             "ANTENNE": {
                 "standard": {
@@ -70,6 +80,7 @@ class TestMartyBot(unittest.TestCase):
                     "admin_access": "read_write",
                 },
                 "brevo": {"list_name_pattern": "brevo_antenne_{base_name}"},
+                "vaultwarden": {"collection_name_pattern": "VW_Antenne_{base_name}"},  # Added
             },
             "POLES": {
                 "standard": {
@@ -88,6 +99,7 @@ class TestMartyBot(unittest.TestCase):
                     "admin_access": "read_write",
                 },
                 "brevo": {"list_name_pattern": "brevo_pole_{base_name}"},
+                "vaultwarden": {"collection_name_pattern": "VW_Pole_{base_name}"},  # Added
             },
         }
 
@@ -97,19 +109,25 @@ class TestMartyBot(unittest.TestCase):
         self.bot.mattermost_api_client = MagicMock()
         self.bot.brevo_client = MagicMock()
         self.bot.nocodb_client = MagicMock()  # Added NocoDB mock
+        # self.bot.vaultwarden_client is now an instance of the mocked VaultwardenClient class
         self.bot.envoyer_message = MagicMock(return_value="mock_post_id")
         self.test_user_id = "test_user_who_posted"
+
+    def tearDown(self):
+        self.vaultwarden_client_patcher.stop()
 
     async def _send_test_message(self, message_text, channel_id="test_channel", user_id=None):
         self.bot.envoyer_message.reset_mock()
         # Reset all client mocks
-        for client_attr in [
+        client_attrs_to_reset = [
             "authentik_client",
             "outline_client",
             "mattermost_api_client",
             "brevo_client",
             "nocodb_client",
-        ]:
+            "vaultwarden_client",  # Added Vaultwarden client to reset
+        ]
+        for client_attr in client_attrs_to_reset:
             client_mock = getattr(self.bot, client_attr, None)
             if client_mock:
                 client_mock.reset_mock()
@@ -605,6 +623,42 @@ class TestMartyBot(unittest.TestCase):
                 error_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                 self.assertIn("Le bot n'est pas correctement configuré", error_message_text)
         self.bot.authentik_client = original_auth_client
+
+    @patch.dict(os.environ, {"BW_PASSWORD": "testpassword"})  # Mock BW_PASSWORD for Vaultwarden
+    @async_test
+    async def test_handle_create_projet_calls_vaultwarden_client(self):
+        project_name = "VWTestProjet"
+        # Mock other clients to return successfully to isolate Vaultwarden client call
+        self.bot.authentik_client.create_group.return_value = {"name": "any_auth_group", "pk": "any_pk"}
+        self.bot.outline_client.create_group.return_value = {"name": "any_outline_coll", "id": "any_outline_id"}
+        self.bot.brevo_client.get_list_by_name.return_value = None  # Simulate list does not exist
+        self.bot.brevo_client.create_list.return_value = {
+            "name": "any_brevo_list",
+            "id": "any_brevo_id",
+            "folderId": 1,
+        }
+        self.bot.mattermost_api_client.create_channel.return_value = {
+            "id": "any_mm_channel_id",
+            "name": "any_mm_channel_name",
+        }
+        self.bot.mattermost_api_client.add_user_to_channel.return_value = True
+
+        # Mock Vaultwarden client's create_collection
+        expected_vw_collection_name = f"VW_Projet_{project_name}"  # From PERMISSIONS_MATRIX pattern
+        self.bot.vaultwarden_client.create_collection.return_value = "fake_vw_collection_id"
+
+        await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name}")
+
+        # Assert Vaultwarden client was called correctly
+        self.bot.vaultwarden_client.create_collection.assert_called_once_with(expected_vw_collection_name)
+
+        # Check that the result message includes Vaultwarden success
+        self.assertEqual(self.bot.envoyer_message.call_count, 2)  # Initial and summary
+        summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
+        self.assertIn(
+            f"Vaultwarden Collection `{expected_vw_collection_name}`: :white_check_mark: Collection assurée (ID: fake_vw_collection_id).",
+            summary_text,
+        )
 
     @async_test  # Moved decorator order
     @patch("app.bot.orchestrate_group_synchronization")

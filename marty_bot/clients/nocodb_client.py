@@ -39,11 +39,10 @@ class NocoDBClient:
             return None  # Or return a specific success indicator if appropriate for empty responses
         except requests.exceptions.HTTPError as e:
             if e.response is not None:
-                log_msg = (
+                logger.error(
                     f"NoCoDB API << HTTP error for {method.upper()} {url}: "
                     f"{e.response.status_code} - {e.response.text}"
                 )
-                logger.error(log_msg)
             else:
                 logger.error(f"NoCoDB API << HTTP error for {method.upper()} {url} with no response body: {e}")
         except requests.exceptions.RequestException as e:
@@ -108,7 +107,7 @@ class NocoDBClient:
         if response_data and isinstance(response_data, dict) and "msg" in response_data:
             user_info = f"Successfully invited user '{email}' to base ID '{base_id}'."
             message_info = f"Message: {response_data['msg']}"
-            logger.info(f"{user_info} {message_info}")  # noqa: E501
+            logger.info(f"{user_info} {message_info}")
             return True
         logger.warning(f"Failed to invite user '{email}' to base ID '{base_id}'. Response: {response_data}")
         return False
