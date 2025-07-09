@@ -41,8 +41,7 @@ class VaultwardenClient:
         self.api_password = api_password
         self.bw_session = os.getenv("BW_SESSION")  # Current session key for CLI
 
-        # Initial server config check for CLI happens before any status or session logic
-        self._ensure_server_configuration() # This is for 'bw config server ...'
+        # self._ensure_server_configuration() # REMOVED: This call is too aggressive.
 
     def _get_api_token(self) -> str | None:
         """
@@ -262,9 +261,10 @@ class VaultwardenClient:
         return True
 
     def _get_cli_status(self) -> str:
-        if not self._ensure_server_configuration():
-            logging.error("Server configuration check failed. Cannot reliably get CLI status.")
-            return "error"
+        # REMOVED: if not self._ensure_server_configuration():
+        #     logging.error("Server configuration check failed. Cannot reliably get CLI status.")
+        #     return "error"
+        # CLI server configuration is now assumed to be handled by the environment.
 
         logging.debug("Checking Bitwarden CLI status...")
         env_for_status = os.environ.copy()

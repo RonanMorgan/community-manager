@@ -14,21 +14,10 @@ class TestVaultwardenClient(unittest.TestCase):
         self.server_url = "https://test.vaultwarden.com"
 
         self.env_patcher_bw_password = patch.dict(os.environ, {"BW_PASSWORD": "testpassword"})
-        # BW_SESSION is patched to be "" so os.getenv("BW_SESSION") returns ""
         self.env_patcher_bw_session = patch.dict(os.environ, {"BW_SESSION": ""})
 
         self.mock_bw_password_env = self.env_patcher_bw_password.start()
         self.mock_bw_session_env = self.env_patcher_bw_session.start()
-
-        # If a test needs BW_SESSION to be initially unset (so os.getenv returns None),
-        # it should use another patch.dict within the test method.
-        # For default setUp, os.getenv("BW_SESSION") will be "".
-
-        self.ensure_server_config_patcher = patch(
-            "marty_bot.clients.vaultwarden_client.VaultwardenClient._ensure_server_configuration",
-            MagicMock(return_value=True),
-        )
-        self.mock_ensure_server_config = self.ensure_server_config_patcher.start()
 
         # For API tests
         self.api_username = "test_api_user@example.com"
@@ -42,85 +31,70 @@ class TestVaultwardenClient(unittest.TestCase):
         )
 
     def tearDown(self):
-        self.ensure_server_config_patcher.stop()
         self.env_patcher_bw_password.stop()
         self.env_patcher_bw_session.stop()
-        # Clean up BW_SESSION from os.environ if it was set by tests directly or by client logic
         if "BW_SESSION" in os.environ:
             del os.environ["BW_SESSION"]
 
     def test_initialization_success(self):
-        self.mock_ensure_server_config.assert_called_once()
-        self.assertEqual(self.client.organization_id, self.organization_id)
-        self.assertEqual(self.client.server_url, self.server_url)
-        # Because setUp patches os.environ to have BW_SESSION="", client.bw_session will be "".
-        self.assertEqual(self.client.bw_session, "")
+        # _ensure_server_configuration is no longer called in __init__
+        client = VaultwardenClient(
+            organization_id=self.organization_id,
+            server_url=self.server_url,
+            api_username=self.api_username,
+            api_password=self.api_password
+        )
+        self.assertEqual(client.organization_id, self.organization_id)
+        self.assertEqual(client.server_url, self.server_url)
+        self.assertEqual(client.bw_session, "") # From setUp patch
 
     def test_initialization_missing_org_id(self):
-        self.ensure_server_config_patcher.stop()  # Stop patch to test constructor path
         with self.assertRaises(ValueError) as context:
             VaultwardenClient(organization_id="", server_url=self.server_url)
         self.assertIn("Vaultwarden organization_id must be provided", str(context.exception))
-        self.ensure_server_config_patcher.start()  # Restart patch
 
     @patch("marty_bot.clients.vaultwarden_client.VaultwardenClient._run_bw_command")
-    def test_ensure_server_configuration_already_set(self, mock_run_bw_for_client_methods):
-        self.ensure_server_config_patcher.stop()
+    def test_ensure_server_configuration_already_set(self, mock_run_bw_command):
+        # Test the scenario where the server URL is already correctly configured.
+        mock_run_bw_command.return_value = (0, self.server_url, "") # For "bw config server"
 
-        mock_run_bw_for_client_methods.return_value = (0, self.server_url, "") # Mock for the first call in __init__
+        client = self.client
+        self.assertTrue(client._ensure_server_configuration())
 
-        client = VaultwardenClient(organization_id=self.organization_id, server_url=self.server_url)
-        self.assertIsNotNone(client)
-
-        # _ensure_server_configuration is called in __init__.
-        # It should have called `_run_bw_command` once to check current config.
-        mock_run_bw_for_client_methods.assert_called_once_with(
+        mock_run_bw_command.assert_called_once_with(
             ["config", "server"], custom_env=unittest.mock.ANY
         )
+        self.assertEqual(mock_run_bw_command.call_count, 1)
 
-        # Ensure that the command to *set* the server was not called,
-        # as it was already configured correctly.
-        # We check this by iterating through calls, as assert_any_call would pass if it was called for other reasons.
-        # A more direct way is to ensure call_count is 1 if only the check was made.
-        # If `mock_run_bw_for_client_methods.call_count` is 1, it means only the check happened.
-        self.assertEqual(mock_run_bw_for_client_methods.call_count, 1)
-
-
-        # Now, test the explicit call to _ensure_server_configuration again,
-        # ensuring it still behaves correctly (doesn't try to set if already correct).
-        mock_run_bw_for_client_methods.reset_mock()
-        mock_run_bw_for_client_methods.return_value = (0, self.server_url, "") # Simulate it's still correctly configured
-
-        self.assertTrue(client._ensure_server_configuration()) # Explicit call
-
-        # It should again only call to check, not to set.
-        mock_run_bw_for_client_methods.assert_called_once_with(
-            ["config", "server"], custom_env=unittest.mock.ANY
-        )
-        self.assertEqual(mock_run_bw_for_client_methods.call_count, 1)
-
-
-        self.ensure_server_config_patcher.start()
 
     @patch("marty_bot.clients.vaultwarden_client.VaultwardenClient._run_bw_command")
-    def test_ensure_server_configuration_needs_set(self, mock_run_bw_for_client_methods):
-        self.ensure_server_config_patcher.stop()
-        mock_run_bw_for_client_methods.side_effect = [(0, "https://otherserver.com", ""), (0, "", "")]
-        client = VaultwardenClient(organization_id=self.organization_id, server_url=self.server_url)
-        self.assertIsNotNone(client)
+    def test_ensure_server_configuration_needs_set(self, mock_run_bw_command):
+        mock_run_bw_command.side_effect = [
+            (0, "https://otherserver.com", ""),
+            (0, "", "")
+        ]
+        client = self.client
+        self.assertTrue(client._ensure_server_configuration())
 
         expected_calls = [
             call(["config", "server"], custom_env=unittest.mock.ANY),
             call(["config", "server", self.server_url], custom_env=unittest.mock.ANY),
         ]
-        mock_run_bw_for_client_methods.assert_has_calls(expected_calls)
-        self.assertEqual(mock_run_bw_for_client_methods.call_count, 2)
+        mock_run_bw_command.assert_has_calls(expected_calls)
+        self.assertEqual(mock_run_bw_command.call_count, 2)
 
-        self.ensure_server_config_patcher.start()
+    @patch("subprocess.run")
+    def test_ensure_server_configuration_handles_bw_not_found(self, mock_subprocess_run):
+        mock_subprocess_run.side_effect = FileNotFoundError("bw not found simulation")
+
+        client = self.client
+        with self.assertRaises(FileNotFoundError):
+            client._ensure_server_configuration()
+        mock_subprocess_run.assert_called_once()
+
 
     @patch.object(VaultwardenClient, "_run_bw_command")
     def test_get_cli_status_unlocked(self, mock_run_bw):
-        # self.client is from setUp, its _ensure_server_configuration is already mocked by self.ensure_server_config_patcher
         mock_run_bw.return_value = (0, json.dumps({"status": "unlocked"}), "")
         status = self.client._get_cli_status()
         self.assertEqual(status, "unlocked")
@@ -300,28 +274,25 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_run_bw.side_effect = [
             (0, "encoded_payload", ""),  # encode
             (1, "", "ERROR: Collection with this name already exists."),  # create org-collection
-            # list collections - ensure organizationId is present in the mock
             (0, json.dumps([{"id": existing_id, "name": collection_name, "organizationId": self.organization_id}]), ""),
         ]
 
         found_id = self.client.create_collection(collection_name)
         self.assertEqual(found_id, existing_id)
         self.assertEqual(mock_run_bw.call_count, 3)
-        # This assertion should now correctly expect ['list', 'collections']
         self.assertEqual(
             mock_run_bw.call_args_list[2][0], (['list', 'collections'],)
         )
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
-    @patch.object(VaultwardenClient, "_sync_vault", return_value=True) # Added missing mock for _sync_vault
+    @patch.object(VaultwardenClient, "_sync_vault", return_value=True)
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_collection_by_name_found(self, mock_run_bw, mock_sync_vault, mock_get_session): # Added mock_sync_vault
+    def test_get_collection_by_name_found(self, mock_run_bw, mock_sync_vault, mock_get_session):
         self.client.bw_session = "fake_session"
         collection_name = "Target Collection"
         expected_id = "target-uuid"
         mock_run_bw.return_value = (
             0,
-            # Ensure mocked data includes organizationId for filtering
             json.dumps([
                 {"name": "Other", "id": "other-id", "organizationId": self.organization_id},
                 {"name": collection_name, "id": expected_id, "organizationId": self.organization_id}
@@ -330,24 +301,20 @@ class TestVaultwardenClient(unittest.TestCase):
         )
         found_id = self.client.get_collection_by_name(collection_name)
         self.assertEqual(found_id, expected_id)
-        # Verify it's called with 'list collections' and that sync and session were checked
         mock_run_bw.assert_called_once_with(["list", "collections"])
-        mock_sync_vault.assert_called_once() # Ensure _sync_vault is called
+        mock_sync_vault.assert_called_once()
         mock_get_session.assert_called_once()
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
     @patch.object(VaultwardenClient, "_run_bw_command")
     def test_get_collection_by_name_not_found(self, mock_run_bw, mock_get_session):
         self.client.bw_session = "fake_session"
-        mock_run_bw.return_value = (0, json.dumps([{"name": "Other", "id": "other-id"}]), "")
-        self.assertIsNone(self.client.get_collection_by_name("NonExistent"))
+        # Simulate _sync_vault being called and returning True
+        with patch.object(self.client, '_sync_vault', return_value=True) as mock_sync:
+            mock_run_bw.return_value = (0, json.dumps([{"name": "Other", "id": "other-id"}]), "")
+            self.assertIsNone(self.client.get_collection_by_name("NonExistent"))
+            mock_sync.assert_called_once()
 
-    def test_run_bw_command_file_not_found_during_init(self):
-        self.ensure_server_config_patcher.stop()
-        with patch("subprocess.run", side_effect=FileNotFoundError("bw not found simulation")):
-            with self.assertRaises(FileNotFoundError):
-                VaultwardenClient(organization_id="org", server_url="http://test.com")
-        self.ensure_server_config_patcher.start()
 
     # --- Tests for new API methods ---
 
@@ -383,11 +350,10 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_http_error = requests.exceptions.HTTPError("API error")
         mock_error_response = MagicMock()
         mock_error_response.text = "Detailed API error from response"
-        mock_http_error.response = mock_error_response # Attach a mock response to the error
+        mock_http_error.response = mock_error_response
 
-        mock_response_obj = MagicMock() # This is what requests.post returns
+        mock_response_obj = MagicMock()
         mock_response_obj.raise_for_status.side_effect = mock_http_error
-        # mock_response_obj.text would be the body if raise_for_status wasn't called or didn't raise
         mock_post.return_value = mock_response_obj
 
         token = self.client._get_api_token()
@@ -401,7 +367,6 @@ class TestVaultwardenClient(unittest.TestCase):
 
     def test_get_api_token_no_credentials(self):
         client_no_creds = VaultwardenClient(organization_id=self.organization_id, server_url=self.server_url)
-        # api_username and api_password will be None
         token = client_no_creds._get_api_token()
         self.assertIsNone(token)
 
@@ -410,7 +375,7 @@ class TestVaultwardenClient(unittest.TestCase):
             organization_id=self.organization_id,
             api_username=self.api_username,
             api_password=self.api_password
-        ) # server_url is None
+        )
         token = client_no_url._get_api_token()
         self.assertIsNone(token)
 
@@ -419,7 +384,7 @@ class TestVaultwardenClient(unittest.TestCase):
     def test_invite_user_to_collection_success(self, mock_post):
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
-        mock_response.status_code = 200 # Or 204, depending on actual API
+        mock_response.status_code = 200
         mock_post.return_value = mock_response
 
         user_email = "new_user@example.com"
@@ -454,7 +419,7 @@ class TestVaultwardenClient(unittest.TestCase):
 
         mock_response_obj = MagicMock()
         mock_response_obj.raise_for_status.side_effect = mock_http_error
-        mock_response_obj.status_code = 400 # Make sure the response object that post returns has a status_code
+        mock_response_obj.status_code = 400
         mock_post.return_value = mock_response_obj
 
         success = self.client.invite_user_to_collection("user@example.com", "cid", self.organization_id, "token")
@@ -471,7 +436,7 @@ class TestVaultwardenClient(unittest.TestCase):
             organization_id=self.organization_id,
             api_username=self.api_username,
             api_password=self.api_password
-        ) # server_url is None
+        )
         success = client_no_url.invite_user_to_collection("user@example.com", "cid", self.organization_id, "token")
         self.assertFalse(success)
 
