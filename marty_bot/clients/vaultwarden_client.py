@@ -221,15 +221,35 @@ class VaultwardenClient:
         if "PATH" not in env_for_config_ops:
             env_for_config_ops["PATH"] = os.getenv("PATH", "")
 
-        current_server_rc, current_server_stdout, _ = self._run_bw_command(
+        current_server_rc, current_server_stdout, current_server_stderr = self._run_bw_command(
             ["config", "server"], custom_env=env_for_config_ops
         )
 
-        if current_server_rc == 0 and self.server_url in current_server_stdout:
-            logging.info(f"Vaultwarden server URL is already correctly set to {self.server_url}.")
-            return True
+        # Clean the output, as `bw config server` might return "Current server URL: <url>"
+        # or just "<url>" or might be empty or have error messages.
+        cleaned_current_url = current_server_stdout.strip()
+        if "Current server URL: " in cleaned_current_url: # Handle verbose output
+            cleaned_current_url = cleaned_current_url.replace("Current server URL: ", "").strip()
 
-        logging.info(f"Attempting to set Vaultwarden server URL to {self.server_url}...")
+        # Ensure self.server_url is also stripped for comparison
+        expected_server_url = self.server_url.strip()
+
+        if current_server_rc == 0 and cleaned_current_url == expected_server_url:
+            logging.info(f"Vaultwarden server URL is already correctly set to {expected_server_url}.")
+            return True
+        elif current_server_rc != 0:
+            logging.warning(
+                f"Failed to get current Vaultwarden server URL (rc={current_server_rc}): {current_server_stderr.strip()}. "
+                f"Proceeding to attempt configuration to {expected_server_url}."
+            )
+        else: # rc == 0 but URL does not match
+             logging.info(
+                f"Current Vaultwarden server URL ('{cleaned_current_url}') does not match expected ('{expected_server_url}'). "
+                "Attempting to set it."
+            )
+
+
+        logging.info(f"Attempting to set Vaultwarden server URL to {expected_server_url}...")
 
         set_rc, _, set_stderr = self._run_bw_command(
             ["config", "server", self.server_url], custom_env=env_for_config_ops

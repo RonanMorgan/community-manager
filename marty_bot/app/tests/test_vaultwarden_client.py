@@ -67,17 +67,38 @@ class TestVaultwardenClient(unittest.TestCase):
     def test_ensure_server_configuration_already_set(self, mock_run_bw_for_client_methods):
         self.ensure_server_config_patcher.stop()
 
-        mock_run_bw_for_client_methods.return_value = (0, self.server_url, "")
+        mock_run_bw_for_client_methods.return_value = (0, self.server_url, "") # Mock for the first call in __init__
 
         client = VaultwardenClient(organization_id=self.organization_id, server_url=self.server_url)
         self.assertIsNotNone(client)
 
-        mock_run_bw_for_client_methods.assert_called_once_with(["config", "server"], custom_env=unittest.mock.ANY)
+        # _ensure_server_configuration is called in __init__.
+        # It should have called `_run_bw_command` once to check current config.
+        mock_run_bw_for_client_methods.assert_called_once_with(
+            ["config", "server"], custom_env=unittest.mock.ANY
+        )
 
+        # Ensure that the command to *set* the server was not called,
+        # as it was already configured correctly.
+        # We check this by iterating through calls, as assert_any_call would pass if it was called for other reasons.
+        # A more direct way is to ensure call_count is 1 if only the check was made.
+        # If `mock_run_bw_for_client_methods.call_count` is 1, it means only the check happened.
+        self.assertEqual(mock_run_bw_for_client_methods.call_count, 1)
+
+
+        # Now, test the explicit call to _ensure_server_configuration again,
+        # ensuring it still behaves correctly (doesn't try to set if already correct).
         mock_run_bw_for_client_methods.reset_mock()
-        mock_run_bw_for_client_methods.return_value = (0, self.server_url, "")
-        self.assertTrue(client._ensure_server_configuration())
-        mock_run_bw_for_client_methods.assert_called_once_with(["config", "server"], custom_env=unittest.mock.ANY)
+        mock_run_bw_for_client_methods.return_value = (0, self.server_url, "") # Simulate it's still correctly configured
+
+        self.assertTrue(client._ensure_server_configuration()) # Explicit call
+
+        # It should again only call to check, not to set.
+        mock_run_bw_for_client_methods.assert_called_once_with(
+            ["config", "server"], custom_env=unittest.mock.ANY
+        )
+        self.assertEqual(mock_run_bw_for_client_methods.call_count, 1)
+
 
         self.ensure_server_config_patcher.start()
 
