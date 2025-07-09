@@ -14,7 +14,8 @@ from clients.mattermost_client import MattermostClient, slugify
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.brevo_client import BrevoClient
-from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
+from clients.nocodb_client import NocoDBClient
+from clients.vaultwarden_client import VaultwardenClient # Added
 
 
 def reload_config_module():
@@ -31,7 +32,11 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mock_mattermost_client = MagicMock(spec=MattermostClient)
         self.mock_outline_client = MagicMock(spec=OutlineClient)
         self.mock_brevo_client = MagicMock(spec=BrevoClient)
-        self.mock_nocodb_client = MagicMock(spec=NocoDBClient)  # Added NocoDB mock
+        self.mock_nocodb_client = MagicMock(spec=NocoDBClient)
+        self.mock_vaultwarden_client = MagicMock(spec=VaultwardenClient) # Added Vaultwarden mock
+        self.mock_vaultwarden_client.organization_id = "test_vw_org_id" # Mock organization_id
+        self.mock_vaultwarden_client.api_username = "vw_api_user" # Mock api_username
+        self.mock_vaultwarden_client.api_password = "vw_api_pass" # Mock api_password
         self.mm_team_id = "test_team_id"
 
         self.email_to_authentik_user_pk_map_fixture = {
@@ -258,6 +263,7 @@ class TestGroupSyncServices(unittest.TestCase):
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
             nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -468,7 +474,8 @@ permissions:
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,  # Added
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client, # Added
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -549,7 +556,8 @@ permissions:
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,  # Added
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client, # Added
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -615,7 +623,8 @@ permissions:
             mattermost_client=self.mock_mattermost_client,
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,  # Added
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -675,6 +684,7 @@ permissions:
             outline_client=None,
             brevo_client=self.mock_brevo_client,
             nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key="PROJET",
             base_name="",
@@ -742,6 +752,7 @@ permissions:
             outline_client=None,
             brevo_client=self.mock_brevo_client,
             nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key="PROJET",
             base_name="",
@@ -823,6 +834,7 @@ permissions:
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
             nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key_for_test,
             base_name=base_name_for_test,
@@ -902,6 +914,7 @@ permissions:
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
             nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key_for_test,
             base_name=base_name_for_test,
@@ -1050,6 +1063,7 @@ permissions:
                     outline_client=self.mock_outline_client,
                     brevo_client=self.mock_brevo_client,
                     nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
                     mm_team_id=self.mm_team_id,
                     entity_key=entity_key_for_test,
                     base_name=base_name_from_case,
@@ -1135,7 +1149,8 @@ permissions:
             self.mock_mattermost_client,
             self.mock_outline_client,
             self.mock_brevo_client,
-            self.mock_nocodb_client,  # Pass NocoDB client
+            self.mock_nocodb_client,
+            self.mock_vaultwarden_client,
             mock_team_id,
             perform_deletions=False,
             fetch_remote_members=False,
@@ -1202,7 +1217,8 @@ permissions:
             self.mock_mattermost_client,
             self.mock_outline_client,
             self.mock_brevo_client,
-            self.mock_nocodb_client,  # Pass NocoDB client
+            self.mock_nocodb_client,
+            self.mock_vaultwarden_client,
             mock_team_id,
             perform_deletions=True,
             fetch_remote_members=True,
@@ -1220,7 +1236,8 @@ permissions:
             self.mock_mattermost_client,
             self.mock_outline_client,
             self.mock_brevo_client,
-            self.mock_nocodb_client,  # Pass NocoDB client
+            self.mock_nocodb_client,
+            self.mock_vaultwarden_client, # Added vaultwarden_client
             mock_team_id,
             "Gamma",
             "PROJET",
@@ -1236,6 +1253,7 @@ permissions:
             self.mock_outline_client,
             self.mock_brevo_client,
             self.mock_nocodb_client,
+            self.mock_vaultwarden_client, # Added vaultwarden_client
             mock_team_id,
             "Delta",
             "ANTENNE",
@@ -1652,6 +1670,7 @@ permissions:
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
             nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,

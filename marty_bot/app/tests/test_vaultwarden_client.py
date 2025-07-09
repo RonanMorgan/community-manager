@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock, call
 import os
 import json
+import requests # Added import
 
 from marty_bot.clients.vaultwarden_client import VaultwardenClient
 
@@ -29,7 +30,16 @@ class TestVaultwardenClient(unittest.TestCase):
         )
         self.mock_ensure_server_config = self.ensure_server_config_patcher.start()
 
-        self.client = VaultwardenClient(organization_id=self.organization_id, server_url=self.server_url)
+        # For API tests
+        self.api_username = "test_api_user@example.com"
+        self.api_password = "test_api_password"
+
+        self.client = VaultwardenClient(
+            organization_id=self.organization_id,
+            server_url=self.server_url,
+            api_username=self.api_username,
+            api_password=self.api_password
+        )
 
     def tearDown(self):
         self.ensure_server_config_patcher.stop()
@@ -317,6 +327,132 @@ class TestVaultwardenClient(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 VaultwardenClient(organization_id="org", server_url="http://test.com")
         self.ensure_server_config_patcher.start()
+
+    # --- Tests for new API methods ---
+
+    @patch("requests.post")
+    def test_get_api_token_success(self, mock_post):
+        expected_token = "sample_access_token"
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"access_token": expected_token, "token_type": "Bearer"}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        token = self.client._get_api_token()
+
+        self.assertEqual(token, expected_token)
+        token_url = f"{self.server_url}/identity/connect/token"
+        expected_payload = {
+            "grant_type": "password",
+            "username": self.api_username,
+            "password": self.api_password,
+            "scope": "api offline_access",
+            "client_id": "web",
+            "deviceIdentifier": "2eb66678-b76e-4940-93cd-633d5e66e42f",
+            "deviceName": "firefoxeb",
+            "deviceType": "10",
+        }
+        mock_post.assert_called_once_with(
+            token_url, data=expected_payload, headers={"Content-Type": "application/x-www-form-urlencoded"}
+        )
+        mock_response.raise_for_status.assert_called_once()
+
+    @patch("requests.post")
+    def test_get_api_token_http_error(self, mock_post):
+        mock_http_error = requests.exceptions.HTTPError("API error")
+        mock_error_response = MagicMock()
+        mock_error_response.text = "Detailed API error from response"
+        mock_http_error.response = mock_error_response # Attach a mock response to the error
+
+        mock_response_obj = MagicMock() # This is what requests.post returns
+        mock_response_obj.raise_for_status.side_effect = mock_http_error
+        # mock_response_obj.text would be the body if raise_for_status wasn't called or didn't raise
+        mock_post.return_value = mock_response_obj
+
+        token = self.client._get_api_token()
+        self.assertIsNone(token)
+
+    @patch("requests.post")
+    def test_get_api_token_request_exception(self, mock_post):
+        mock_post.side_effect = requests.exceptions.RequestException("Network error")
+        token = self.client._get_api_token()
+        self.assertIsNone(token)
+
+    def test_get_api_token_no_credentials(self):
+        client_no_creds = VaultwardenClient(organization_id=self.organization_id, server_url=self.server_url)
+        # api_username and api_password will be None
+        token = client_no_creds._get_api_token()
+        self.assertIsNone(token)
+
+    def test_get_api_token_no_server_url(self):
+        client_no_url = VaultwardenClient(
+            organization_id=self.organization_id,
+            api_username=self.api_username,
+            api_password=self.api_password
+        ) # server_url is None
+        token = client_no_url._get_api_token()
+        self.assertIsNone(token)
+
+
+    @patch("requests.post")
+    def test_invite_user_to_collection_success(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.status_code = 200 # Or 204, depending on actual API
+        mock_post.return_value = mock_response
+
+        user_email = "new_user@example.com"
+        collection_id = "coll_uuid_123"
+        access_token = "fake_api_access_token"
+
+        success = self.client.invite_user_to_collection(
+            user_email, collection_id, self.organization_id, access_token
+        )
+
+        self.assertTrue(success)
+        invite_url = f"{self.server_url}/api/organizations/{self.organization_id}/users/invite"
+        expected_payload = {
+            "emails": [user_email],
+            "collections": [{"id": collection_id, "readOnly": True, "hidePasswords": False, "manage": False}],
+            "permissions": {"response": None},
+            "type": 2,
+            "groups": [],
+            "accessSecretsManager": False,
+        }
+        mock_post.assert_called_once_with(
+            invite_url, json=expected_payload, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        )
+        mock_response.raise_for_status.assert_called_once()
+
+    @patch("requests.post")
+    def test_invite_user_to_collection_http_error(self, mock_post):
+        mock_http_error = requests.exceptions.HTTPError("Invite error")
+        mock_error_response = MagicMock()
+        mock_error_response.text = "Detailed invite error from response"
+        mock_http_error.response = mock_error_response
+
+        mock_response_obj = MagicMock()
+        mock_response_obj.raise_for_status.side_effect = mock_http_error
+        mock_response_obj.status_code = 400 # Make sure the response object that post returns has a status_code
+        mock_post.return_value = mock_response_obj
+
+        success = self.client.invite_user_to_collection("user@example.com", "cid", self.organization_id, "token")
+        self.assertFalse(success)
+
+    @patch("requests.post")
+    def test_invite_user_to_collection_request_exception(self, mock_post):
+        mock_post.side_effect = requests.exceptions.RequestException("Network error")
+        success = self.client.invite_user_to_collection("user@example.com", "cid", self.organization_id, "token")
+        self.assertFalse(success)
+
+    def test_invite_user_to_collection_no_server_url(self):
+        client_no_url = VaultwardenClient(
+            organization_id=self.organization_id,
+            api_username=self.api_username,
+            api_password=self.api_password
+        ) # server_url is None
+        success = client_no_url.invite_user_to_collection("user@example.com", "cid", self.organization_id, "token")
+        self.assertFalse(success)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ import subprocess
 import json
 import os
 import logging
+import requests # Added for API calls
 
 
 class VaultwardenClient:
@@ -9,22 +10,152 @@ class VaultwardenClient:
         self,
         organization_id: str,
         server_url: str | None = None,
+        api_username: str | None = None,
+        api_password: str | None = None,
     ):
         """
         Initializes the VaultwardenClient.
-        Relies on 'bw login' having been performed manually in the environment,
+        Relies on 'bw login' having been performed manually in the environment for CLI operations,
         and uses BW_PASSWORD environment variable for 'bw unlock'.
+        API operations use api_username and api_password.
 
         :param organization_id: The ID of the organization in Vaultwarden.
-        :param server_url: The URL of the Vaultwarden server. If None, it's assumed 'bw config server' was already run.
+        :param server_url: The URL of the Vaultwarden server. If None, it's assumed 'bw config server' was already run for CLI.
+                           For API calls, this should be the base URL like https://vaultwarden.services.dataforgood.fr.
+        :param api_username: Username (email) for Vaultwarden API authentication.
+        :param api_password: Password for Vaultwarden API authentication.
         """
         if not organization_id:
             raise ValueError("Vaultwarden organization_id must be provided.")
+        if not server_url:
+            # While server_url is optional for CLI if pre-configured, it's essential for API calls.
+            # We might want to make it mandatory if API calls are a core function.
+            # For now, allow it to be None but API calls will fail if it's not the correct API base URL.
+            logging.warning(
+                "Vaultwarden server_url not provided. CLI might work if pre-configured, but API calls will likely fail or use a default."
+            )
+
         self.organization_id = organization_id
-        self.server_url = server_url
-        self.bw_session = os.getenv("BW_SESSION")  # Current session key, if any
-        # Initial server config check happens before any status or session logic
-        self._ensure_server_configuration()
+        self.server_url = server_url  # Used by CLI and as base for API calls
+        self.api_username = api_username
+        self.api_password = api_password
+        self.bw_session = os.getenv("BW_SESSION")  # Current session key for CLI
+
+        # Initial server config check for CLI happens before any status or session logic
+        self._ensure_server_configuration() # This is for 'bw config server ...'
+
+    def _get_api_token(self) -> str | None:
+        """
+        Fetches an API access token from Vaultwarden.
+        Uses self.api_username and self.api_password.
+        The self.server_url must be the base URL of the Vaultwarden instance (e.g., https://vaultwarden.services.dataforgood.fr).
+        """
+        if not self.api_username or not self.api_password:
+            logging.error("Vaultwarden API username or password not configured. Cannot get API token.")
+            return None
+        if not self.server_url:
+            logging.error("Vaultwarden server URL not configured. Cannot determine token endpoint.")
+            return None
+
+        token_url = f"{self.server_url.rstrip('/')}/identity/connect/token"
+        payload = {
+            "grant_type": "password",
+            "username": self.api_username,
+            "password": self.api_password,
+            "scope": "api offline_access",
+            "client_id": "web", # As per example, 'w' might be an alias for 'web' or a specific client
+            "deviceIdentifier": "2eb66678-b76e-4940-93cd-633d5e66e42f", # Static as per instructions
+            "deviceName": "firefoxeb", # Static
+            "deviceType": "10", # Static
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+        try:
+            logging.debug(f"Requesting API token from {token_url} for user {self.api_username}")
+            response = requests.post(token_url, data=payload, headers=headers)
+            response.raise_for_status()  # Raises HTTPError for bad responses (4XX or 5XX)
+
+            token_data = response.json()
+            access_token = token_data.get("access_token")
+            if access_token:
+                logging.info(f"Successfully obtained API token for user {self.api_username}.")
+                return access_token
+            else:
+                logging.error(f"Failed to get access_token from response. Data: {token_data}")
+                return None
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"HTTP error obtaining API token: {e}. Response: {e.response.text}")
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request error obtaining API token: {e}")
+            return None
+        except json.JSONDecodeError:
+            logging.error(f"Failed to decode JSON response from token endpoint: {response.text}")
+            return None
+
+    def invite_user_to_collection(
+        self, user_email: str, collection_id: str, organization_id: str, access_token: str
+    ) -> bool:
+        """
+        Invites a user to a specific collection via the Vaultwarden API.
+        The self.server_url must be the base URL of the Vaultwarden instance.
+        """
+        if not self.server_url:
+            logging.error("Vaultwarden server URL not configured. Cannot determine invite endpoint.")
+            return False
+
+        invite_url = f"{self.server_url.rstrip('/')}/api/organizations/{organization_id}/users/invite"
+        payload = {
+            "emails": [user_email],
+            "collections": [
+                {
+                    "id": collection_id,
+                    "readOnly": True,
+                    "hidePasswords": False,
+                    "manage": False,
+                }
+            ],
+            "permissions": {"response": None}, # As per example
+            "type": 2, # User type: 2 for regular user, as per example
+            "groups": [], # As per example
+            "accessSecretsManager": False, # As per example
+        }
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            logging.info(f"Inviting user {user_email} to collection {collection_id} in organization {organization_id}")
+            response = requests.post(invite_url, json=payload, headers=headers)
+            response.raise_for_status()
+            # Typically, a 200 OK or 204 No Content indicates success for this type of operation.
+            # The example doesn't specify the exact success code, so we'll assume raise_for_status is sufficient.
+            logging.info(f"Successfully sent invitation for {user_email} to collection {collection_id}. Status: {response.status_code}")
+            return True
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error inviting user {user_email} to collection {collection_id}: {e}. Response: {e.response.text}"
+            )
+            # Specific check for user already invited or member, which might not be an "error" for idempotency
+            if response.status_code == 400: # Example: Bitwarden API often returns 400 for such cases
+                response_data = {}
+                try:
+                    response_data = response.json()
+                except json.JSONDecodeError:
+                    pass # Ignore if response is not JSON
+
+                # Attempt to check for common messages indicating user is already part of the collection or invited
+                # This is highly dependent on the actual API error messages.
+                # Example: response_data.get("message", "").lower().contains("already a member")
+                # For now, just log it. If this needs to be idempotent, more checks are needed here.
+                logging.warning(f"User {user_email} might already be invited/member of collection {collection_id}. API response: {response.text}")
+                # Consider returning True if "already member/invited" to make the operation idempotent.
+                # For now, sticking to False on HTTPError unless it's a clear success.
+            return False
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request error inviting user {user_email} to collection {collection_id}: {e}")
+            return False
 
     def _run_bw_command(
         self,

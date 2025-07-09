@@ -146,7 +146,8 @@ class MartyBot:
                 self.vaultwarden_client = VaultwardenClient(
                     organization_id=self.config.VAULTWARDEN_ORGANIZATION_ID,
                     server_url=self.config.VAULTWARDEN_SERVER_URL,
-                    # client_id and client_secret are no longer used by VaultwardenClient
+                    api_username=self.config.VAULTWARDEN_API_USERNAME,
+                    api_password=self.config.VAULTWARDEN_API_PASSWORD,
                 )
                 logging.info("VaultwardenClient initialized successfully for MartyBot instance.")
             except ValueError as e:  # Catch specific error from client if org_id is missing (already checked by if)
@@ -349,6 +350,7 @@ class MartyBot:
                 self.outline_client,
                 self.brevo_client,
                 self.nocodb_client,
+                self.vaultwarden_client, # Pass Vaultwarden client
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
                 fetch_remote_members=True,
@@ -760,6 +762,7 @@ class MartyBot:
                 self.outline_client,
                 self.brevo_client,
                 self.nocodb_client,
+                self.vaultwarden_client, # Pass Vaultwarden client
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,
                 fetch_remote_members=False,
