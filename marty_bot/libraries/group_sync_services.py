@@ -309,6 +309,7 @@ def sync_entity_permissions(
         results.extend(
             _sync_single_nocodb_base(
                 nocodb_client,
+                mattermost_client,  # Pass Mattermost client
                 nocodb_base_title_pattern,
                 base_name,  # This is the base_name of the entity (e.g. "MonAntenne")
                 mm_users_for_services,  # Combined user list with admin flag
@@ -329,6 +330,7 @@ def sync_entity_permissions(
         results.extend(
             _sync_single_vaultwarden_collection_members(
                 vaultwarden_client,
+                mattermost_client,  # Pass Mattermost client
                 vw_collection_name,
                 # mm_users_for_services contains all users from standard and admin channels relevant to this entity
                 # The invite logic in Vaultwarden client uses default permissions, so no specific admin/default distinction needed here.
@@ -347,6 +349,7 @@ def sync_entity_permissions(
 
 def _sync_single_nocodb_base(
     nocodb_client: "NocoDBClient",
+    mattermost_client: "MattermostClient",  # Added MattermostClient for DMs
     base_title_pattern: str,
     entity_base_name: str,  # e.g., "AntenneParis"
     mm_users_for_permission: dict,  # email_lower -> {username, mm_user_id, is_admin_channel_member}
@@ -430,8 +433,29 @@ def _sync_single_nocodb_base(
                 nocodb_result.update({"status": "SUCCESS", "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"})
         else:
             # User not in NoCoDB base, invite them
+            action_verb = f"NOCODB_USER_INVITED_AS_{target_role.upper()}"
             if nocodb_client.invite_user_to_base(base_id, email_lower, target_role):
-                nocodb_result.update({"status": "SUCCESS", "action": f"NOCODB_USER_INVITED_AS_{target_role.upper()}"})
+                nocodb_result.update({"status": "SUCCESS", "action": action_verb})
+                # Send DM on successful new invite
+                if mm_user_data.get("mm_user_id") and config.NOCODB_URL:
+                    # Construct NoCoDB base URL - using the main dashboard link for the base
+                    # Example: https://nocodb.example.com/#/nc/p_abc123xyz/dashboard
+                    nocodb_base_link = f"{config.NOCODB_URL.rstrip('/')}/#/nc/{base_id}/dashboard"
+                    dm_text = (
+                        f"Bonjour @{mm_username}, vous avez été invité(e) à la base NoCoDB "
+                        f"**{nocodb_base_title}** (rôle: {target_role}).\n"
+                        f"Vous pouvez y accéder ici : {nocodb_base_link}"
+                    )
+                    if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
+                        nocodb_result["action"] = f"{action_verb}_AND_DM_SENT"
+                    else:
+                        nocodb_result["action"] = f"{action_verb}_DM_FAILED"
+                elif not config.NOCODB_URL:
+                    logging.warning(
+                        f"NOCODB_URL not configured. Cannot send DM for NoCoDB invite to {mm_username} for base {nocodb_base_title}."
+                    )
+                    nocodb_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
+
             else:
                 # Check if the user exists in NocoDB but couldn't be invited (e.g. already invited but not accepted, or other issue)
                 # This part might need more specific error handling based on NocoDBClient's invite_user_to_base behavior
@@ -1197,12 +1221,13 @@ def _extract_base_name(actual_name: str, pattern_with_placeholder: str) -> Optio
 
 def _sync_single_vaultwarden_collection_members(
     vaultwarden_client: "VaultwardenClient",
+    mattermost_client: "MattermostClient",  # Added MattermostClient for DMs
     collection_name: str,
     mm_users_for_services: dict,  # email_lower -> {username, mm_user_id, is_admin_channel_member}
     mm_channel_context_name: str,  # For logging/reporting context
 ) -> list[dict]:
     """
-    Ensures all users from mm_users_for_services are invited to the specified Vaultwarden collection.
+    Ensures all users from mm_users_for_services are invited to the specified Vaultwarden collection and sends a DM.
     This function is additive; it only invites users and does not remove them based on MM channel membership.
     """
     results = []
@@ -1291,16 +1316,41 @@ def _sync_single_vaultwarden_collection_members(
             access_token=access_token,
         )
 
+        action_verb = "USER_INVITED_TO_VW_COLLECTION"
         if success:
-            invite_result.update({"status": "SUCCESS", "action": "USER_INVITED_TO_VW_COLLECTION"})
+            invite_result.update({"status": "SUCCESS", "action": action_verb})
+            # Send DM on successful new invite attempt
+            # Vaultwarden invite_user_to_collection might return True even if user is already member/invited.
+            # We only want to DM if it's a "new" effective invite.
+            # The client method would need to differentiate this, or we assume any 'success' from it means "action taken".
+            # For now, let's assume 'success' implies a state where a DM is relevant if not already sent.
+            # A more robust solution might involve checking membership *before* inviting, but VW client doesn't easily provide this.
+
+            if mm_user_data.get("mm_user_id"):
+                if config.VAULTWARDEN_SERVER_URL:
+                    dm_text = (
+                        f"Bonjour @{mm_username}, vous avez été invité(e) à la collection Vaultwarden "
+                        f"**{collection_name}**.\n"
+                        f"Vous pouvez accéder à Vaultwarden ici : {config.VAULTWARDEN_SERVER_URL.rstrip('/')}"
+                    )
+                    if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
+                        invite_result["action"] = f"{action_verb}_AND_DM_SENT"
+                    else:
+                        invite_result["action"] = f"{action_verb}_DM_FAILED"
+                else:
+                    logging.warning(
+                        f"VAULTWARDEN_SERVER_URL not configured. Cannot send DM for Vaultwarden invite to {mm_username} for collection {collection_name}."
+                    )
+                    invite_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
+            else:  # Should not happen if mm_user_data is correctly populated
+                invite_result["action"] = f"{action_verb}_DM_SKIPPED_NO_MM_USER_ID"
+
         else:
             # Error logged by client.invite_user_to_collection, here we just record the failure.
-            # It could be due to user already invited, already member, or actual error.
-            # The client logs more details.
             invite_result.update(
-                {
+                {  # Status remains FAILURE
                     "action": "FAILED_TO_INVITE_TO_VW_COLLECTION",
-                    "error_message": f"API call to invite {email_lower} to collection {collection_name} failed or user already member. See client logs.",
+                    "error_message": f"API call to invite {email_lower} to collection {collection_name} failed or user already member/invited. See client logs.",
                 }
             )
         results.append(invite_result)
