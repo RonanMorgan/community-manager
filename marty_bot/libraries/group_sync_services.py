@@ -442,7 +442,7 @@ def _sync_single_nocodb_base(
                     # Example: https://nocodb.example.com/#/nc/p_abc123xyz/dashboard
                     nocodb_base_link = f"{config.NOCODB_URL.rstrip('/')}/#/nc/{base_id}/dashboard"
                     dm_text = (
-                        f"Bonjour @{mm_username}, vous avez été invité(e) à la base NoCoDB "
+                        f"Bonjour @{mm_username}, vous avez été invité(e) à la base NoCoDb "
                         f"**{nocodb_base_title}** (rôle: {target_role}).\n"
                         f"Vous pouvez y accéder ici : {nocodb_base_link}"
                     )
@@ -719,22 +719,48 @@ def _sync_single_outline_collection(
                 outline_result.update({"status": "SUCCESS", "action": action_verb})
                 if not is_already_member:  # Send DM only on first add
                     coll_details = outline_client.get_collection_details(outline_collection_id)
-                    if coll_details and coll_details.get("name") and mm_user_data["mm_user_id"]:
+                    # Check for name, urlId, and mm_user_id before proceeding with DM
+                    if (
+                        coll_details
+                        and coll_details.get("name")
+                        and coll_details.get("urlId")
+                        and mm_user_data.get("mm_user_id")
+                    ):
                         coll_name_for_dm = coll_details.get("name")
-                        # Construct URL (assuming slugify logic or direct link if available)
-                        # For simplicity, using a placeholder or assuming direct ID linking if Outline supports it
-                        # A more robust URL might involve slugifying the collection name + ID.
-                        slug_part = slugify(coll_name_for_dm)  # Ensure slugify is available or imported
-                        outline_base_url = config.OUTLINE_URL or "http://default-outline.com"  # From config
-                        coll_url = f"{outline_base_url.rstrip('/')}/collection/{slug_part}-{outline_collection_id}"
-                        dm_text = (
-                            f"Bonjour @{mm_username}, vous avez été ajouté(e) à la collection Outline "
-                            f"**{coll_name_for_dm}**.\nVous pouvez y accéder ici : {coll_url}"
+                        collection_url_id = coll_details.get("urlId")  # Use urlId for the link
+                        outline_base_url = config.OUTLINE_URL  # From config (must be set)
+
+                        if outline_base_url:  # Ensure OUTLINE_URL is configured
+                            coll_url = f"{outline_base_url.rstrip('/')}/collection/{collection_url_id}"
+                            dm_text = (
+                                f"Bonjour @{mm_username}, vous avez été ajouté(e) à la collection Outline "
+                                f"**{coll_name_for_dm}**.\nVous pouvez y accéder ici : {coll_url}"
+                            )
+                            if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
+                                outline_result["action"] = f"{action_verb}_AND_DM_SENT"
+                            else:
+                                outline_result["action"] = f"{action_verb}_DM_FAILED"
+                        else:  # OUTLINE_URL is not configured
+                            logging.warning(
+                                f"OUTLINE_URL not configured. Cannot send DM for Outline collection '{coll_name_for_dm}' to user '{mm_username}'."
+                            )
+                            outline_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
+                    # Handle cases where some info for DM is missing
+                    elif mm_user_data.get("mm_user_id"):
+                        logging.warning(
+                            f"Could not send DM for Outline collection (ID: {outline_collection_id}) to user '{mm_username}' "
+                            f"because some details were missing. "
+                            f"Collection Name: {coll_details.get('name') if coll_details else 'N/A'}, "
+                            f"Collection urlId: {coll_details.get('urlId') if coll_details else 'N/A'}, "
+                            f"OUTLINE_URL configured: {bool(config.OUTLINE_URL)}"
                         )
-                        if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
-                            outline_result["action"] = f"{action_verb}_AND_DM_SENT"
-                        else:
-                            outline_result["action"] = f"{action_verb}_DM_FAILED"
+                        # Determine a more specific skip reason
+                        if not config.OUTLINE_URL:
+                            outline_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
+                        elif not (coll_details and coll_details.get("name") and coll_details.get("urlId")):
+                            outline_result["action"] = f"{action_verb}_DM_SKIPPED_INCOMPLETE_COLL_DETAILS"
+                        else:  # Should not be reached if the outer if condition was precise
+                            outline_result["action"] = f"{action_verb}_DM_SKIPPED_UNKNOWN_REASON"
             else:
                 verb_failed = (
                     "FAILED_TO_UPDATE_OUTLINE_PERMISSION"

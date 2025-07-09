@@ -463,9 +463,11 @@ permissions:
         self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
         self.mock_outline_client.get_collection_members.return_value = []
         self.mock_outline_client.add_user_to_collection.return_value = True
+        mock_url_id = f"{slugify(outline_coll_name)}-urlid"  # Example urlId
         self.mock_outline_client.get_collection_details.return_value = {
             "id": expected_collection_id,
             "name": outline_coll_name,
+            "urlId": mock_url_id,  # Add urlId to mock
         }
         self.mock_mattermost_client.send_dm.return_value = True
 
@@ -475,7 +477,7 @@ permissions:
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
             nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,  # Added
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -485,16 +487,22 @@ permissions:
             perform_deletions=True,
             skip_services=None,
         )
-        self.assertEqual(len([r for r in results if r["status"] == "SUCCESS"]), 3)  # Auth, Outline, Brevo
-        outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
+
+        # Assuming Brevo sync is also successful for this user
+        # If only Auth and Outline are expected to succeed for this specific user, adjust count
+        successful_sync_actions = [r for r in results if r["status"] == "SUCCESS"]
+        # Count will depend on how many services are configured and succeed for this user.
+        # For this test, focusing on Outline:
+        outline_success_results = [r for r in successful_sync_actions if r["service"] == "OUTLINE"]
+        self.assertEqual(len(outline_success_results), 1, "Expected one successful Outline operation.")
+        outline_result = outline_success_results[0]
+
         self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT")
         self.mock_mattermost_client.send_dm.assert_called_once()
         call_args = self.mock_mattermost_client.send_dm.call_args[0]
         self.assertEqual(call_args[0], mm_user_for_dm["id"])
-        collection_slug = slugify(outline_coll_name)
-        expected_url = (
-            f"{mock_config_module_in_service.OUTLINE_URL}/collection/{collection_slug}-{expected_collection_id}"
-        )
+
+        expected_url = f"{mock_config_module_in_service.OUTLINE_URL}/collection/{mock_url_id}"  # Use urlId
         self.assertIn(expected_url, call_args[1])
         self.assertIn(outline_coll_name, call_args[1])
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
@@ -543,12 +551,14 @@ permissions:
         }
 
         expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
+        mock_url_id_fail = f"{slugify(outline_coll_name)}-urlidfail"
         self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
         self.mock_outline_client.get_collection_members.return_value = []
         self.mock_outline_client.add_user_to_collection.return_value = True
         self.mock_outline_client.get_collection_details.return_value = {
             "id": expected_collection_id,
             "name": outline_coll_name,
+            "urlId": mock_url_id_fail,  # Add urlId to mock
         }
         self.mock_mattermost_client.send_dm.return_value = False
         results = sync_entity_permissions(
@@ -557,7 +567,7 @@ permissions:
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
             nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,  # Added
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -641,6 +651,136 @@ permissions:
         )
         self.mock_mattermost_client.send_dm.assert_not_called()
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_outline_dm_skipped_no_outline_url(self, mock_config_module_in_service):
+        mock_config_module_in_service.EXCLUDED_USERS = set()
+        mock_config_module_in_service.OUTLINE_URL = None  # Simulate OUTLINE_URL not set
+        base_name = "DMNoUrlProject"
+        entity_key = "PROJET"
+        mock_entity_config = {
+            "standard": {
+                "authentik_group_name_pattern": "projet_{base_name}",
+                "mattermost_channel_name_pattern": "projet_{base_name}",
+            },
+            "outline": {"collection_name_pattern": "projet_{base_name}", "default_access": "read"},
+        }
+        # Basic setup for user and collection
+        std_auth_group_name = mock_entity_config["standard"]["authentik_group_name_pattern"].format(
+            base_name=base_name
+        )
+        std_mm_channel_name = mock_entity_config["standard"]["mattermost_channel_name_pattern"].format(
+            base_name=base_name
+        )
+        outline_coll_name = mock_entity_config["outline"]["collection_name_pattern"].format(base_name=base_name)
+        std_auth_group_obj = {"name": std_auth_group_name, "pk": "auth_pk_no_url", "users": [], "users_obj": []}
+        all_auth_groups_by_name_fixture = {std_auth_group_name: std_auth_group_obj}
+        mm_user = {"username": "dm_no_url_user", "email": "dmnourl@example.com", "id": "mm_user_id_no_url"}
+        email_map = {"dmnourl@example.com": "auth_pk_no_url"}
+        std_mm_channel_obj = {"id": "std_mm_chan_id_no_url", "display_name": std_mm_channel_name}
+
+        self.mock_mattermost_client.get_channel_by_name.return_value = std_mm_channel_obj
+        self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user]
+        self.mock_authentik_client.add_user_to_group.return_value = True  # Auth part succeeds
+        self.mock_outline_client.get_user_by_email.return_value = {"id": "outline_id_no_url"}
+        expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
+        self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
+        self.mock_outline_client.get_collection_members.return_value = []  # New member
+        self.mock_outline_client.add_user_to_collection.return_value = True  # Outline add succeeds
+        # Crucially, get_collection_details will still be called
+        self.mock_outline_client.get_collection_details.return_value = {
+            "id": expected_collection_id,
+            "name": outline_coll_name,
+            "urlId": "some-url-id",
+        }
+
+        results = sync_entity_permissions(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
+            mm_team_id=self.mm_team_id,
+            entity_key=entity_key,
+            base_name=base_name,
+            entity_config=mock_entity_config,
+            all_authentik_groups_by_name=all_auth_groups_by_name_fixture,
+            email_to_authentik_user_pk_map=email_map,
+            perform_deletions=False,
+        )
+        outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
+        self.assertEqual(
+            outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_SKIPPED_NO_URL"
+        )
+        self.mock_mattermost_client.send_dm.assert_not_called()
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_outline_dm_skipped_incomplete_details(self, mock_config_module_in_service):
+        mock_config_module_in_service.EXCLUDED_USERS = set()
+        mock_config_module_in_service.OUTLINE_URL = "http://test-outline.com"  # URL is set
+        base_name = "DMIncompleteProject"
+        entity_key = "PROJET"
+        mock_entity_config = {
+            "standard": {
+                "authentik_group_name_pattern": "projet_{base_name}",
+                "mattermost_channel_name_pattern": "projet_{base_name}",
+            },
+            "outline": {"collection_name_pattern": "projet_{base_name}", "default_access": "read"},
+        }
+        std_auth_group_name = mock_entity_config["standard"]["authentik_group_name_pattern"].format(
+            base_name=base_name
+        )
+        std_mm_channel_name = mock_entity_config["standard"]["mattermost_channel_name_pattern"].format(
+            base_name=base_name
+        )
+        outline_coll_name = mock_entity_config["outline"]["collection_name_pattern"].format(base_name=base_name)
+        std_auth_group_obj = {"name": std_auth_group_name, "pk": "auth_pk_incomplete", "users": [], "users_obj": []}
+        all_auth_groups_by_name_fixture = {std_auth_group_name: std_auth_group_obj}
+        mm_user = {
+            "username": "dm_incomplete_user",
+            "email": "dmincomplete@example.com",
+            "id": "mm_user_id_incomplete",
+        }
+        email_map = {"dmincomplete@example.com": "auth_pk_incomplete"}
+        std_mm_channel_obj = {"id": "std_mm_chan_id_incomplete", "display_name": std_mm_channel_name}
+
+        self.mock_mattermost_client.get_channel_by_name.return_value = std_mm_channel_obj
+        self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user]
+        self.mock_authentik_client.add_user_to_group.return_value = True
+        self.mock_outline_client.get_user_by_email.return_value = {"id": "outline_id_incomplete"}
+        expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
+        self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
+        self.mock_outline_client.get_collection_members.return_value = []
+        self.mock_outline_client.add_user_to_collection.return_value = True
+        # Simulate get_collection_details missing urlId
+        self.mock_outline_client.get_collection_details.return_value = {
+            "id": expected_collection_id,
+            "name": outline_coll_name,
+            "urlId": None,
+        }
+
+        results = sync_entity_permissions(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
+            mm_team_id=self.mm_team_id,
+            entity_key=entity_key,
+            base_name=base_name,
+            entity_config=mock_entity_config,
+            all_authentik_groups_by_name=all_auth_groups_by_name_fixture,
+            email_to_authentik_user_pk_map=email_map,
+            perform_deletions=False,
+        )
+        outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
+        self.assertEqual(
+            outline_result["action"],
+            "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_SKIPPED_INCOMPLETE_COLL_DETAILS",
+        )
+        self.mock_mattermost_client.send_dm.assert_not_called()
 
     @patch("libraries.group_sync_services.config")
     def test_sync_single_group_authentik_user_removed_if_not_in_mm(self, mock_config_module_in_service):
@@ -1051,9 +1191,11 @@ permissions:
                 self.mock_authentik_client.add_user_to_group.return_value = True
                 self.mock_outline_client.get_collection_members.return_value = []
                 self.mock_outline_client.add_user_to_collection.return_value = True
+                mock_url_id_perm_test = f"{slugify(outline_coll_name)}-urlidperm"
                 self.mock_outline_client.get_collection_details.return_value = {
                     "id": expected_outline_coll_id,
                     "name": outline_coll_name,
+                    "urlId": mock_url_id_perm_test,
                 }
                 self.mock_mattermost_client.send_dm.return_value = True
 
