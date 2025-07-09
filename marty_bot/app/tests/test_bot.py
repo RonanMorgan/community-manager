@@ -519,6 +519,7 @@ class TestMartyBot(unittest.TestCase):
                 self.bot.outline_client,
                 self.bot.brevo_client,
                 self.bot.nocodb_client,
+                self.bot.vaultwarden_client, # Added vaultwarden_client
                 self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,
                 fetch_remote_members=False,
@@ -569,6 +570,7 @@ class TestMartyBot(unittest.TestCase):
                 self.bot.outline_client,
                 self.bot.brevo_client,
                 self.bot.nocodb_client,
+                self.bot.vaultwarden_client, # Added vaultwarden_client
                 self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
                 fetch_remote_members=True,
@@ -675,6 +677,7 @@ class TestMartyBot(unittest.TestCase):
             self.bot.outline_client,
             self.bot.brevo_client,
             self.bot.nocodb_client,
+            self.bot.vaultwarden_client, # Added vaultwarden_client
             self.bot.config.MATTERMOST_TEAM_ID,
             perform_deletions=True,
             fetch_remote_members=True,

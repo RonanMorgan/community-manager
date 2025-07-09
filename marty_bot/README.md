@@ -23,6 +23,11 @@ Configuration for Marty Bot is managed via environment variables.
     *   `OUTLINE_TOKEN`: Your Outline API token with permissions to create collections.
     *   `NOCODB_URL`: (Optional) Your NoCoDB instance URL (e.g., `https://nocodb.yourdomain.com`). Required if NoCoDB integration is used.
     *   `NOCODB_TOKEN`: (Optional) Your NoCoDB API Token (from Account Settings -> API Tokens). Required if NoCoDB integration is used.
+    *   `VAULTWARDEN_ORGANIZATION_ID`: The ID of your organization in Vaultwarden.
+    *   `VAULTWARDEN_SERVER_URL`: The URL of your Vaultwarden server (e.g., `https://vaultwarden.yourdomain.com`).
+    *   `BW_PASSWORD`: The master password for the Vaultwarden user associated with the bot. This is used by the `bw` CLI to unlock the vault for operations like listing/creating collections.
+    *   `VAULTWARDEN_API_USERNAME`: The email address of the Vaultwarden user for API authentication (can be the same user as for `BW_PASSWORD`, but authenticates directly to the API).
+    *   `VAULTWARDEN_API_PASSWORD`: The password for the Vaultwarden API user. Used to obtain an API token for inviting users to collections.
     *   `LOG_LEVEL`: (Optional) Set the logging level for the bot (e.g., `INFO`, `DEBUG`, `WARNING`, `ERROR`). Defaults to `INFO` if not set. Note: `DEBUG` level here is for Python's `logging` module.
     *   `DEBUG`: (Optional) Set to `true` to enable specific debug features in the bot, such as more verbose logging output distinct from `LOG_LEVEL` (e.g., raw WebSocket messages, detailed API payloads). Defaults to `false`. Example: `DEBUG=true`
 

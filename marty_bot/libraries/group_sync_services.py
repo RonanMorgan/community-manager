@@ -18,7 +18,8 @@ if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
     from clients.outline_client import OutlineClient
     from clients.brevo_client import BrevoClient
-    from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
+    from clients.nocodb_client import NocoDBClient
+    from clients.vaultwarden_client import VaultwardenClient # Added VaultwardenClient
 
 
 # Copied from mattermost_client.py to avoid import issues and keep it self-contained here for now.
@@ -81,7 +82,8 @@ def sync_entity_permissions(
     mattermost_client: "MattermostClient",
     outline_client: Optional["OutlineClient"],
     brevo_client: Optional["BrevoClient"],
-    nocodb_client: Optional["NocoDBClient"],  # Added NocoDBClient
+    nocodb_client: Optional["NocoDBClient"],
+    vaultwarden_client: Optional["VaultwardenClient"], # Added VaultwardenClient
     mm_team_id: str,
     base_name: str,
     entity_key: str,
@@ -103,7 +105,8 @@ def sync_entity_permissions(
     admin_config = entity_config.get("admin")
     outline_cfg = entity_config.get("outline", {})
     brevo_cfg = entity_config.get("brevo", {})
-    nocodb_cfg = entity_config.get("nocodb", {})  # Added NocoDB config
+    nocodb_cfg = entity_config.get("nocodb", {})
+    vaultwarden_cfg = entity_config.get("vaultwarden", {}) # Added Vaultwarden config
 
     std_auth_group_name = std_config.get("authentik_group_name_pattern", "{base_name}").format(base_name=base_name)
     std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(base_name=base_name)
@@ -315,6 +318,27 @@ def sync_entity_permissions(
                 perform_deletions,
             )
         )
+
+    # Vaultwarden Collection Member Sync
+    # Vaultwarden sync does not involve deletions from the collection based on MM channel membership.
+    # It's additive: users in MM channels are invited.
+    # If `perform_deletions` is True for the overall sync, it doesn't apply here.
+    if "vaultwarden" not in skip_services and vaultwarden_client and vaultwarden_cfg:
+        vw_collection_name_pattern = vaultwarden_cfg.get("collection_name_pattern", "Shared - {base_name}")
+        vw_collection_name = vw_collection_name_pattern.format(base_name=base_name)
+        results.extend(
+            _sync_single_vaultwarden_collection_members(
+                vaultwarden_client,
+                vw_collection_name,
+                # mm_users_for_services contains all users from standard and admin channels relevant to this entity
+                # The invite logic in Vaultwarden client uses default permissions, so no specific admin/default distinction needed here.
+                mm_users_for_services,
+                std_mm_channel_name_for_log, # Context for logging
+            )
+        )
+    elif vaultwarden_client and not vaultwarden_cfg:
+        logging.debug(f"Vaultwarden client available but no vaultwarden config for entity '{base_name}'. Skipping VW sync.")
+
 
     logging.info(f"Finished sync for entity '{base_name}'. Total results: {len(results)}")
     return results
@@ -920,7 +944,8 @@ def orchestrate_group_synchronization(
     mattermost_client: "MattermostClient",
     outline_client: Optional["OutlineClient"],
     brevo_client: Optional["BrevoClient"],
-    nocodb_client: Optional["NocoDBClient"],  # Added NocoDB client
+    nocodb_client: Optional["NocoDBClient"],
+    vaultwarden_client: Optional["VaultwardenClient"], # Added VaultwardenClient
     mm_team_id: str,
     perform_deletions: bool = True,
     fetch_remote_members: bool = True,
@@ -950,6 +975,8 @@ def orchestrate_group_synchronization(
         logging.info("Brevo client not provided. Brevo synchronization will be skipped.")
     if not nocodb_client:
         logging.info("NocoDB client not provided. NocoDB synchronization will be skipped.")
+    if not vaultwarden_client:
+        logging.info("Vaultwarden client not provided. Vaultwarden synchronization will be skipped.")
 
     # Fetch all Authentik users for email-to-PK mapping if Authentik client is available
     # This map is crucial for Authentik operations.
@@ -1036,7 +1063,8 @@ def orchestrate_group_synchronization(
             mattermost_client,
             outline_client,
             brevo_client,
-            nocodb_client,  # Pass NocoDB client
+            nocodb_client,
+            vaultwarden_client, # Pass Vaultwarden client
             mm_team_id,
             base_name,
             entity_key,
@@ -1164,3 +1192,103 @@ def _extract_base_name(actual_name: str, pattern_with_placeholder: str) -> Optio
 
         return base_name_part
     return None
+
+
+def _sync_single_vaultwarden_collection_members(
+    vaultwarden_client: "VaultwardenClient",
+    collection_name: str,
+    mm_users_for_services: dict, # email_lower -> {username, mm_user_id, is_admin_channel_member}
+    mm_channel_context_name: str, # For logging/reporting context
+) -> list[dict]:
+    """
+    Ensures all users from mm_users_for_services are invited to the specified Vaultwarden collection.
+    This function is additive; it only invites users and does not remove them based on MM channel membership.
+    """
+    results = []
+    logging.info(f"Starting Vaultwarden collection member sync for '{collection_name}' based on MM channel '{mm_channel_context_name}'.")
+
+    if not vaultwarden_client.api_username or not vaultwarden_client.api_password:
+        logging.warning(
+            f"Vaultwarden API credentials not configured for client. Skipping member sync for collection '{collection_name}'."
+        )
+        results.append({
+            "service": "VAULTWARDEN",
+            "target_resource_name": collection_name,
+            "status": "SKIPPED",
+            "action": "SKIPPED_MISSING_API_CREDENTIALS",
+            "error_message": "Vaultwarden API username or password not set in client.",
+        })
+        return results
+
+    collection_id = vaultwarden_client.get_collection_by_name(collection_name)
+    if not collection_id:
+        logging.warning(
+            f"Vaultwarden collection '{collection_name}' not found. Cannot invite users. "
+            "It should be created by 'create_projet/antenne/pole' command."
+        )
+        results.append({
+            "service": "VAULTWARDEN",
+            "target_resource_name": collection_name,
+            "status": "SKIPPED",
+            "action": "SKIPPED_VW_COLLECTION_NOT_FOUND",
+            "error_message": f"Collection '{collection_name}' not found in Vaultwarden.",
+        })
+        return results
+
+    access_token = vaultwarden_client._get_api_token()
+    if not access_token:
+        logging.error(
+            f"Failed to obtain Vaultwarden API token. Cannot invite users to collection '{collection_name}'."
+        )
+        results.append({
+            "service": "VAULTWARDEN",
+            "target_resource_name": collection_name,
+            "status": "FAILURE", # This is a failure of the process, not just a skip
+            "action": "FAILED_TO_GET_VW_API_TOKEN",
+            "error_message": "Could not obtain API token for Vaultwarden.",
+        })
+        return results
+
+    for email_lower, mm_user_data in mm_users_for_services.items():
+        mm_username = mm_user_data.get("username", "UnknownUser")
+
+        # Skip excluded users
+        if mm_username in config.EXCLUDED_USERS:
+            logging.debug(f"User '{mm_username}' is excluded. Skipping Vaultwarden collection invite for '{collection_name}'.")
+            continue
+
+        if not email_lower: # Should not happen if mm_users_for_services is built correctly
+            logging.warning(f"Skipping user with no email for Vaultwarden invite: {mm_username}")
+            continue
+
+        base_user_info = {
+            "mm_username": mm_username,
+            "mm_user_email": email_lower,
+            "mm_channel_display_name": mm_channel_context_name,
+            "target_resource_name": collection_name,
+            "service": "VAULTWARDEN",
+        }
+        invite_result = {**base_user_info, "status": "FAILURE", "action": "VAULTWARDEN_USER_INVITE_UNCHANGED"}
+
+        logging.debug(f"Attempting to invite {email_lower} to Vaultwarden collection '{collection_name}' (ID: {collection_id})")
+        success = vaultwarden_client.invite_user_to_collection(
+            user_email=email_lower,
+            collection_id=collection_id,
+            organization_id=vaultwarden_client.organization_id,
+            access_token=access_token
+        )
+
+        if success:
+            invite_result.update({"status": "SUCCESS", "action": "USER_INVITED_TO_VW_COLLECTION"})
+        else:
+            # Error logged by client.invite_user_to_collection, here we just record the failure.
+            # It could be due to user already invited, already member, or actual error.
+            # The client logs more details.
+            invite_result.update({
+                "action": "FAILED_TO_INVITE_TO_VW_COLLECTION",
+                "error_message": f"API call to invite {email_lower} to collection {collection_name} failed or user already member. See client logs."
+            })
+        results.append(invite_result)
+
+    logging.info(f"Finished Vaultwarden collection member sync for '{collection_name}'. Total results: {len(results)}")
+    return results
