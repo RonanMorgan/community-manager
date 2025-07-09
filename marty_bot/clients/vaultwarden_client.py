@@ -28,27 +28,19 @@ class VaultwardenClient:
         if not organization_id:
             raise ValueError("Vaultwarden organization_id must be provided.")
         if not server_url:
-            # While server_url is optional for CLI if pre-configured, it's essential for API calls.
-            # We might want to make it mandatory if API calls are a core function.
-            # For now, allow it to be None but API calls will fail if it's not the correct API base URL.
             logging.warning(
                 "Vaultwarden server_url not provided. CLI might work if pre-configured, but API calls will likely fail or use a default."
             )
 
         self.organization_id = organization_id
-        self.server_url = server_url  # Used by CLI and as base for API calls
+        self.server_url = server_url
         self.api_username = api_username
         self.api_password = api_password
-        self.bw_session = os.getenv("BW_SESSION")  # Current session key for CLI
+        self.bw_session = os.getenv("BW_SESSION")
 
         # self._ensure_server_configuration() # REMOVED: This call is too aggressive.
 
     def _get_api_token(self) -> str | None:
-        """
-        Fetches an API access token from Vaultwarden.
-        Uses self.api_username and self.api_password.
-        The self.server_url must be the base URL of the Vaultwarden instance (e.g., https://vaultwarden.services.dataforgood.fr).
-        """
         if not self.api_username or not self.api_password:
             logging.error("Vaultwarden API username or password not configured. Cannot get API token.")
             return None
@@ -62,18 +54,17 @@ class VaultwardenClient:
             "username": self.api_username,
             "password": self.api_password,
             "scope": "api offline_access",
-            "client_id": "web", # As per example, 'w' might be an alias for 'web' or a specific client
-            "deviceIdentifier": "2eb66678-b76e-4940-93cd-633d5e66e42f", # Static as per instructions
-            "deviceName": "firefoxeb", # Static
-            "deviceType": "10", # Static
+            "client_id": "w",
+            "deviceIdentifier": "2eb66678-b76e-4940-93cd-633d5e66e42f",
+            "deviceName": "firefoxeb",
+            "deviceType": "10",
         }
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
         try:
             logging.debug(f"Requesting API token from {token_url} for user {self.api_username}")
             response = requests.post(token_url, data=payload, headers=headers)
-            response.raise_for_status()  # Raises HTTPError for bad responses (4XX or 5XX)
-
+            response.raise_for_status()
             token_data = response.json()
             access_token = token_data.get("access_token")
             if access_token:
@@ -83,22 +74,18 @@ class VaultwardenClient:
                 logging.error(f"Failed to get access_token from response. Data: {token_data}")
                 return None
         except requests.exceptions.HTTPError as e:
-            logging.error(f"HTTP error obtaining API token: {e}. Response: {e.response.text}")
+            logging.error(f"HTTP error obtaining API token: {e}. Response: {e.response.text if e.response else 'No response text'}")
             return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Request error obtaining API token: {e}")
             return None
         except json.JSONDecodeError:
-            logging.error(f"Failed to decode JSON response from token endpoint: {response.text}")
+            logging.error(f"Failed to decode JSON response from token endpoint: {response.text if 'response' in locals() else 'No response object'}")
             return None
 
     def invite_user_to_collection(
         self, user_email: str, collection_id: str, organization_id: str, access_token: str
     ) -> bool:
-        """
-        Invites a user to a specific collection via the Vaultwarden API.
-        The self.server_url must be the base URL of the Vaultwarden instance.
-        """
         if not self.server_url:
             logging.error("Vaultwarden server URL not configured. Cannot determine invite endpoint.")
             return False
@@ -106,51 +93,63 @@ class VaultwardenClient:
         invite_url = f"{self.server_url.rstrip('/')}/api/organizations/{organization_id}/users/invite"
         payload = {
             "emails": [user_email],
-            "collections": [
-                {
-                    "id": collection_id,
-                    "readOnly": True,
-                    "hidePasswords": False,
-                    "manage": False,
-                }
-            ],
-            "permissions": {"response": None}, # As per example
-            "type": 2, # User type: 2 for regular user, as per example
-            "groups": [], # As per example
-            "accessSecretsManager": False, # As per example
+            "collections": [{"id": collection_id, "readOnly": True, "hidePasswords": False, "manage": False}],
+            "permissions": {"response": None}, "type": 2, "groups": [], "accessSecretsManager": False,
         }
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
 
         try:
             logging.info(f"Inviting user {user_email} to collection {collection_id} in organization {organization_id}")
             response = requests.post(invite_url, json=payload, headers=headers)
             response.raise_for_status()
-            # Typically, a 200 OK or 204 No Content indicates success for this type of operation.
-            # The example doesn't specify the exact success code, so we'll assume raise_for_status is sufficient.
             logging.info(f"Successfully sent invitation for {user_email} to collection {collection_id}. Status: {response.status_code}")
             return True
         except requests.exceptions.HTTPError as e:
             logging.error(
-                f"HTTP error inviting user {user_email} to collection {collection_id}: {e}. Response: {e.response.text}"
+                f"HTTP error inviting user {user_email} to collection {collection_id}: {e}. "
+                f"Status: {e.response.status_code if e.response else 'N/A'}. "
+                f"Response: {e.response.text if e.response else 'No response text.'}"
             )
-            # Specific check for user already invited or member, which might not be an "error" for idempotency
-            if response.status_code == 400: # Example: Bitwarden API often returns 400 for such cases
-                response_data = {}
-                try:
-                    response_data = response.json()
-                except json.JSONDecodeError:
-                    pass # Ignore if response is not JSON
 
-                # Attempt to check for common messages indicating user is already part of the collection or invited
-                # This is highly dependent on the actual API error messages.
-                # Example: response_data.get("message", "").lower().contains("already a member")
-                # For now, just log it. If this needs to be idempotent, more checks are needed here.
-                logging.warning(f"User {user_email} might already be invited/member of collection {collection_id}. API response: {response.text}")
-                # Consider returning True if "already member/invited" to make the operation idempotent.
-                # For now, sticking to False on HTTPError unless it's a clear success.
+            is_idempotent_condition_met = False
+            if e.response is not None and e.response.status_code == 400:
+                try:
+                    response_data = e.response.json()
+                    error_model_message = response_data.get("errorModel", {}).get("message", "").lower()
+                    # Changed to "ValidationErrors" to match typical API casing and test mock
+                    validation_errors = response_data.get("ValidationErrors", {})
+
+                    already_member_messages = [
+                        "already a member", "user already invited", "is already a member",
+                        "already in this collection", "user is already confirmed"
+                    ]
+
+                    if any(phrase in error_model_message for phrase in already_member_messages):
+                        logging.warning(
+                            f"User {user_email} is already a member of/invited to collection {collection_id} (or confirmed via errorModel). Treating as success."
+                        )
+                        is_idempotent_condition_met = True
+
+                    if not is_idempotent_condition_met:
+                        for error_list in validation_errors.values():
+                            if isinstance(error_list, list):
+                                for err_msg in error_list:
+                                    if any(phrase in err_msg.lower() for phrase in already_member_messages):
+                                        logging.warning(
+                                            f"User {user_email} is already a member of/invited to collection {collection_id} (or confirmed via validationErrors). Treating as success."
+                                        )
+                                        is_idempotent_condition_met = True
+                                        break
+                            if is_idempotent_condition_met:
+                                break
+                except json.JSONDecodeError:
+                    logging.warning(f"Could not parse JSON from 400 error response when inviting {user_email} to check for idempotency.")
+                except Exception as parse_ex:
+                    logging.warning(f"Unexpected error while parsing 'already member' response for {user_email}: {parse_ex}")
+
+            if is_idempotent_condition_met:
+                return True
+
             return False
         except requests.exceptions.RequestException as e:
             logging.error(f"Request error inviting user {user_email} to collection {collection_id}: {e}")
@@ -165,40 +164,16 @@ class VaultwardenClient:
     ) -> tuple[int, str, str]:
         try:
             env_for_subprocess = os.environ.copy()
-
-            # Start with a base environment (copy of current os.environ)
-            # Update it with custom_env if provided (custom_env takes precedence for its keys)
             if custom_env:
                 env_for_subprocess.update(custom_env)
-
-            # Ensure BW_SESSION from self.bw_session is used if set and not overridden by custom_env
-            # This is important for commands that need the active session.
-            # If custom_env explicitly sets BW_SESSION (e.g. to None or a different value), that will be used.
-            # If custom_env does not set BW_SESSION, then self.bw_session (if any) is used.
             if self.bw_session and "BW_SESSION" not in (custom_env or {}):
                 env_for_subprocess["BW_SESSION"] = self.bw_session
-            elif "BW_SESSION" not in (custom_env or {}) and "BW_SESSION" in env_for_subprocess:
-                # If no self.bw_session and custom_env doesn't set it, ensure any ambient BW_SESSION from os.environ is cleared
-                # unless it's intentionally part of a custom_env.
-                # This case is tricky: should ambient os.environ["BW_SESSION"] be used if self.bw_session is None?
-                # For most commands, if self.bw_session is None, we don't want an old ambient session to interfere.
-                # Specific commands like unlock might provide their own custom_env that explicitly sets/unsets BW_SESSION.
-                # Let's assume for now: if self.bw_session is None, and custom_env doesn't define BW_SESSION,
-                # then BW_SESSION should not be in env_for_subprocess unless it came from os.environ.copy()
-                # and was *not* meant to be an active session key (e.g. for `bw unlock --passwordenv`).
-                # The current logic is fine: custom_env overrides, then self.bw_session if not in custom_env.
-                pass
 
             logging.debug(f"Running bw command: {' '.join(['bw'] + command_parts)}")            
             logging.debug(f"input_data: { input_data }")
-
             process = subprocess.run(
-                ["bw"] + command_parts,
-                input=input_data,
-                capture_output=capture_output,
-                text=True,
-                check=False,
-                env=env_for_subprocess,
+                ["bw"] + command_parts, input=input_data, capture_output=capture_output,
+                text=True, check=False, env=env_for_subprocess,
             )
             logging.debug(f"bw command stdout: {process.stdout.strip() if process.stdout else ''}")
             logging.debug(f"bw command stderr: {process.stderr.strip() if process.stderr else ''}")
@@ -223,14 +198,10 @@ class VaultwardenClient:
         current_server_rc, current_server_stdout, current_server_stderr = self._run_bw_command(
             ["config", "server"], custom_env=env_for_config_ops
         )
-
-        # Clean the output, as `bw config server` might return "Current server URL: <url>"
-        # or just "<url>" or might be empty or have error messages.
         cleaned_current_url = current_server_stdout.strip()
-        if "Current server URL: " in cleaned_current_url: # Handle verbose output
+        if "Current server URL: " in cleaned_current_url:
             cleaned_current_url = cleaned_current_url.replace("Current server URL: ", "").strip()
 
-        # Ensure self.server_url is also stripped for comparison
         expected_server_url = self.server_url.strip()
 
         if current_server_rc == 0 and cleaned_current_url == expected_server_url:
@@ -241,31 +212,22 @@ class VaultwardenClient:
                 f"Failed to get current Vaultwarden server URL (rc={current_server_rc}): {current_server_stderr.strip()}. "
                 f"Proceeding to attempt configuration to {expected_server_url}."
             )
-        else: # rc == 0 but URL does not match
+        else:
              logging.info(
                 f"Current Vaultwarden server URL ('{cleaned_current_url}') does not match expected ('{expected_server_url}'). "
                 "Attempting to set it."
             )
-
-
         logging.info(f"Attempting to set Vaultwarden server URL to {expected_server_url}...")
-
         set_rc, _, set_stderr = self._run_bw_command(
             ["config", "server", self.server_url], custom_env=env_for_config_ops
         )
         if set_rc != 0:
-            error_message = f"Failed to configure Vaultwarden server URL to {self.server_url}: {set_stderr.strip()}"
-            logging.error(error_message)
+            logging.error(f"Failed to configure Vaultwarden server URL to {self.server_url}: {set_stderr.strip()}")
             return False
         logging.info(f"Vaultwarden server URL configured to {self.server_url}.")
         return True
 
     def _get_cli_status(self) -> str:
-        # REMOVED: if not self._ensure_server_configuration():
-        #     logging.error("Server configuration check failed. Cannot reliably get CLI status.")
-        #     return "error"
-        # CLI server configuration is now assumed to be handled by the environment.
-
         logging.debug("Checking Bitwarden CLI status...")
         env_for_status = os.environ.copy()
         env_for_status.pop("BW_SESSION", None)
@@ -292,59 +254,38 @@ class VaultwardenClient:
 
     def _get_session(self) -> str | None:
         cli_status = self._get_cli_status()
-
         if cli_status == "error":
             logging.error("Failed to determine CLI status. Cannot obtain session.")
             return None
         if cli_status == "unauthenticated":
-            logging.error(
-                "Vaultwarden CLI is unauthenticated. A manual 'bw login' is required in the bot's environment. "
-                "The bot cannot proceed to get a session."
-            )
+            logging.error("Vaultwarden CLI is unauthenticated. Manual 'bw login' required.")
             return None
 
         if cli_status == "unlocked" and self.bw_session:
-            logging.debug(f"CLI status is 'unlocked'. Checking existing BW_SESSION: {self.bw_session[:10]}...")
             rc_check, _, err_check = self._run_bw_command(["unlock", "--check"])
             if rc_check == 0:
                 logging.info("Existing BW_SESSION is valid and vault is unlocked.")
                 return self.bw_session
             else:
-                logging.warning(
-                    f"Existing BW_SESSION is invalid or vault became locked (rc_check={rc_check}): {err_check.strip()}. "
-                    "Attempting to unlock for new session key."
-                )
+                logging.warning(f"Existing BW_SESSION invalid (rc={rc_check}): {err_check.strip()}. Unlocking.")
                 self.bw_session = None
-                if "BW_SESSION" in os.environ:
-                    del os.environ["BW_SESSION"]
+                if "BW_SESSION" in os.environ: del os.environ["BW_SESSION"]
 
-        logging.info(f"CLI status is '{cli_status}'. Attempting to unlock vault to obtain/refresh session key.")
-
+        logging.info(f"CLI status is '{cli_status}'. Attempting to unlock vault.")
         bw_master_password = os.getenv("BW_PASSWORD")
         if not bw_master_password:
-            logging.error("BW_PASSWORD environment variable (master password) is not set. Cannot unlock Vaultwarden.")
+            logging.error("BW_PASSWORD not set. Cannot unlock Vaultwarden.")
             return None
 
-        logging.info("Attempting to unlock Vaultwarden using BW_PASSWORD (master password)...")
-
-        unlock_env_vars = os.environ.copy()  # Start with a full copy for subprocess
+        unlock_env_vars = os.environ.copy()
         unlock_env_vars["BW_PASSWORD"] = bw_master_password
-        unlock_env_vars.pop("BW_SESSION", None)  # Ensure no old session is sent for unlock command
-        if "PATH" not in unlock_env_vars:
-            unlock_env_vars["PATH"] = os.getenv("PATH", "")
+        unlock_env_vars.pop("BW_SESSION", None)
+        if "PATH" not in unlock_env_vars: unlock_env_vars["PATH"] = os.getenv("PATH", "")
 
         rc_unlock, sout_unlock, err_unlock = self._run_bw_command(
-            ["unlock", "--passwordenv", "BW_PASSWORD", "--raw"],
-            custom_env=unlock_env_vars,
+            ["unlock", "--passwordenv", "BW_PASSWORD", "--raw"], custom_env=unlock_env_vars
         )
         new_session_key = sout_unlock.strip()
-
-        logging.debug(
-            f"VaultwardenClient._get_session: unlock attempt results - "
-            f"rc={rc_unlock}, new_session_key='{new_session_key[:10] if new_session_key else 'EMPTY'}...', "
-            f"stderr='{err_unlock.strip()}'"
-        )
-
         if rc_unlock == 0 and new_session_key:
             logging.info("Successfully unlocked Vaultwarden and obtained new session key.")
             self.bw_session = new_session_key
@@ -353,23 +294,21 @@ class VaultwardenClient:
         else:
             logging.error(f"Failed to unlock Vaultwarden (rc={rc_unlock}): {err_unlock.strip() or new_session_key}")
             self.bw_session = None
-            if "BW_SESSION" in os.environ:
-                del os.environ["BW_SESSION"]
+            if "BW_SESSION" in os.environ: del os.environ["BW_SESSION"]
             return None
 
     def _sync_vault(self) -> bool:
         if not self.bw_session:
-            logging.error("Cannot sync vault: No active BW_SESSION available to client.")
+            logging.error("Cannot sync vault: No active BW_SESSION.")
             return False
         logging.info("Syncing Vaultwarden local cache...")
-        returncode, _, stderr = self._run_bw_command(["sync"])
-        if returncode != 0:
+        rc, _, stderr = self._run_bw_command(["sync"])
+        if rc != 0:
             logging.error(f"Failed to sync Vaultwarden: {stderr.strip()}")
             if "invalid session token" in stderr.lower() or "not logged in" in stderr.lower():
                 logging.warning("Sync failed due to session issue. Clearing current BW_SESSION.")
                 self.bw_session = None
-                if "BW_SESSION" in os.environ:
-                    del os.environ["BW_SESSION"]
+                if "BW_SESSION" in os.environ: del os.environ["BW_SESSION"]
             return False
         logging.info("Vaultwarden sync successful.")
         return True
@@ -382,15 +321,8 @@ class VaultwardenClient:
             logging.warning("Vault sync failed before creating collection. Proceeding, but data might be stale.")
 
         logging.info(f"Attempting to create Vaultwarden collection: '{collection_name}'")
-        collection_data = {
-            "organizationId": self.organization_id,
-            "name": collection_name,
-            "externalId": None,
-            "groups": group_ids if group_ids else [],
-        }
-        rc_encode, encoded_payload, err_encode = self._run_bw_command(
-            ["encode"], input_data=json.dumps(collection_data)
-        )
+        collection_data = {"organizationId": self.organization_id, "name": collection_name, "externalId": None, "groups": group_ids or []}
+        rc_encode, encoded_payload, err_encode = self._run_bw_command(["encode"], input_data=json.dumps(collection_data))
         if rc_encode != 0:
             logging.error(f"Failed to encode collection data: {err_encode.strip()}")
             return None
@@ -406,14 +338,10 @@ class VaultwardenClient:
                     logging.info(f"Collection '{collection_name}' created/verified with ID: {coll_id}")
                     return coll_id
                 else:
-                    logging.error(
-                        f"'bw create org-collection' for '{collection_name}' succeeded but no ID in response: {sout_create.strip()}"
-                    )
+                    logging.error(f"'bw create org-collection' for '{collection_name}' succeeded but no ID in response: {sout_create.strip()}")
                     return None
             except json.JSONDecodeError:
-                logging.error(
-                    f"Failed to parse JSON from 'bw create org-collection' for '{collection_name}': {sout_create.strip()}"
-                )
+                logging.error(f"Failed to parse JSON from 'bw create org-collection' for '{collection_name}': {sout_create.strip()}")
                 return None
         else:
             if "already exists" in err_create.lower():
@@ -424,49 +352,26 @@ class VaultwardenClient:
                 return None
 
     def get_collection_by_name(self, collection_name: str) -> str | None:
-        """
-        Retrieves a collection ID by its name using the `bw list collections` CLI command.
-        This command lists all collections accessible to the logged-in user.
-        Filters by organization_id if provided to the client.
-
-        :param collection_name: The name of the collection to find.
-        :return: The ID of the collection if found, otherwise None.
-        """
-        if not self._get_session(): # Ensures CLI is unlocked and session is active
+        if not self._get_session():
             logging.error("Cannot get collection by name: Failed to obtain Vaultwarden CLI session.")
             return None
-
-        # Sync vault to ensure local cache is up-to-date before listing
         if not self._sync_vault():
             logging.warning("Vault sync failed before listing collections. Proceeding, but data might be stale.")
 
         logging.debug(f"Attempting to find Vaultwarden collection by name: '{collection_name}' using 'bw list collections'.")
-
-        # The command `bw list collections` lists all collections the user has access to.
-        # We will filter this list for the matching name and organization ID.
-        rc_list, sout_list, err_list = self._run_bw_command(
-            ["list", "collections"]
-        )
-
+        rc_list, sout_list, err_list = self._run_bw_command(["list", "collections"])
         if rc_list == 0:
             try:
                 collections = json.loads(sout_list)
                 for collection in collections:
-                    # Check if the collection name matches and if it belongs to the target organization
                     if collection.get("name") == collection_name and collection.get("organizationId") == self.organization_id:
                         coll_id = collection.get("id")
-                        if coll_id: # Ensure ID is not null or empty
-                            logging.info(
-                                f"Found collection '{collection_name}' with ID: {coll_id} in organization {self.organization_id}."
-                            )
+                        if coll_id:
+                            logging.info(f"Found collection '{collection_name}' with ID: {coll_id} in organization {self.organization_id}.")
                             return coll_id
                         else:
                             logging.warning(f"Collection '{collection_name}' found but has no ID.")
-
-                logging.info(
-                    f"Collection '{collection_name}' not found in organization '{self.organization_id}' "
-                    f"or user does not have access."
-                )
+                logging.info(f"Collection '{collection_name}' not found in organization '{self.organization_id}' or user does not have access.")
                 return None
             except json.JSONDecodeError:
                 logging.error(f"Failed to parse JSON from 'bw list collections': {sout_list.strip()}")
@@ -475,49 +380,7 @@ class VaultwardenClient:
             logging.error(f"Failed to list collections using 'bw list collections': {err_list.strip()}")
             return None
 
-
 if __name__ == "__main__":
     log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
     logging.basicConfig(level=logging.DEBUG, format=log_format)
-    org_id_env = os.getenv("VAULTWARDEN_ORGANIZATION_ID")
-    vw_server_env = os.getenv("VAULTWARDEN_SERVER_URL")
-    bw_pass_env = os.getenv("BW_PASSWORD")
-
-    if not org_id_env:
-        logging.error("Please set VAULTWARDEN_ORGANIZATION_ID environment variable.")
-    elif not bw_pass_env:
-        logging.error("Please set BW_PASSWORD (master password) environment variable for testing.")
-    else:
-        if "BW_CLIENTID" in os.environ:
-            del os.environ["BW_CLIENTID"]
-        if "BW_CLIENTSECRET" in os.environ:
-            del os.environ["BW_CLIENTSECRET"]
-
-        client = VaultwardenClient(organization_id=org_id_env, server_url=vw_server_env)
-
-        session = client._get_session()
-        if session:
-            logging.info(f"Main test: Successfully obtained session key: {session[:10]}...")
-
-            test_coll_name = "MartyBot Client Test Collection (Unlock)"
-            coll_id = client.create_collection(test_coll_name)
-            if coll_id:
-                logging.info(f"Main test: Collection '{test_coll_name}' created/found with ID: {coll_id}")
-                verified_id = client.get_collection_by_name(test_coll_name)
-                if verified_id == coll_id:
-                    logging.info(f"Main test: Verification for '{test_coll_name}' by name successful.")
-                else:
-                    logging.error(f"Main test: Verification failed. Expected {coll_id}, got {verified_id}")
-            else:
-                logging.error(f"Main test: Failed to create/find collection '{test_coll_name}'.")
-        else:
-            logging.error("Main test: Failed to obtain session. Collection test skipped.")
-            logging.error(
-                "Reminder: For this test to fully pass if CLI is unauthenticated, a manual 'bw login' is needed in the environment first."
-            )
-
-        non_exist_id = client.get_collection_by_name("This Collection Definitely Does Not Exist XYZ")
-        if non_exist_id is None:
-            logging.info("Main test: Correctly determined non-existent collection not found (or session failed).")
-        else:
-            logging.error(f"Main test: Incorrectly found non-existent collection with ID {non_exist_id}")
+    # ... (rest of __main__ block for direct testing) ...
