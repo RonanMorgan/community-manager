@@ -429,6 +429,201 @@ class TestMattermostClient(unittest.TestCase):
         self.assertFalse(self.client.add_user_to_channel("channel_id", ""))
         self.assertFalse(self.client.add_user_to_channel("", ""))
 
+    # Tests for get_channels_for_team
+    @patch("requests.get")
+    def test_get_channels_for_team_success_mixed_public_private(self, mock_get_request):
+        team_id = "team_with_mixed_channels"
+        private_channels_data = [
+            {"id": "private_chan_1", "name": "private-1", "type": "P", "team_id": team_id},
+            {"id": "shared_chan_A", "name": "shared-A", "type": "P", "team_id": team_id},  # Test deduplication
+        ]
+        public_channels_data = [
+            {"id": "public_chan_1", "name": "public-1", "type": "O", "team_id": team_id},
+            {"id": "public_chan_2", "name": "public-2", "type": "O", "team_id": team_id},
+            {"id": "shared_chan_A", "name": "shared-A", "type": "O", "team_id": team_id},  # Test deduplication
+        ]
+
+        mock_response_private = Mock(status_code=200)
+        mock_response_private.json.return_value = private_channels_data
+        mock_response_public = Mock(status_code=200)
+        mock_response_public.json.return_value = public_channels_data
+
+        # The order of side_effect matters: private first, then public
+        mock_get_request.side_effect = [mock_response_private, mock_response_public]
+
+        channels = self.client.get_channels_for_team(team_id)
+
+        self.assertEqual(mock_get_request.call_count, 2)
+        mock_get_request.assert_any_call(
+            f"{self.mock_url}/api/v4/teams/{team_id}/channels/private", headers=self.client.headers
+        )
+        mock_get_request.assert_any_call(
+            f"{self.mock_url}/api/v4/teams/{team_id}/channels", headers=self.client.headers
+        )
+
+        # Expected: p_chan_1, pub_chan_1, pub_chan_2, shared_A (deduplicated)  # noqa: E501
+        self.assertEqual(len(channels), 4)
+        channel_ids = {c["id"] for c in channels}
+        self.assertIn("private_chan_1", channel_ids)
+        self.assertIn("public_chan_1", channel_ids)
+        self.assertIn("public_chan_2", channel_ids)
+        self.assertIn("shared_chan_A", channel_ids)  # Check the shared one is present
+
+    @patch("requests.get")
+    def test_get_channels_for_team_only_public(self, mock_get_request):
+        team_id = "team_only_public"
+        public_channels_data = [
+            {"id": "pub_A", "name": "pub-a", "type": "O"},
+            {"id": "pub_B", "name": "pub-b", "type": "O"},
+        ]
+        # Private channels endpoint returns empty list or 404
+        mock_response_private_empty = Mock(status_code=200)
+        mock_response_private_empty.json.return_value = []
+        # mock_response_private_404 = Mock(status_code=404) # Alternative: private channels not found
+        # mock_response_private_404.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response_private_404)
+
+        mock_response_public = Mock(status_code=200)
+        mock_response_public.json.return_value = public_channels_data
+
+        mock_get_request.side_effect = [mock_response_private_empty, mock_response_public]
+        # mock_get_request.side_effect = [mock_response_private_404, mock_response_public] # Test with 404 for private
+
+        channels = self.client.get_channels_for_team(team_id)
+        self.assertEqual(len(channels), 2)
+        channel_ids = {c["id"] for c in channels}
+        self.assertIn("pub_A", channel_ids)
+        self.assertIn("pub_B", channel_ids)
+
+    @patch("requests.get")
+    def test_get_channels_for_team_only_private(self, mock_get_request):
+        team_id = "team_only_private"
+        private_channels_data = [
+            {"id": "priv_X", "name": "priv-x", "type": "P"},
+            {"id": "priv_Y", "name": "priv-y", "type": "P"},
+        ]
+        mock_response_private = Mock(status_code=200)
+        mock_response_private.json.return_value = private_channels_data
+
+        mock_response_public_empty = Mock(status_code=200)
+        mock_response_public_empty.json.return_value = []
+
+        mock_get_request.side_effect = [mock_response_private, mock_response_public_empty]
+
+        channels = self.client.get_channels_for_team(team_id)
+        self.assertEqual(len(channels), 2)
+        channel_ids = {c["id"] for c in channels}
+        self.assertIn("priv_X", channel_ids)
+        self.assertIn("priv_Y", channel_ids)
+
+    @patch("requests.get")
+    def test_get_channels_for_team_no_channels(self, mock_get_request):
+        team_id = "team_no_channels"
+        mock_response_empty1 = Mock(status_code=200)
+        mock_response_empty1.json.return_value = []
+        mock_response_empty2 = Mock(status_code=200)
+        mock_response_empty2.json.return_value = []
+
+        mock_get_request.side_effect = [mock_response_empty1, mock_response_empty2]
+        channels = self.client.get_channels_for_team(team_id)
+        self.assertEqual(len(channels), 0)
+
+    @patch("requests.get")
+    def test_get_channels_for_team_api_error_on_private(self, mock_get_request):
+        team_id = "team_err_private"
+        public_channels_data = [{"id": "pub_C", "name": "pub-c", "type": "O"}]
+
+        mock_private_error = Mock(status_code=500)
+        mock_private_error.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_private_error)
+
+        mock_response_public = Mock(status_code=200)
+        mock_response_public.json.return_value = public_channels_data
+
+        mock_get_request.side_effect = [mock_private_error, mock_response_public]
+
+        channels = self.client.get_channels_for_team(team_id)
+        self.assertEqual(len(channels), 1)  # Should still return public channels
+        self.assertEqual(channels[0]["id"], "pub_C")
+
+    @patch("requests.get")
+    def test_get_channels_for_team_api_error_on_public(self, mock_get_request):
+        team_id = "team_err_public"
+        private_channels_data = [{"id": "priv_Z", "name": "priv-z", "type": "P"}]
+
+        mock_response_private = Mock(status_code=200)
+        mock_response_private.json.return_value = private_channels_data
+
+        mock_public_error = Mock(status_code=500)
+        mock_public_error.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_public_error)
+
+        mock_get_request.side_effect = [mock_response_private, mock_public_error]
+
+        channels = self.client.get_channels_for_team(team_id)
+        self.assertEqual(len(channels), 1)  # Should still return private channels
+        self.assertEqual(channels[0]["id"], "priv_Z")
+
+    @patch("requests.get")
+    def test_get_channels_for_team_api_error_on_both(self, mock_get_request):
+        team_id = "team_err_both"
+
+        mock_private_error = Mock(status_code=500)
+        mock_private_error.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_private_error)
+        mock_public_error = Mock(status_code=500)
+        mock_public_error.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_public_error)
+
+        mock_get_request.side_effect = [mock_private_error, mock_public_error]
+        channels = self.client.get_channels_for_team(team_id)
+        self.assertEqual(len(channels), 0)  # No channels should be returned
+
+    def test_get_channels_for_team_no_team_id(self):
+        original_team_id = self.client.team_id
+        self.client.team_id = None  # Simulate client not having a default team_id
+        # And we don't pass one to the function
+        channels = self.client.get_channels_for_team()
+        self.assertEqual(channels, [])
+        self.client.team_id = original_team_id  # Restore
+
+    @patch("requests.get")
+    def test_get_channels_for_team_permission_denied_private(self, mock_get_request):
+        team_id = "team_permission_denied_private"
+        public_channels_data = [{"id": "pub_D", "name": "pub-d", "type": "O"}]
+
+        # Simulate 403 Forbidden for private channels
+        mock_private_forbidden = Mock(status_code=403)
+        mock_private_forbidden.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_private_forbidden
+        )
+
+        mock_response_public = Mock(status_code=200)
+        mock_response_public.json.return_value = public_channels_data
+
+        mock_get_request.side_effect = [mock_private_forbidden, mock_response_public]
+
+        channels = self.client.get_channels_for_team(team_id)
+        self.assertEqual(len(channels), 1)  # Should still return public channels
+        self.assertEqual(channels[0]["id"], "pub_D")
+        # Check logs (optional, requires log capture setup if you want to assert specific log messages)
+        # For now, just ensuring the function doesn't crash and returns what it can.
+
+    @patch("requests.get")
+    def test_get_channels_for_team_permission_denied_public(self, mock_get_request):
+        team_id = "team_permission_denied_public"
+        private_channels_data = [{"id": "priv_E", "name": "priv-e", "type": "P"}]
+
+        mock_response_private = Mock(status_code=200)
+        mock_response_private.json.return_value = private_channels_data
+
+        # Simulate 403 Forbidden for public channels
+        mock_public_forbidden = Mock(status_code=403)
+        mock_public_forbidden.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_public_forbidden
+        )
+
+        mock_get_request.side_effect = [mock_response_private, mock_public_forbidden]
+
+        channels = self.client.get_channels_for_team(team_id)
+        self.assertEqual(len(channels), 1)  # Should still return private channels
+        self.assertEqual(channels[0]["id"], "priv_E")
+
 
 if __name__ == "__main__":
     unittest.main()

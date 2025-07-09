@@ -2,7 +2,7 @@ import subprocess
 import json
 import os
 import logging
-import requests # Added for API calls
+import requests  # Added for API calls
 
 
 class VaultwardenClient:
@@ -74,13 +74,17 @@ class VaultwardenClient:
                 logging.error(f"Failed to get access_token from response. Data: {token_data}")
                 return None
         except requests.exceptions.HTTPError as e:
-            logging.error(f"HTTP error obtaining API token: {e}. Response: {e.response.text if e.response else 'No response text'}")
+            logging.error(
+                f"HTTP error obtaining API token: {e}. Response: {e.response.text if e.response else 'No response text'}"
+            )
             return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Request error obtaining API token: {e}")
             return None
         except json.JSONDecodeError:
-            logging.error(f"Failed to decode JSON response from token endpoint: {response.text if 'response' in locals() else 'No response object'}")
+            logging.error(
+                f"Failed to decode JSON response from token endpoint: {response.text if 'response' in locals() else 'No response object'}"
+            )
             return None
 
     def invite_user_to_collection(
@@ -94,7 +98,10 @@ class VaultwardenClient:
         payload = {
             "emails": [user_email],
             "collections": [{"id": collection_id, "readOnly": True, "hidePasswords": False, "manage": False}],
-            "permissions": {"response": None}, "type": 2, "groups": [], "accessSecretsManager": False,
+            "permissions": {"response": None},
+            "type": 2,
+            "groups": [],
+            "accessSecretsManager": False,
         }
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
 
@@ -102,7 +109,9 @@ class VaultwardenClient:
             logging.info(f"Inviting user {user_email} to collection {collection_id} in organization {organization_id}")
             response = requests.post(invite_url, json=payload, headers=headers)
             response.raise_for_status()
-            logging.info(f"Successfully sent invitation for {user_email} to collection {collection_id}. Status: {response.status_code}")
+            logging.info(
+                f"Successfully sent invitation for {user_email} to collection {collection_id}. Status: {response.status_code}"
+            )
             return True
         except requests.exceptions.HTTPError as e:
             logging.error(
@@ -120,8 +129,11 @@ class VaultwardenClient:
                     validation_errors = response_data.get("ValidationErrors", {})
 
                     already_member_messages = [
-                        "already a member", "user already invited", "is already a member",
-                        "already in this collection", "user is already confirmed"
+                        "already a member",
+                        "user already invited",
+                        "is already a member",
+                        "already in this collection",
+                        "user is already confirmed",
                     ]
 
                     if any(phrase in error_model_message for phrase in already_member_messages):
@@ -143,9 +155,13 @@ class VaultwardenClient:
                             if is_idempotent_condition_met:
                                 break
                 except json.JSONDecodeError:
-                    logging.warning(f"Could not parse JSON from 400 error response when inviting {user_email} to check for idempotency.")
+                    logging.warning(
+                        f"Could not parse JSON from 400 error response when inviting {user_email} to check for idempotency."
+                    )
                 except Exception as parse_ex:
-                    logging.warning(f"Unexpected error while parsing 'already member' response for {user_email}: {parse_ex}")
+                    logging.warning(
+                        f"Unexpected error while parsing 'already member' response for {user_email}: {parse_ex}"
+                    )
 
             if is_idempotent_condition_met:
                 return True
@@ -169,11 +185,15 @@ class VaultwardenClient:
             if self.bw_session and "BW_SESSION" not in (custom_env or {}):
                 env_for_subprocess["BW_SESSION"] = self.bw_session
 
-            logging.debug(f"Running bw command: {' '.join(['bw'] + command_parts)}")            
+            logging.debug(f"Running bw command: {' '.join(['bw'] + command_parts)}")
             logging.debug(f"input_data: { input_data }")
             process = subprocess.run(
-                ["bw"] + command_parts, input=input_data, capture_output=capture_output,
-                text=True, check=False, env=env_for_subprocess,
+                ["bw"] + command_parts,
+                input=input_data,
+                capture_output=capture_output,
+                text=True,
+                check=False,
+                env=env_for_subprocess,
             )
             logging.debug(f"bw command stdout: {process.stdout.strip() if process.stdout else ''}")
             logging.debug(f"bw command stderr: {process.stderr.strip() if process.stderr else ''}")
@@ -213,7 +233,7 @@ class VaultwardenClient:
                 f"Proceeding to attempt configuration to {expected_server_url}."
             )
         else:
-             logging.info(
+            logging.info(
                 f"Current Vaultwarden server URL ('{cleaned_current_url}') does not match expected ('{expected_server_url}'). "
                 "Attempting to set it."
             )
@@ -269,7 +289,8 @@ class VaultwardenClient:
             else:
                 logging.warning(f"Existing BW_SESSION invalid (rc={rc_check}): {err_check.strip()}. Unlocking.")
                 self.bw_session = None
-                if "BW_SESSION" in os.environ: del os.environ["BW_SESSION"]
+                if "BW_SESSION" in os.environ:
+                    del os.environ["BW_SESSION"]
 
         logging.info(f"CLI status is '{cli_status}'. Attempting to unlock vault.")
         bw_master_password = os.getenv("BW_PASSWORD")
@@ -280,7 +301,8 @@ class VaultwardenClient:
         unlock_env_vars = os.environ.copy()
         unlock_env_vars["BW_PASSWORD"] = bw_master_password
         unlock_env_vars.pop("BW_SESSION", None)
-        if "PATH" not in unlock_env_vars: unlock_env_vars["PATH"] = os.getenv("PATH", "")
+        if "PATH" not in unlock_env_vars:
+            unlock_env_vars["PATH"] = os.getenv("PATH", "")
 
         rc_unlock, sout_unlock, err_unlock = self._run_bw_command(
             ["unlock", "--passwordenv", "BW_PASSWORD", "--raw"], custom_env=unlock_env_vars
@@ -294,7 +316,8 @@ class VaultwardenClient:
         else:
             logging.error(f"Failed to unlock Vaultwarden (rc={rc_unlock}): {err_unlock.strip() or new_session_key}")
             self.bw_session = None
-            if "BW_SESSION" in os.environ: del os.environ["BW_SESSION"]
+            if "BW_SESSION" in os.environ:
+                del os.environ["BW_SESSION"]
             return None
 
     def _sync_vault(self) -> bool:
@@ -308,7 +331,8 @@ class VaultwardenClient:
             if "invalid session token" in stderr.lower() or "not logged in" in stderr.lower():
                 logging.warning("Sync failed due to session issue. Clearing current BW_SESSION.")
                 self.bw_session = None
-                if "BW_SESSION" in os.environ: del os.environ["BW_SESSION"]
+                if "BW_SESSION" in os.environ:
+                    del os.environ["BW_SESSION"]
             return False
         logging.info("Vaultwarden sync successful.")
         return True
@@ -321,8 +345,15 @@ class VaultwardenClient:
             logging.warning("Vault sync failed before creating collection. Proceeding, but data might be stale.")
 
         logging.info(f"Attempting to create Vaultwarden collection: '{collection_name}'")
-        collection_data = {"organizationId": self.organization_id, "name": collection_name, "externalId": None, "groups": group_ids or []}
-        rc_encode, encoded_payload, err_encode = self._run_bw_command(["encode"], input_data=json.dumps(collection_data))
+        collection_data = {
+            "organizationId": self.organization_id,
+            "name": collection_name,
+            "externalId": None,
+            "groups": group_ids or [],
+        }
+        rc_encode, encoded_payload, err_encode = self._run_bw_command(
+            ["encode"], input_data=json.dumps(collection_data)
+        )
         if rc_encode != 0:
             logging.error(f"Failed to encode collection data: {err_encode.strip()}")
             return None
@@ -338,10 +369,14 @@ class VaultwardenClient:
                     logging.info(f"Collection '{collection_name}' created/verified with ID: {coll_id}")
                     return coll_id
                 else:
-                    logging.error(f"'bw create org-collection' for '{collection_name}' succeeded but no ID in response: {sout_create.strip()}")
+                    logging.error(
+                        f"'bw create org-collection' for '{collection_name}' succeeded but no ID in response: {sout_create.strip()}"
+                    )
                     return None
             except json.JSONDecodeError:
-                logging.error(f"Failed to parse JSON from 'bw create org-collection' for '{collection_name}': {sout_create.strip()}")
+                logging.error(
+                    f"Failed to parse JSON from 'bw create org-collection' for '{collection_name}': {sout_create.strip()}"
+                )
                 return None
         else:
             if "already exists" in err_create.lower():
@@ -358,20 +393,29 @@ class VaultwardenClient:
         if not self._sync_vault():
             logging.warning("Vault sync failed before listing collections. Proceeding, but data might be stale.")
 
-        logging.debug(f"Attempting to find Vaultwarden collection by name: '{collection_name}' using 'bw list collections'.")
+        logging.debug(
+            f"Attempting to find Vaultwarden collection by name: '{collection_name}' using 'bw list collections'."
+        )
         rc_list, sout_list, err_list = self._run_bw_command(["list", "collections"])
         if rc_list == 0:
             try:
                 collections = json.loads(sout_list)
                 for collection in collections:
-                    if collection.get("name") == collection_name and collection.get("organizationId") == self.organization_id:
+                    if (
+                        collection.get("name") == collection_name
+                        and collection.get("organizationId") == self.organization_id
+                    ):
                         coll_id = collection.get("id")
                         if coll_id:
-                            logging.info(f"Found collection '{collection_name}' with ID: {coll_id} in organization {self.organization_id}.")
+                            logging.info(
+                                f"Found collection '{collection_name}' with ID: {coll_id} in organization {self.organization_id}."
+                            )
                             return coll_id
                         else:
                             logging.warning(f"Collection '{collection_name}' found but has no ID.")
-                logging.info(f"Collection '{collection_name}' not found in organization '{self.organization_id}' or user does not have access.")
+                logging.info(
+                    f"Collection '{collection_name}' not found in organization '{self.organization_id}' or user does not have access."
+                )
                 return None
             except json.JSONDecodeError:
                 logging.error(f"Failed to parse JSON from 'bw list collections': {sout_list.strip()}")
@@ -379,6 +423,7 @@ class VaultwardenClient:
         else:
             logging.error(f"Failed to list collections using 'bw list collections': {err_list.strip()}")
             return None
+
 
 if __name__ == "__main__":
     log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"

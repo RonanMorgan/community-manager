@@ -350,7 +350,7 @@ class MartyBot:
                 self.outline_client,
                 self.brevo_client,
                 self.nocodb_client,
-                self.vaultwarden_client, # Pass Vaultwarden client
+                self.vaultwarden_client,  # Pass Vaultwarden client
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
                 fetch_remote_members=True,
@@ -649,7 +649,7 @@ class MartyBot:
             else:
                 vw_msg += ":information_source: Client non configuré."
             item_results_log.append(vw_msg)
-            
+
         return item_results_log
 
     async def _execute_batch_create_command(
@@ -762,7 +762,7 @@ class MartyBot:
                 self.outline_client,
                 self.brevo_client,
                 self.nocodb_client,
-                self.vaultwarden_client, # Pass Vaultwarden client
+                self.vaultwarden_client,  # Pass Vaultwarden client
                 self.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,
                 fetch_remote_members=False,

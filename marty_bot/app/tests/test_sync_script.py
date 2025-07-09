@@ -13,7 +13,7 @@ from clients.mattermost_client import MattermostClient
 from clients.outline_client import OutlineClient
 from clients.brevo_client import BrevoClient
 from clients.nocodb_client import NocoDBClient
-from clients.vaultwarden_client import VaultwardenClient # Added
+from clients.vaultwarden_client import VaultwardenClient  # Added
 
 # Functions/modules to be tested
 import scripts.sync_mm_authentik_groups as script_module
@@ -67,13 +67,15 @@ class TestSyncLogic(unittest.TestCase):
             mock_outline_instance = MockScriptOutlineClient.return_value
             mock_brevo_instance = MockScriptBrevoClient.return_value
             mock_nocodb_instance = MockScriptNocoDBClient.return_value
-            mock_vaultwarden_instance = MagicMock() # Placeholder for Vaultwarden
+            mock_vaultwarden_instance = MagicMock()  # Placeholder for Vaultwarden
 
             # Patch VaultwardenClient inside this test's context
-            with patch("scripts.sync_mm_authentik_groups.VaultwardenClient", return_value=mock_vaultwarden_instance) as MockScriptVWClient:
+            with patch(
+                "scripts.sync_mm_authentik_groups.VaultwardenClient", return_value=mock_vaultwarden_instance
+            ) as MockScriptVWClient:
                 auth_client, mm_client, outline_client, brevo_client, nocodb_client, vw_client = (
                     script_module.initialize_clients()
-                ) # Unpack 6
+                )  # Unpack 6
 
             MockScriptAuthClient.assert_called_once_with("http://auth.example.com", "auth_token")
             MockScriptMMClient.assert_called_once_with("http://mm.example.com", "mm_bot_token", "mm_team_id")
@@ -88,8 +90,8 @@ class TestSyncLogic(unittest.TestCase):
             self.assertEqual(outline_client, mock_outline_instance)
             self.assertEqual(brevo_client, mock_brevo_instance)
             self.assertEqual(nocodb_client, mock_nocodb_instance)
-            self.assertEqual(vw_client, mock_vaultwarden_instance) # Added Vaultwarden check
-            MockScriptVWClient.assert_called_once() # Ensure VW Client was called
+            self.assertEqual(vw_client, mock_vaultwarden_instance)  # Added Vaultwarden check
+            MockScriptVWClient.assert_called_once()  # Ensure VW Client was called
 
     @patch("scripts.sync_mm_authentik_groups.AuthentikClient")
     @patch("scripts.sync_mm_authentik_groups.config")
@@ -99,7 +101,7 @@ class TestSyncLogic(unittest.TestCase):
         # ... (rest of config vars)
         mock_script_config.NOCODB_URL = "http://nocodb.example.com"
         mock_script_config.NOCODB_TOKEN = "nocodb_token"
-        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = "vw_org" # Ensure all config vars for other clients
+        mock_script_config.VAULTWARDEN_ORGANIZATION_ID = "vw_org"  # Ensure all config vars for other clients
         mock_script_config.VAULTWARDEN_SERVER_URL = "http://vw.com"
         mock_script_config.VAULTWARDEN_API_USERNAME = "user"
         mock_script_config.VAULTWARDEN_API_PASSWORD = "pass"
@@ -179,7 +181,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_outline_client,
             self.mock_brevo_client_instance,
             MagicMock(spec=NocoDBClient),
-            MagicMock(spec=VaultwardenClient), # Added VaultwardenClient mock
+            MagicMock(spec=VaultwardenClient),  # Added VaultwardenClient mock
             mock_team_id,
             perform_deletions=True,
         )
@@ -249,7 +251,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_outline_client_none,
             self.mock_brevo_client_instance,
             MagicMock(spec=NocoDBClient),
-            MagicMock(spec=VaultwardenClient), # Added VaultwardenClient mock
+            MagicMock(spec=VaultwardenClient),  # Added VaultwardenClient mock
             mock_team_id,
             perform_deletions=True,
         )
@@ -288,7 +290,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_outline_client,
             self.mock_brevo_client_instance,
             MagicMock(spec=NocoDBClient),
-            MagicMock(spec=VaultwardenClient), # Added VaultwardenClient mock
+            MagicMock(spec=VaultwardenClient),  # Added VaultwardenClient mock
             mock_team_id,
             perform_deletions=True,
         )
@@ -307,7 +309,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_outline_client,
             self.mock_brevo_client_instance,
             MagicMock(spec=NocoDBClient),
-            MagicMock(spec=VaultwardenClient), # Added VaultwardenClient mock
+            MagicMock(spec=VaultwardenClient),  # Added VaultwardenClient mock
             "team_id",  # mm_team_id
             perform_deletions=True,
         )
@@ -321,7 +323,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_outline_client,
             self.mock_brevo_client_instance,
             MagicMock(spec=NocoDBClient),
-            MagicMock(spec=VaultwardenClient), # Added VaultwardenClient mock
+            MagicMock(spec=VaultwardenClient),  # Added VaultwardenClient mock
             "team_id",  # mm_team_id
             perform_deletions=True,
         )
@@ -335,7 +337,7 @@ class TestSyncLogic(unittest.TestCase):
             mock_outline_client,
             self.mock_brevo_client_instance,
             MagicMock(spec=NocoDBClient),
-            MagicMock(spec=VaultwardenClient), # Added VaultwardenClient mock
+            MagicMock(spec=VaultwardenClient),  # Added VaultwardenClient mock
             None,  # mm_team_id is None
             perform_deletions=True,
         )
@@ -360,10 +362,10 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_init_clients.return_value = (
             mock_auth_instance,
             mock_mm_instance,
-            None, # Outline
-            None, # Brevo
-            None, # NocoDB
-            None, # Vaultwarden
+            None,  # Outline
+            None,  # Brevo
+            None,  # NocoDB
+            None,  # Vaultwarden
         )  # Return 6 values
         mock_orchestrate_lib.return_value = (True, [])
         script_module.main_sync_logic()
@@ -394,10 +396,10 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_init_clients.return_value = (
             None,
             MagicMock(spec=MattermostClient),
-            None, # Outline
-            None, # Brevo
-            None, # NocoDB
-            None, # Vaultwarden
+            None,  # Outline
+            None,  # Brevo
+            None,  # NocoDB
+            None,  # Vaultwarden
         )  # Return 6 values
         script_module.main_sync_logic()
         mock_orchestrate_lib.assert_not_called()
@@ -417,11 +419,11 @@ class TestSyncLogic(unittest.TestCase):
         mock_script_config.NOCODB_TOKEN = None
         mock_script_init_clients.return_value = (
             MagicMock(spec=AuthentikClient),
-            None, # MM
-            None, # Outline
-            None, # Brevo
-            None, # NocoDB
-            None, # Vaultwarden
+            None,  # MM
+            None,  # Outline
+            None,  # Brevo
+            None,  # NocoDB
+            None,  # Vaultwarden
         )  # Return 6 values
         script_module.main_sync_logic()
         mock_orchestrate_lib.assert_not_called()
