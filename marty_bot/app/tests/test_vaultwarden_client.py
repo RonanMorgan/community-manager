@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock, call
 import os
 import json
 import requests
-import logging # For assertLogs
+import logging  # For assertLogs
 
 from marty_bot.clients.vaultwarden_client import VaultwardenClient
 
@@ -27,7 +27,7 @@ class TestVaultwardenClient(unittest.TestCase):
             organization_id=self.organization_id,
             server_url=self.server_url,
             api_username=self.api_username,
-            api_password=self.api_password
+            api_password=self.api_password,
         )
 
     def tearDown(self):
@@ -41,7 +41,7 @@ class TestVaultwardenClient(unittest.TestCase):
             organization_id=self.organization_id,
             server_url=self.server_url,
             api_username=self.api_username,
-            api_password=self.api_password
+            api_password=self.api_password,
         )
         self.assertEqual(client.organization_id, self.organization_id)
         self.assertEqual(client.server_url, self.server_url)
@@ -57,17 +57,12 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_run_bw_command.return_value = (0, self.server_url, "")
         client = self.client
         self.assertTrue(client._ensure_server_configuration())
-        mock_run_bw_command.assert_called_once_with(
-            ["config", "server"], custom_env=unittest.mock.ANY
-        )
+        mock_run_bw_command.assert_called_once_with(["config", "server"], custom_env=unittest.mock.ANY)
         self.assertEqual(mock_run_bw_command.call_count, 1)
 
     @patch("marty_bot.clients.vaultwarden_client.VaultwardenClient._run_bw_command")
     def test_ensure_server_configuration_needs_set(self, mock_run_bw_command):
-        mock_run_bw_command.side_effect = [
-            (0, "https://otherserver.com", ""),
-            (0, "", "")
-        ]
+        mock_run_bw_command.side_effect = [(0, "https://otherserver.com", ""), (0, "", "")]
         client = self.client
         self.assertTrue(client._ensure_server_configuration())
         expected_calls = [
@@ -206,20 +201,28 @@ class TestVaultwardenClient(unittest.TestCase):
     @patch.object(VaultwardenClient, "_sync_vault", return_value=True)
     @patch.object(VaultwardenClient, "_run_bw_command")
     def test_create_collection_already_exists_finds_it(self, mock_run_bw, mock_sync, mock_get_session):
-        mock_run_bw.side_effect = [(0, "encoded_payload", ""),(1, "", "already exists"), (0, json.dumps([{"id": "existing-uuid", "name": "Existing", "organizationId": self.organization_id}]), "")]
+        mock_run_bw.side_effect = [
+            (0, "encoded_payload", ""),
+            (1, "", "already exists"),
+            (0, json.dumps([{"id": "existing-uuid", "name": "Existing", "organizationId": self.organization_id}]), ""),
+        ]
         self.assertEqual(self.client.create_collection("Existing"), "existing-uuid")
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
     @patch.object(VaultwardenClient, "_sync_vault", return_value=True)
     @patch.object(VaultwardenClient, "_run_bw_command")
     def test_get_collection_by_name_found(self, mock_run_bw, mock_sync_vault, mock_get_session):
-        mock_run_bw.return_value = (0, json.dumps([{"name": "Target", "id": "target-uuid", "organizationId": self.organization_id}]), "")
+        mock_run_bw.return_value = (
+            0,
+            json.dumps([{"name": "Target", "id": "target-uuid", "organizationId": self.organization_id}]),
+            "",
+        )
         self.assertEqual(self.client.get_collection_by_name("Target"), "target-uuid")
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
     @patch.object(VaultwardenClient, "_run_bw_command")
     def test_get_collection_by_name_not_found(self, mock_run_bw, mock_get_session):
-        with patch.object(self.client, '_sync_vault', return_value=True):
+        with patch.object(self.client, "_sync_vault", return_value=True):
             mock_run_bw.return_value = (0, json.dumps([]), "")
             self.assertIsNone(self.client.get_collection_by_name("NonExistent"))
 
@@ -308,7 +311,7 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_response_obj_model.status_code = 400
         mock_post.return_value = mock_response_obj_model
 
-        with self.assertLogs(level='WARNING') as log:
+        with self.assertLogs(level="WARNING") as log:
             success = self.client.invite_user_to_collection(
                 user_email, collection_id, self.organization_id, access_token
             )
@@ -321,9 +324,7 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_http_error_validation = requests.exceptions.HTTPError("Simulated 400 Error")
         mock_error_response_validation = MagicMock()
         mock_error_response_validation.status_code = 400
-        mock_error_response_validation.json.return_value = {
-            "ValidationErrors": {"": ["User is already confirmed."]}
-        }
+        mock_error_response_validation.json.return_value = {"ValidationErrors": {"": ["User is already confirmed."]}}
         mock_error_response_validation.text = json.dumps(mock_error_response_validation.json.return_value)
         mock_http_error_validation.response = mock_error_response_validation
 
@@ -349,9 +350,7 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_http_error_other = requests.exceptions.HTTPError("Simulated 400 Error - Other")
         mock_error_response_other = MagicMock()
         mock_error_response_other.status_code = 400
-        mock_error_response_other.json.return_value = {
-            "errorModel": {"message": "Some other unrelated 400 error."}
-        }
+        mock_error_response_other.json.return_value = {"errorModel": {"message": "Some other unrelated 400 error."}}
         mock_error_response_other.text = json.dumps(mock_error_response_other.json.return_value)
         mock_http_error_other.response = mock_error_response_other
 
@@ -360,19 +359,23 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_response_obj_other.status_code = 400
         mock_post.return_value = mock_response_obj_other
 
-        with patch.object(logging.getLogger(), 'warning') as mock_log_warning:
+        with patch.object(logging.getLogger(), "warning") as mock_log_warning:
             success = self.client.invite_user_to_collection(
                 user_email, collection_id, self.organization_id, access_token
             )
             self.assertFalse(success, "Should return False for a generic 400 error")
             already_member_log_found = False
             for call_args in mock_log_warning.call_args_list:
-                if "already a member" in call_args[0][0].lower() or \
-                   "already invited" in call_args[0][0].lower() or \
-                   "already confirmed" in call_args[0][0].lower():
+                if (
+                    "already a member" in call_args[0][0].lower()
+                    or "already invited" in call_args[0][0].lower()
+                    or "already confirmed" in call_args[0][0].lower()
+                ):
                     already_member_log_found = True
                     break
-            self.assertFalse(already_member_log_found, "Should not log 'already member/invited' for a generic 400 error")
+            self.assertFalse(
+                already_member_log_found, "Should not log 'already member/invited' for a generic 400 error"
+            )
 
 
 if __name__ == "__main__":
