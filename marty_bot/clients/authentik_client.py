@@ -331,23 +331,25 @@ class AuthentikClient:
             logging.error(f"Request exception removing user PK {user_pk} from group PK {group_pk}: {e}")
             return False
 
-    def get_all_users_emails(self) -> list[str]:
+    def get_all_users_data(self) -> list[dict]:
         """
         Fetches all users from Authentik, handling pagination.
-        Returns a list of user email addresses.
+        Returns a list of dictionaries, each containing user's 'email' and 'attributes'.
+        Example: [{'email': 'user@example.com', 'attributes': {'attr1': 'value1'}}]
+        Returns an empty list if an error occurs or no users are found.
         """
         if not self.base_url or not self.token:
             logging.error("Authentik client not configured (URL or Token missing).")
             return []
 
-        all_user_emails = []
+        all_users_data = []
         current_url = f"{self.base_url}/api/v3/core/users/"
-        logging.info(f"Fetching Authentik users from initial URL: {current_url}")
+        logging.info(f"Fetching Authentik users data from initial URL: {current_url}")
 
         page_count = 0
         while current_url:
             page_count += 1
-            logging.debug(f"Fetching user page {page_count} from {current_url}")
+            logging.debug(f"Fetching user data page {page_count} from {current_url}")
             try:
                 response = requests.get(current_url, headers=self.headers)
                 response.raise_for_status()
@@ -356,22 +358,23 @@ class AuthentikClient:
                 page_users = data.get("results", [])
                 for user in page_users:
                     email = user.get("email")
-                    if email:
-                        all_user_emails.append(email)
+                    attributes = user.get("attributes", {})  # Default to empty dict if no attributes
+                    if email:  # Only include users with an email
+                        all_users_data.append({"email": email, "attributes": attributes})
 
                 current_url = data.get("pagination", {}).get("next")
                 if current_url:
-                    logging.debug(f"Next page for users: {current_url}")
+                    logging.debug(f"Next page for users data: {current_url}")
 
             except requests.exceptions.RequestException as e:
-                logging.error(f"Error fetching Authentik users from {current_url}: {e}")
+                logging.error(f"Error fetching Authentik users data from {current_url}: {e}")
                 return []  # Return empty list on error
             except json.JSONDecodeError as e:
-                logging.error(f"Error decoding JSON from Authentik users response ({current_url}): {e}")
+                logging.error(f"Error decoding JSON from Authentik users data response ({current_url}): {e}")
                 return []  # Return empty list on error
 
-        logging.info(f"Fetched {len(all_user_emails)} user emails from Authentik over {page_count} pages.")
-        return all_user_emails
+        logging.info(f"Fetched data for {len(all_users_data)} users from Authentik over {page_count} pages.")
+        return all_users_data
 
 
 if __name__ == "__main__":
