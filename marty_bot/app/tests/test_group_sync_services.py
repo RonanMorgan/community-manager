@@ -463,9 +463,11 @@ permissions:
         self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
         self.mock_outline_client.get_collection_members.return_value = []
         self.mock_outline_client.add_user_to_collection.return_value = True
+        mock_url_id = f"{slugify(outline_coll_name)}-urlid"  # Example urlId
         self.mock_outline_client.get_collection_details.return_value = {
             "id": expected_collection_id,
             "name": outline_coll_name,
+            "urlId": mock_url_id,  # Add urlId to mock
         }
         self.mock_mattermost_client.send_dm.return_value = True
 
@@ -475,7 +477,7 @@ permissions:
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
             nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,  # Added
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -485,16 +487,22 @@ permissions:
             perform_deletions=True,
             skip_services=None,
         )
-        self.assertEqual(len([r for r in results if r["status"] == "SUCCESS"]), 3)  # Auth, Outline, Brevo
-        outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
+
+        # Assuming Brevo sync is also successful for this user
+        # If only Auth and Outline are expected to succeed for this specific user, adjust count
+        successful_sync_actions = [r for r in results if r["status"] == "SUCCESS"]
+        # Count will depend on how many services are configured and succeed for this user.
+        # For this test, focusing on Outline:
+        outline_success_results = [r for r in successful_sync_actions if r["service"] == "OUTLINE"]
+        self.assertEqual(len(outline_success_results), 1, "Expected one successful Outline operation.")
+        outline_result = outline_success_results[0]
+
         self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT")
         self.mock_mattermost_client.send_dm.assert_called_once()
         call_args = self.mock_mattermost_client.send_dm.call_args[0]
         self.assertEqual(call_args[0], mm_user_for_dm["id"])
-        collection_slug = slugify(outline_coll_name)
-        expected_url = (
-            f"{mock_config_module_in_service.OUTLINE_URL}/collection/{collection_slug}-{expected_collection_id}"
-        )
+
+        expected_url = f"{mock_config_module_in_service.OUTLINE_URL}/collection/{mock_url_id}"  # Use urlId
         self.assertIn(expected_url, call_args[1])
         self.assertIn(outline_coll_name, call_args[1])
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
@@ -543,12 +551,14 @@ permissions:
         }
 
         expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
+        mock_url_id_fail = f"{slugify(outline_coll_name)}-urlidfail"
         self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
         self.mock_outline_client.get_collection_members.return_value = []
         self.mock_outline_client.add_user_to_collection.return_value = True
         self.mock_outline_client.get_collection_details.return_value = {
             "id": expected_collection_id,
             "name": outline_coll_name,
+            "urlId": mock_url_id_fail,  # Add urlId to mock
         }
         self.mock_mattermost_client.send_dm.return_value = False
         results = sync_entity_permissions(
@@ -557,7 +567,7 @@ permissions:
             outline_client=self.mock_outline_client,
             brevo_client=self.mock_brevo_client,
             nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,  # Added
+            vaultwarden_client=self.mock_vaultwarden_client,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -641,6 +651,136 @@ permissions:
         )
         self.mock_mattermost_client.send_dm.assert_not_called()
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_outline_dm_skipped_no_outline_url(self, mock_config_module_in_service):
+        mock_config_module_in_service.EXCLUDED_USERS = set()
+        mock_config_module_in_service.OUTLINE_URL = None  # Simulate OUTLINE_URL not set
+        base_name = "DMNoUrlProject"
+        entity_key = "PROJET"
+        mock_entity_config = {
+            "standard": {
+                "authentik_group_name_pattern": "projet_{base_name}",
+                "mattermost_channel_name_pattern": "projet_{base_name}",
+            },
+            "outline": {"collection_name_pattern": "projet_{base_name}", "default_access": "read"},
+        }
+        # Basic setup for user and collection
+        std_auth_group_name = mock_entity_config["standard"]["authentik_group_name_pattern"].format(
+            base_name=base_name
+        )
+        std_mm_channel_name = mock_entity_config["standard"]["mattermost_channel_name_pattern"].format(
+            base_name=base_name
+        )
+        outline_coll_name = mock_entity_config["outline"]["collection_name_pattern"].format(base_name=base_name)
+        std_auth_group_obj = {"name": std_auth_group_name, "pk": "auth_pk_no_url", "users": [], "users_obj": []}
+        all_auth_groups_by_name_fixture = {std_auth_group_name: std_auth_group_obj}
+        mm_user = {"username": "dm_no_url_user", "email": "dmnourl@example.com", "id": "mm_user_id_no_url"}
+        email_map = {"dmnourl@example.com": "auth_pk_no_url"}
+        std_mm_channel_obj = {"id": "std_mm_chan_id_no_url", "display_name": std_mm_channel_name}
+
+        self.mock_mattermost_client.get_channel_by_name.return_value = std_mm_channel_obj
+        self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user]
+        self.mock_authentik_client.add_user_to_group.return_value = True  # Auth part succeeds
+        self.mock_outline_client.get_user_by_email.return_value = {"id": "outline_id_no_url"}
+        expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
+        self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
+        self.mock_outline_client.get_collection_members.return_value = []  # New member
+        self.mock_outline_client.add_user_to_collection.return_value = True  # Outline add succeeds
+        # Crucially, get_collection_details will still be called
+        self.mock_outline_client.get_collection_details.return_value = {
+            "id": expected_collection_id,
+            "name": outline_coll_name,
+            "urlId": "some-url-id",
+        }
+
+        results = sync_entity_permissions(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
+            mm_team_id=self.mm_team_id,
+            entity_key=entity_key,
+            base_name=base_name,
+            entity_config=mock_entity_config,
+            all_authentik_groups_by_name=all_auth_groups_by_name_fixture,
+            email_to_authentik_user_pk_map=email_map,
+            perform_deletions=False,
+        )
+        outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
+        self.assertEqual(
+            outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_SKIPPED_NO_URL"
+        )
+        self.mock_mattermost_client.send_dm.assert_not_called()
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_outline_dm_skipped_incomplete_details(self, mock_config_module_in_service):
+        mock_config_module_in_service.EXCLUDED_USERS = set()
+        mock_config_module_in_service.OUTLINE_URL = "http://test-outline.com"  # URL is set
+        base_name = "DMIncompleteProject"
+        entity_key = "PROJET"
+        mock_entity_config = {
+            "standard": {
+                "authentik_group_name_pattern": "projet_{base_name}",
+                "mattermost_channel_name_pattern": "projet_{base_name}",
+            },
+            "outline": {"collection_name_pattern": "projet_{base_name}", "default_access": "read"},
+        }
+        std_auth_group_name = mock_entity_config["standard"]["authentik_group_name_pattern"].format(
+            base_name=base_name
+        )
+        std_mm_channel_name = mock_entity_config["standard"]["mattermost_channel_name_pattern"].format(
+            base_name=base_name
+        )
+        outline_coll_name = mock_entity_config["outline"]["collection_name_pattern"].format(base_name=base_name)
+        std_auth_group_obj = {"name": std_auth_group_name, "pk": "auth_pk_incomplete", "users": [], "users_obj": []}
+        all_auth_groups_by_name_fixture = {std_auth_group_name: std_auth_group_obj}
+        mm_user = {
+            "username": "dm_incomplete_user",
+            "email": "dmincomplete@example.com",
+            "id": "mm_user_id_incomplete",
+        }
+        email_map = {"dmincomplete@example.com": "auth_pk_incomplete"}
+        std_mm_channel_obj = {"id": "std_mm_chan_id_incomplete", "display_name": std_mm_channel_name}
+
+        self.mock_mattermost_client.get_channel_by_name.return_value = std_mm_channel_obj
+        self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user]
+        self.mock_authentik_client.add_user_to_group.return_value = True
+        self.mock_outline_client.get_user_by_email.return_value = {"id": "outline_id_incomplete"}
+        expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
+        self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
+        self.mock_outline_client.get_collection_members.return_value = []
+        self.mock_outline_client.add_user_to_collection.return_value = True
+        # Simulate get_collection_details missing urlId
+        self.mock_outline_client.get_collection_details.return_value = {
+            "id": expected_collection_id,
+            "name": outline_coll_name,
+            "urlId": None,
+        }
+
+        results = sync_entity_permissions(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
+            mm_team_id=self.mm_team_id,
+            entity_key=entity_key,
+            base_name=base_name,
+            entity_config=mock_entity_config,
+            all_authentik_groups_by_name=all_auth_groups_by_name_fixture,
+            email_to_authentik_user_pk_map=email_map,
+            perform_deletions=False,
+        )
+        outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
+        self.assertEqual(
+            outline_result["action"],
+            "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_SKIPPED_INCOMPLETE_COLL_DETAILS",
+        )
+        self.mock_mattermost_client.send_dm.assert_not_called()
 
     @patch("libraries.group_sync_services.config")
     def test_sync_single_group_authentik_user_removed_if_not_in_mm(self, mock_config_module_in_service):
@@ -1051,9 +1191,11 @@ permissions:
                 self.mock_authentik_client.add_user_to_group.return_value = True
                 self.mock_outline_client.get_collection_members.return_value = []
                 self.mock_outline_client.add_user_to_collection.return_value = True
+                mock_url_id_perm_test = f"{slugify(outline_coll_name)}-urlidperm"
                 self.mock_outline_client.get_collection_details.return_value = {
                     "id": expected_outline_coll_id,
                     "name": outline_coll_name,
+                    "urlId": mock_url_id_perm_test,
                 }
                 self.mock_mattermost_client.send_dm.return_value = True
 
@@ -1436,9 +1578,10 @@ permissions:
         )
 
     # --- Tests for NocoDB base synchronization ---
-    @patch("libraries.group_sync_services.config")  # To mock EXCLUDED_USERS
-    def test_sync_nocodb_base_creation_and_user_invite(self, mock_lib_config_nocodb):
+    @patch("libraries.group_sync_services.config")  # To mock EXCLUDED_USERS and NOCODB_URL
+    def test_sync_nocodb_base_creation_and_user_invite_with_dm(self, mock_lib_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
+        mock_lib_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"  # Mock NOCODB_URL for DM link
         from libraries.group_sync_services import _sync_single_nocodb_base
 
         base_title_pattern = "test_nocodb_{base_name}"
@@ -1465,9 +1608,11 @@ permissions:
         self.mock_nocodb_client.get_base_by_title.return_value = {"id": "nc_base_id_123", "title": nocodb_base_title}
         self.mock_nocodb_client.list_base_users.return_value = []  # No users initially
         self.mock_nocodb_client.invite_user_to_base.return_value = True
+        self.mock_mattermost_client.send_dm.return_value = True  # Assume DMs are sent successfully
 
         results = _sync_single_nocodb_base(
             self.mock_nocodb_client,
+            self.mock_mattermost_client,
             base_title_pattern,
             entity_base_name,
             mm_users_for_perm,
@@ -1483,14 +1628,127 @@ permissions:
         self.mock_nocodb_client.invite_user_to_base.assert_any_call("nc_base_id_123", "user1@nocodb.com", default_perm)
         self.mock_nocodb_client.invite_user_to_base.assert_any_call("nc_base_id_123", "admin@nocodb.com", admin_perm)
 
+        # Check DMs
+        self.assertEqual(self.mock_mattermost_client.send_dm.call_count, 2)
+        expected_base_url = f"{mock_lib_config_nocodb.NOCODB_URL.rstrip('/')}/#/nc/nc_base_id_123/dashboard"
+
+        dm_calls = self.mock_mattermost_client.send_dm.call_args_list
+
+        # Check DM for user1
+        dm_call_user1_found = False
+        for call_args in dm_calls:
+            actual_recipient_id = call_args[0][0]
+            actual_dm_text = call_args[0][1]
+
+            if actual_recipient_id == "mm_nc_u1":
+                expected_dm_text_user1 = (
+                    f"Bonjour @nocodb_user1, vous avez été invité(e) à la base NoCoDb "
+                    f"**{nocodb_base_title}** (rôle: {default_perm}).\n"
+                    f"Vous pouvez y accéder ici : {expected_base_url}"
+                )
+                self.assertEqual(
+                    actual_dm_text,
+                    expected_dm_text_user1,
+                    f"\nExpected: {repr(expected_dm_text_user1)}\nActual:   {repr(actual_dm_text)}",
+                )
+                dm_call_user1_found = True
+            elif actual_recipient_id == "mm_nc_a1":
+                expected_dm_text_admin1 = (
+                    f"Bonjour @nocodb_admin1, vous avez été invité(e) à la base NoCoDb "
+                    f"**{nocodb_base_title}** (rôle: {admin_perm}).\n"
+                    f"Vous pouvez y accéder ici : {expected_base_url}"
+                )
+                self.assertEqual(
+                    actual_dm_text,
+                    expected_dm_text_admin1,
+                    f"\nExpected: {repr(expected_dm_text_admin1)}\nActual:   {repr(actual_dm_text)}",
+                )
+                dm_call_admin1_found = True
+
+        self.assertTrue(dm_call_user1_found, "DM call for user1 (mm_nc_u1) not found.")
+        self.assertTrue(dm_call_admin1_found, "DM call for admin1 (mm_nc_a1) not found.")
+
         self.assertEqual(len(results), 2)
         for res in results:
             self.assertEqual(res["status"], "SUCCESS")
-            self.assertIn(res["action"], ["NOCODB_USER_INVITED_AS_VIEWER", "NOCODB_USER_INVITED_AS_OWNER"])
+            if res["mm_user_email"] == "user1@nocodb.com":
+                self.assertEqual(res["action"], f"NOCODB_USER_INVITED_AS_{default_perm.upper()}_AND_DM_SENT")
+            elif res["mm_user_email"] == "admin@nocodb.com":
+                self.assertEqual(res["action"], f"NOCODB_USER_INVITED_AS_{admin_perm.upper()}_AND_DM_SENT")
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_nocodb_base_invite_dm_fails(self, mock_lib_config_nocodb):
+        mock_lib_config_nocodb.EXCLUDED_USERS = set()
+        mock_lib_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
+        from libraries.group_sync_services import _sync_single_nocodb_base
+
+        base_title_pattern = "dm_fail_nocodb_{base_name}"
+        entity_base_name = "NocoDMFail"
+        nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
+        base_id = "nc_base_id_dm_fail"
+        mm_user = {"username": "dm_fail_user", "mm_user_id": "mm_dm_fail", "is_admin_channel_member": False}
+        mm_users_for_perm = {"dm.fail@example.com": mm_user}
+
+        self.mock_nocodb_client.get_base_by_title.return_value = {"id": base_id, "title": nocodb_base_title}
+        self.mock_nocodb_client.list_base_users.return_value = []
+        self.mock_nocodb_client.invite_user_to_base.return_value = True
+        self.mock_mattermost_client.send_dm.return_value = False  # Simulate DM failure
+
+        results = _sync_single_nocodb_base(
+            self.mock_nocodb_client,
+            self.mock_mattermost_client,
+            base_title_pattern,
+            entity_base_name,
+            mm_users_for_perm,
+            "viewer",
+            "owner",
+            "ChanDMFail",
+            False,
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "SUCCESS")  # Invite itself was successful
+        self.assertEqual(results[0]["action"], "NOCODB_USER_INVITED_AS_VIEWER_DM_FAILED")
+        self.mock_mattermost_client.send_dm.assert_called_once()
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_nocodb_base_invite_dm_skipped_no_url(self, mock_lib_config_nocodb):
+        mock_lib_config_nocodb.EXCLUDED_USERS = set()
+        mock_lib_config_nocodb.NOCODB_URL = None  # Simulate NOCODB_URL not being set
+        from libraries.group_sync_services import _sync_single_nocodb_base
+
+        base_title_pattern = "dm_skip_nocodb_{base_name}"
+        entity_base_name = "NocoDMSkip"
+        nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
+        base_id = "nc_base_id_dm_skip"
+        mm_user = {"username": "dm_skip_user", "mm_user_id": "mm_dm_skip", "is_admin_channel_member": False}
+        mm_users_for_perm = {"dm.skip@example.com": mm_user}
+
+        self.mock_nocodb_client.get_base_by_title.return_value = {"id": base_id, "title": nocodb_base_title}
+        self.mock_nocodb_client.list_base_users.return_value = []
+        self.mock_nocodb_client.invite_user_to_base.return_value = True
+
+        results = _sync_single_nocodb_base(
+            self.mock_nocodb_client,
+            self.mock_mattermost_client,
+            base_title_pattern,
+            entity_base_name,
+            mm_users_for_perm,
+            "viewer",
+            "owner",
+            "ChanDMSkip",
+            False,
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "SUCCESS")  # Invite itself was successful
+        self.assertEqual(results[0]["action"], "NOCODB_USER_INVITED_AS_VIEWER_DM_SKIPPED_NO_URL")
+        self.mock_mattermost_client.send_dm.assert_not_called()
 
     @patch("libraries.group_sync_services.config")
     def test_sync_nocodb_base_user_update_and_removal(self, mock_lib_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
+        mock_lib_config_nocodb.NOCODB_URL = (
+            "https://test-nocodb.example.com"  # For consistency, though not strictly needed for removal/update tests
+        )
         from libraries.group_sync_services import _sync_single_nocodb_base
 
         base_title_pattern = "upd_rem_nocodb_{base_name}"
@@ -1531,6 +1789,7 @@ permissions:
 
         results = _sync_single_nocodb_base(
             self.mock_nocodb_client,
+            self.mock_mattermost_client,  # Added mattermost_client
             base_title_pattern,
             entity_base_name,
             mm_users_for_perm,
@@ -1550,7 +1809,8 @@ permissions:
         self.assertEqual(len(results), 3)  # 1 update, 1 invite, 1 removal
         actions = [r["action"] for r in results]
         self.assertIn("NOCODB_USER_ROLE_UPDATED_TO_VIEWER", actions)
-        self.assertIn("NOCODB_USER_INVITED_AS_OWNER", actions)
+        # Assuming send_dm is True by default from setUp for the invited user
+        self.assertIn("NOCODB_USER_INVITED_AS_OWNER_AND_DM_SENT", actions)
         self.assertIn("NOCODB_USER_REMOVED_FROM_BASE", actions)
 
     @patch("libraries.group_sync_services.config")
@@ -1589,6 +1849,7 @@ permissions:
 
         results = _sync_single_nocodb_base(
             self.mock_nocodb_client,
+            self.mock_mattermost_client,  # Added mattermost_client
             base_title_pattern,
             entity_base_name,
             mm_users_for_perm,
@@ -1611,7 +1872,8 @@ permissions:
         self.mock_nocodb_client.delete_base_user.assert_any_call(base_id, "nc_uid_remove_excl_test")
 
         actions = {r["mm_user_email"]: r["action"] for r in results if "mm_user_email" in r}
-        self.assertEqual(actions.get("normal.user@nocodb.com"), "NOCODB_USER_INVITED_AS_VIEWER")
+        # Assuming send_dm is True by default from setUp or previous context if not reset and overridden
+        self.assertEqual(actions.get("normal.user@nocodb.com"), "NOCODB_USER_INVITED_AS_VIEWER_AND_DM_SENT")
         self.assertEqual(actions.get("remove.excl@nocodb.com"), "NOCODB_USER_REMOVED_FROM_BASE")
         self.assertNotIn("excluded.user@nocodb.com", actions)  # No action logged for excluded user if already present
 
@@ -1623,7 +1885,15 @@ permissions:
         self.mock_nocodb_client.get_base_by_title.return_value = None  # Simulate base not found
 
         results = _sync_single_nocodb_base(
-            self.mock_nocodb_client, "nf_{base_name}", "NocoNF", {}, "viewer", "owner", "ChanNF", False
+            self.mock_nocodb_client,
+            self.mock_mattermost_client,  # Added mattermost_client
+            "nf_{base_name}",
+            "NocoNF",
+            {},
+            "viewer",
+            "owner",
+            "ChanNF",
+            False,
         )
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["status"], "SKIPPED")
@@ -1686,6 +1956,127 @@ permissions:
         self.mock_nocodb_client.invite_user_to_base.assert_not_called()
         # Other client methods might be called if their configs were present, ensure they are if needed
         # For this test, focus is on NoCoDB not being called.
+
+    # --- Tests for Vaultwarden collection member synchronization ---
+    @patch("libraries.group_sync_services.config")
+    def test_sync_vaultwarden_collection_invite_with_dm(self, mock_lib_config_vw):
+        mock_lib_config_vw.EXCLUDED_USERS = set()
+        mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
+        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+
+        collection_name = "TestVWCollection"
+        mm_user_data = {"username": "vw_user1", "mm_user_id": "mm_vw_u1", "is_admin_channel_member": False}
+        mm_users_for_services = {"vw.user1@example.com": mm_user_data}
+        mm_channel_context = "TestVWChannel"
+
+        self.mock_vaultwarden_client.get_collection_by_name.return_value = "vw_coll_id_123"
+        self.mock_vaultwarden_client._get_api_token.return_value = "fake_vw_api_token"
+        self.mock_vaultwarden_client.invite_user_to_collection.return_value = True
+        self.mock_mattermost_client.send_dm.return_value = True
+
+        results = _sync_single_vaultwarden_collection_members(
+            self.mock_vaultwarden_client,
+            self.mock_mattermost_client,
+            collection_name,
+            mm_users_for_services,
+            mm_channel_context,
+        )
+
+        self.mock_vaultwarden_client.get_collection_by_name.assert_called_once_with(collection_name)
+        self.mock_vaultwarden_client._get_api_token.assert_called_once()
+        self.mock_vaultwarden_client.invite_user_to_collection.assert_called_once_with(
+            user_email="vw.user1@example.com",
+            collection_id="vw_coll_id_123",
+            organization_id=self.mock_vaultwarden_client.organization_id,
+            access_token="fake_vw_api_token",
+        )
+        self.mock_mattermost_client.send_dm.assert_called_once()
+        dm_call_args = self.mock_mattermost_client.send_dm.call_args[0]
+        self.assertEqual(dm_call_args[0], "mm_vw_u1")  # Check recipient
+        self.assertIn("Bonjour @vw_user1", dm_call_args[1])  # Corrected f-string
+        self.assertIn(f"collection Vaultwarden **{collection_name}**", dm_call_args[1])
+        self.assertIn(mock_lib_config_vw.VAULTWARDEN_SERVER_URL, dm_call_args[1])
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "SUCCESS")
+        self.assertEqual(results[0]["action"], "USER_INVITED_TO_VW_COLLECTION_AND_DM_SENT")
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_vaultwarden_invite_dm_fails(self, mock_lib_config_vw):
+        mock_lib_config_vw.EXCLUDED_USERS = set()
+        mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
+        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+
+        collection_name = "VWCollectionDMFail"
+        mm_users_for_services = {"vw.dm.fail@example.com": {"username": "vw_dm_fail", "mm_user_id": "mm_vw_dm_fail"}}
+
+        self.mock_vaultwarden_client.get_collection_by_name.return_value = "vw_coll_id_dm_fail"
+        self.mock_vaultwarden_client._get_api_token.return_value = "fake_vw_api_token"
+        self.mock_vaultwarden_client.invite_user_to_collection.return_value = True
+        self.mock_mattermost_client.send_dm.return_value = False  # Simulate DM failure
+
+        results = _sync_single_vaultwarden_collection_members(
+            self.mock_vaultwarden_client,
+            self.mock_mattermost_client,
+            collection_name,
+            mm_users_for_services,
+            "ChanVWFail",
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "SUCCESS")
+        self.assertEqual(results[0]["action"], "USER_INVITED_TO_VW_COLLECTION_DM_FAILED")
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_vaultwarden_invite_dm_skipped_no_url(self, mock_lib_config_vw):
+        mock_lib_config_vw.EXCLUDED_USERS = set()
+        mock_lib_config_vw.VAULTWARDEN_SERVER_URL = None  # Simulate URL not set
+        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+
+        collection_name = "VWCollectionDMSkip"
+        mm_users_for_services = {"vw.dm.skip@example.com": {"username": "vw_dm_skip", "mm_user_id": "mm_vw_dm_skip"}}
+
+        self.mock_vaultwarden_client.get_collection_by_name.return_value = "vw_coll_id_dm_skip"
+        self.mock_vaultwarden_client._get_api_token.return_value = "fake_vw_api_token"
+        self.mock_vaultwarden_client.invite_user_to_collection.return_value = True
+
+        results = _sync_single_vaultwarden_collection_members(
+            self.mock_vaultwarden_client,
+            self.mock_mattermost_client,
+            collection_name,
+            mm_users_for_services,
+            "ChanVWSkip",
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "SUCCESS")
+        self.assertEqual(results[0]["action"], "USER_INVITED_TO_VW_COLLECTION_DM_SKIPPED_NO_URL")
+        self.mock_mattermost_client.send_dm.assert_not_called()
+
+    @patch("libraries.group_sync_services.config")
+    def test_sync_vaultwarden_invite_fails_no_dm(self, mock_lib_config_vw):
+        mock_lib_config_vw.EXCLUDED_USERS = set()
+        mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
+        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+
+        collection_name = "VWCollectionInviteFail"
+        mm_users_for_services = {
+            "vw.invite.fail@example.com": {"username": "vw_invite_fail", "mm_user_id": "mm_vw_invite_fail"}
+        }
+
+        self.mock_vaultwarden_client.get_collection_by_name.return_value = "vw_coll_id_invite_fail"
+        self.mock_vaultwarden_client._get_api_token.return_value = "fake_vw_api_token"
+        self.mock_vaultwarden_client.invite_user_to_collection.return_value = False  # Simulate invite failure
+
+        results = _sync_single_vaultwarden_collection_members(
+            self.mock_vaultwarden_client,
+            self.mock_mattermost_client,
+            collection_name,
+            mm_users_for_services,
+            "ChanVWInviteFail",
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "FAILURE")
+        self.assertEqual(results[0]["action"], "FAILED_TO_INVITE_TO_VW_COLLECTION")
+        self.mock_mattermost_client.send_dm.assert_not_called()  # No DM if invite failed
 
 
 if __name__ == "__main__":

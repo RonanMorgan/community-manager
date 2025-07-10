@@ -309,6 +309,7 @@ def sync_entity_permissions(
         results.extend(
             _sync_single_nocodb_base(
                 nocodb_client,
+                mattermost_client,  # Pass Mattermost client
                 nocodb_base_title_pattern,
                 base_name,  # This is the base_name of the entity (e.g. "MonAntenne")
                 mm_users_for_services,  # Combined user list with admin flag
@@ -329,6 +330,7 @@ def sync_entity_permissions(
         results.extend(
             _sync_single_vaultwarden_collection_members(
                 vaultwarden_client,
+                mattermost_client,  # Pass Mattermost client
                 vw_collection_name,
                 # mm_users_for_services contains all users from standard and admin channels relevant to this entity
                 # The invite logic in Vaultwarden client uses default permissions, so no specific admin/default distinction needed here.
@@ -347,6 +349,7 @@ def sync_entity_permissions(
 
 def _sync_single_nocodb_base(
     nocodb_client: "NocoDBClient",
+    mattermost_client: "MattermostClient",  # Added MattermostClient for DMs
     base_title_pattern: str,
     entity_base_name: str,  # e.g., "AntenneParis"
     mm_users_for_permission: dict,  # email_lower -> {username, mm_user_id, is_admin_channel_member}
@@ -430,8 +433,29 @@ def _sync_single_nocodb_base(
                 nocodb_result.update({"status": "SUCCESS", "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"})
         else:
             # User not in NoCoDB base, invite them
+            action_verb = f"NOCODB_USER_INVITED_AS_{target_role.upper()}"
             if nocodb_client.invite_user_to_base(base_id, email_lower, target_role):
-                nocodb_result.update({"status": "SUCCESS", "action": f"NOCODB_USER_INVITED_AS_{target_role.upper()}"})
+                nocodb_result.update({"status": "SUCCESS", "action": action_verb})
+                # Send DM on successful new invite
+                if mm_user_data.get("mm_user_id") and config.NOCODB_URL:
+                    # Construct NoCoDB base URL - using the main dashboard link for the base
+                    # Example: https://nocodb.example.com/#/nc/p_abc123xyz/dashboard
+                    nocodb_base_link = f"{config.NOCODB_URL.rstrip('/')}/#/nc/{base_id}/dashboard"
+                    dm_text = (
+                        f"Bonjour @{mm_username}, vous avez été invité(e) à la base NoCoDb "
+                        f"**{nocodb_base_title}** (rôle: {target_role}).\n"
+                        f"Vous pouvez y accéder ici : {nocodb_base_link}"
+                    )
+                    if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
+                        nocodb_result["action"] = f"{action_verb}_AND_DM_SENT"
+                    else:
+                        nocodb_result["action"] = f"{action_verb}_DM_FAILED"
+                elif not config.NOCODB_URL:
+                    logging.warning(
+                        f"NOCODB_URL not configured. Cannot send DM for NoCoDB invite to {mm_username} for base {nocodb_base_title}."
+                    )
+                    nocodb_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
+
             else:
                 # Check if the user exists in NocoDB but couldn't be invited (e.g. already invited but not accepted, or other issue)
                 # This part might need more specific error handling based on NocoDBClient's invite_user_to_base behavior
@@ -695,22 +719,48 @@ def _sync_single_outline_collection(
                 outline_result.update({"status": "SUCCESS", "action": action_verb})
                 if not is_already_member:  # Send DM only on first add
                     coll_details = outline_client.get_collection_details(outline_collection_id)
-                    if coll_details and coll_details.get("name") and mm_user_data["mm_user_id"]:
+                    # Check for name, urlId, and mm_user_id before proceeding with DM
+                    if (
+                        coll_details
+                        and coll_details.get("name")
+                        and coll_details.get("urlId")
+                        and mm_user_data.get("mm_user_id")
+                    ):
                         coll_name_for_dm = coll_details.get("name")
-                        # Construct URL (assuming slugify logic or direct link if available)
-                        # For simplicity, using a placeholder or assuming direct ID linking if Outline supports it
-                        # A more robust URL might involve slugifying the collection name + ID.
-                        slug_part = slugify(coll_name_for_dm)  # Ensure slugify is available or imported
-                        outline_base_url = config.OUTLINE_URL or "http://default-outline.com"  # From config
-                        coll_url = f"{outline_base_url.rstrip('/')}/collection/{slug_part}-{outline_collection_id}"
-                        dm_text = (
-                            f"Bonjour @{mm_username}, vous avez été ajouté(e) à la collection Outline "
-                            f"**{coll_name_for_dm}**.\nVous pouvez y accéder ici : {coll_url}"
+                        collection_url_id = coll_details.get("urlId")  # Use urlId for the link
+                        outline_base_url = config.OUTLINE_URL  # From config (must be set)
+
+                        if outline_base_url:  # Ensure OUTLINE_URL is configured
+                            coll_url = f"{outline_base_url.rstrip('/')}/collection/{collection_url_id}"
+                            dm_text = (
+                                f"Bonjour @{mm_username}, vous avez été ajouté(e) à la collection Outline "
+                                f"**{coll_name_for_dm}**.\nVous pouvez y accéder ici : {coll_url}"
+                            )
+                            if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
+                                outline_result["action"] = f"{action_verb}_AND_DM_SENT"
+                            else:
+                                outline_result["action"] = f"{action_verb}_DM_FAILED"
+                        else:  # OUTLINE_URL is not configured
+                            logging.warning(
+                                f"OUTLINE_URL not configured. Cannot send DM for Outline collection '{coll_name_for_dm}' to user '{mm_username}'."
+                            )
+                            outline_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
+                    # Handle cases where some info for DM is missing
+                    elif mm_user_data.get("mm_user_id"):
+                        logging.warning(
+                            f"Could not send DM for Outline collection (ID: {outline_collection_id}) to user '{mm_username}' "
+                            f"because some details were missing. "
+                            f"Collection Name: {coll_details.get('name') if coll_details else 'N/A'}, "
+                            f"Collection urlId: {coll_details.get('urlId') if coll_details else 'N/A'}, "
+                            f"OUTLINE_URL configured: {bool(config.OUTLINE_URL)}"
                         )
-                        if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
-                            outline_result["action"] = f"{action_verb}_AND_DM_SENT"
-                        else:
-                            outline_result["action"] = f"{action_verb}_DM_FAILED"
+                        # Determine a more specific skip reason
+                        if not config.OUTLINE_URL:
+                            outline_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
+                        elif not (coll_details and coll_details.get("name") and coll_details.get("urlId")):
+                            outline_result["action"] = f"{action_verb}_DM_SKIPPED_INCOMPLETE_COLL_DETAILS"
+                        else:  # Should not be reached if the outer if condition was precise
+                            outline_result["action"] = f"{action_verb}_DM_SKIPPED_UNKNOWN_REASON"
             else:
                 verb_failed = (
                     "FAILED_TO_UPDATE_OUTLINE_PERMISSION"
@@ -1197,12 +1247,13 @@ def _extract_base_name(actual_name: str, pattern_with_placeholder: str) -> Optio
 
 def _sync_single_vaultwarden_collection_members(
     vaultwarden_client: "VaultwardenClient",
+    mattermost_client: "MattermostClient",  # Added MattermostClient for DMs
     collection_name: str,
     mm_users_for_services: dict,  # email_lower -> {username, mm_user_id, is_admin_channel_member}
     mm_channel_context_name: str,  # For logging/reporting context
 ) -> list[dict]:
     """
-    Ensures all users from mm_users_for_services are invited to the specified Vaultwarden collection.
+    Ensures all users from mm_users_for_services are invited to the specified Vaultwarden collection and sends a DM.
     This function is additive; it only invites users and does not remove them based on MM channel membership.
     """
     results = []
@@ -1291,16 +1342,41 @@ def _sync_single_vaultwarden_collection_members(
             access_token=access_token,
         )
 
+        action_verb = "USER_INVITED_TO_VW_COLLECTION"
         if success:
-            invite_result.update({"status": "SUCCESS", "action": "USER_INVITED_TO_VW_COLLECTION"})
+            invite_result.update({"status": "SUCCESS", "action": action_verb})
+            # Send DM on successful new invite attempt
+            # Vaultwarden invite_user_to_collection might return True even if user is already member/invited.
+            # We only want to DM if it's a "new" effective invite.
+            # The client method would need to differentiate this, or we assume any 'success' from it means "action taken".
+            # For now, let's assume 'success' implies a state where a DM is relevant if not already sent.
+            # A more robust solution might involve checking membership *before* inviting, but VW client doesn't easily provide this.
+
+            if mm_user_data.get("mm_user_id"):
+                if config.VAULTWARDEN_SERVER_URL:
+                    dm_text = (
+                        f"Bonjour @{mm_username}, vous avez été invité(e) à la collection Vaultwarden "
+                        f"**{collection_name}**.\n"
+                        f"Vous pouvez accéder à Vaultwarden ici : {config.VAULTWARDEN_SERVER_URL.rstrip('/')}"
+                    )
+                    if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
+                        invite_result["action"] = f"{action_verb}_AND_DM_SENT"
+                    else:
+                        invite_result["action"] = f"{action_verb}_DM_FAILED"
+                else:
+                    logging.warning(
+                        f"VAULTWARDEN_SERVER_URL not configured. Cannot send DM for Vaultwarden invite to {mm_username} for collection {collection_name}."
+                    )
+                    invite_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
+            else:  # Should not happen if mm_user_data is correctly populated
+                invite_result["action"] = f"{action_verb}_DM_SKIPPED_NO_MM_USER_ID"
+
         else:
             # Error logged by client.invite_user_to_collection, here we just record the failure.
-            # It could be due to user already invited, already member, or actual error.
-            # The client logs more details.
             invite_result.update(
-                {
+                {  # Status remains FAILURE
                     "action": "FAILED_TO_INVITE_TO_VW_COLLECTION",
-                    "error_message": f"API call to invite {email_lower} to collection {collection_name} failed or user already member. See client logs.",
+                    "error_message": f"API call to invite {email_lower} to collection {collection_name} failed or user already member/invited. See client logs.",
                 }
             )
         results.append(invite_result)
