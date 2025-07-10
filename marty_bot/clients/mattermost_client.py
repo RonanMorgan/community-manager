@@ -517,6 +517,48 @@ class MattermostClient:
             logging.error(f"Error decoding JSON from Mattermost channel response (ID: {channel_id}): {e}")
             return None
 
+    def get_user_roles(self, user_id: str) -> list[str]:
+        """
+        Fetches the roles of a specific user by their ID.
+        Corresponds to Mattermost API: GET /api/v4/users/{user_id}
+        :param user_id: The ID of the user.
+        :return: A list of role names (e.g., ['system_user', 'system_admin']) if successful,
+                 an empty list otherwise or if the user has no roles string.
+        """
+        if not user_id:
+            logging.error("User ID must be provided to fetch user roles.")
+            return []
+
+        api_url = f"{self.base_url}/api/v4/users/{user_id}"
+        logging.debug(f"Mattermost API >> Getting user roles for user_id {user_id} from {api_url}")
+        try:
+            response = requests.get(api_url, headers=self.headers)
+            response.raise_for_status()
+            user_data = response.json()
+            roles_str = user_data.get("roles")
+            if roles_str:
+                # Roles are space-separated, e.g., "system_user system_admin"
+                roles_list = roles_str.split(" ")
+                logging.info(f"Successfully fetched roles for user {user_id}: {roles_list}")
+                return roles_list
+            else:
+                logging.info(f"User {user_id} has no 'roles' string in their data or it's empty.")
+                return []  # Return empty list if roles string is missing or empty
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                logging.warning(f"User with ID '{user_id}' not found when fetching roles.")
+            else:
+                logging.error(
+                    f"HTTP error fetching user roles for {user_id}: {e.response.status_code} - {e.response.text}"
+                )
+            return []
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception fetching user roles for {user_id}: {e}")
+            return []
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from user roles response for {user_id}: {e}")
+            return []
+
 
 if __name__ == "__main__":
     from dotenv import load_dotenv

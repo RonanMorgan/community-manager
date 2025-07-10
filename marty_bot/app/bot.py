@@ -182,10 +182,10 @@ class MartyBot:
             "create_pole": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(
                 c, arg_str, "pôle", "POLES", user_id_who_posted
             ),
-            "help": self._send_help_message,
-            "update_all_user_rights": self._handle_update_all_user_rights_command,
-            "update_user_rights_and_remove": self._handle_update_user_rights_and_remove_command,
-            "send_email": self._handle_send_email_command,  # New command
+            "help": self._send_help_message,  # help handler does not need user_id_who_posted
+            "update_all_user_rights": self._handle_update_all_user_rights_command,  # Will now take user_id_who_posted
+            "update_user_rights_and_remove": self._handle_update_user_rights_and_remove_command,  # Will now take user_id_who_posted
+            "send_email": self._handle_send_email_command,
         }
 
     async def _format_and_send_sync_results(
@@ -296,11 +296,32 @@ class MartyBot:
         if final_summary_message:
             await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
 
-    async def _handle_update_user_rights_and_remove_command(self, channel_id, arg_string=None):
-        """Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes."""
+    async def _handle_update_user_rights_and_remove_command(
+        self, channel_id, arg_string=None, user_id_who_posted=None
+    ):
+        """Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes. Nécessite les droits admin."""
         logging.info(
-            f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id} with args: '{arg_string}'."
+            f"'{self.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id} by user {user_id_who_posted} with args: '{arg_string}'."
         )
+
+        if not self.mattermost_api_client or not user_id_who_posted:
+            logging.error("Mattermost API client or user_id_who_posted not available for permission check.")
+            await asyncio.to_thread(
+                self.envoyer_message, channel_id, ":x: Erreur interne : Impossible de vérifier les permissions."
+            )
+            return
+
+        user_roles = await asyncio.to_thread(self.mattermost_api_client.get_user_roles, user_id_who_posted)
+        if "system_admin" not in user_roles:
+            logging.warning(
+                f"User {user_id_who_posted} (roles: {user_roles}) attempted to use 'update_user_rights_and_remove' without admin rights."
+            )
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                ":no_entry_sign: Accès refusé. Cette commande nécessite les droits d'administrateur Mattermost.",
+            )
+            return
 
         skip_services_list = []
         if arg_string and arg_string.lower() == "nocodb=false":
@@ -728,11 +749,30 @@ class MartyBot:
     #         channel_id, arg_string, "pôle", "POLES", user_id_who_posted
     #     )
 
-    async def _handle_update_all_user_rights_command(self, channel_id, arg_string=None):
-        """S'assure que les utilisateurs Mattermost ont les bons droits (ajouts/mises à jour uniquement)."""
+    async def _handle_update_all_user_rights_command(self, channel_id, arg_string=None, user_id_who_posted=None):
+        """S'assure que les utilisateurs Mattermost ont les bons droits (ajouts/mises à jour uniquement). Nécessite les droits admin."""
         logging.info(
-            f"'{self.bot_name_mention} update_all_user_rights' (upsert) command received in channel {channel_id}."
+            f"'{self.bot_name_mention} update_all_user_rights' (upsert) command received in channel {channel_id} by user {user_id_who_posted}."
         )
+
+        if not self.mattermost_api_client or not user_id_who_posted:
+            logging.error("Mattermost API client or user_id_who_posted not available for permission check.")
+            await asyncio.to_thread(
+                self.envoyer_message, channel_id, ":x: Erreur interne : Impossible de vérifier les permissions."
+            )
+            return
+
+        user_roles = await asyncio.to_thread(self.mattermost_api_client.get_user_roles, user_id_who_posted)
+        if "system_admin" not in user_roles:
+            logging.warning(
+                f"User {user_id_who_posted} (roles: {user_roles}) attempted to use 'update_all_user_rights' without admin rights."
+            )
+            await asyncio.to_thread(
+                self.envoyer_message,
+                channel_id,
+                ":no_entry_sign: Accès refusé. Cette commande nécessite les droits d'administrateur Mattermost.",
+            )
+            return
 
         initial_message_text = ":hourglass_flowing_sand: Démarrage de la mise à jour des droits utilisateurs (ajouts/modifications uniquement)... Ceci peut prendre un moment."
         initial_post_id = await asyncio.to_thread(self.envoyer_message, channel_id, initial_message_text)
@@ -1134,20 +1174,21 @@ class MartyBot:
                     "create_antenne",
                     "create_pole",
                     "send_email",
-                ]:  # Added 'send_email'
-                    # These handlers expect (channel_id, arg_string, user_id_who_posted)
+                    "update_all_user_rights",  # Now expects user_id_who_posted
+                    "update_user_rights_and_remove",  # Now expects user_id_who_posted
+                ]:  # These handlers expect (channel_id, arg_string, user_id_who_posted)
                     await handler_method(channel_id, arg_string, user_id_who_posted)
-                elif command_verb in [
-                    "update_all_user_rights",
-                    "update_user_rights_and_remove",
-                    "help",
-                ]:  # Removed sync_user_channels and update_user_rights as they were older names
+                elif command_verb in ["help"]:  # help does not need user_id_who_posted
                     # These handlers are defined to accept (self, channel_id, arg_string)
-                    # user_id_who_posted is not passed or needed by their current definition.
                     await handler_method(channel_id, arg_string)
-                # else: # No other command types currently defined that would fall here without specific handling.
-                # Fallback for any other command type if they were to be added without specific handling
-                # await handler_method(channel_id, arg_string)
+                # else: # No other command types currently defined that would fall here without specific handling
+                #     # Fallback for any other command type if they were to be added without specific handling
+                #     # await handler_method(channel_id, arg_string) # This would error for handlers expecting user_id
+                #     # Consider a more robust dispatch or ensure all commands are explicitly handled
+                #     logging.warning(f"Command '{command_verb}' called without specific user_id handling logic in _handle_message_event dispatcher.")
+                #     # For safety, if a command isn't in the specific lists, we might avoid calling it or call it without user_id
+                #     # This depends on the desired default behavior for unlisted commands.
+                #     # For now, unlisted commands (if any were added to self.commands without updating here) would not be called.
             else:
                 message = f":question: Commande inconnue : **`{command_verb}`**. Essayez `{self.bot_name_mention} help` pour une liste des commandes disponibles."
                 await asyncio.to_thread(self.envoyer_message, channel_id, message)
