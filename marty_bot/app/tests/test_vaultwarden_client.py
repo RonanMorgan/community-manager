@@ -5,7 +5,7 @@ import json
 import requests
 import logging  # For assertLogs
 
-from marty_bot.clients.vaultwarden_client import VaultwardenClient
+from clients.vaultwarden_client import VaultwardenClient
 
 
 class TestVaultwardenClient(unittest.TestCase):
@@ -52,7 +52,7 @@ class TestVaultwardenClient(unittest.TestCase):
             VaultwardenClient(organization_id="", server_url=self.server_url)
         self.assertIn("Vaultwarden organization_id must be provided", str(context.exception))
 
-    @patch("marty_bot.clients.vaultwarden_client.VaultwardenClient._run_bw_command")
+    @patch("clients.vaultwarden_client.VaultwardenClient._run_bw_command")
     def test_ensure_server_configuration_already_set(self, mock_run_bw_command):
         mock_run_bw_command.return_value = (0, self.server_url, "")
         client = self.client
@@ -60,7 +60,7 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_run_bw_command.assert_called_once_with(["config", "server"], custom_env=unittest.mock.ANY)
         self.assertEqual(mock_run_bw_command.call_count, 1)
 
-    @patch("marty_bot.clients.vaultwarden_client.VaultwardenClient._run_bw_command")
+    @patch("clients.vaultwarden_client.VaultwardenClient._run_bw_command")
     def test_ensure_server_configuration_needs_set(self, mock_run_bw_command):
         mock_run_bw_command.side_effect = [(0, "https://otherserver.com", ""), (0, "", "")]
         client = self.client

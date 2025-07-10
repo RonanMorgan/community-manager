@@ -600,6 +600,7 @@ class TestMartyBot(unittest.TestCase):
 
         asyncio.run(actual_test_logic())
 
+    @async_test # This test was missing the async_test decorator
     @patch("app.bot.orchestrate_group_synchronization")
     async def test_sync_commands_permission_denied_non_admin(self, mock_orchestrate_sync):
         commands_to_test = [
@@ -737,8 +738,10 @@ class TestMartyBot(unittest.TestCase):
             skip_services=["nocodb"],  # Crucial check
         )
         # Check if initial message indicates skipping nocodb
-        initial_message_call = self.bot.envoyer_message.call_args_list[0][0][1]
-        self.assertIn("NoCoDB ignoré", initial_message_call)
+        # The "processing..." message is the first one sent if permission passes.
+        self.assertGreaterEqual(self.bot.envoyer_message.call_count, 1)
+        processing_message_call = self.bot.envoyer_message.call_args_list[0][0][1]
+        self.assertIn("NoCoDB ignoré", processing_message_call)
 
 
 if __name__ == "__main__":
