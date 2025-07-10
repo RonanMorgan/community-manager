@@ -500,6 +500,10 @@ class TestMartyBot(unittest.TestCase):
     def test_handle_update_all_user_rights_command_success(self, mock_orchestrate_sync):
         async def actual_test_logic():
             command_name = "update_all_user_rights"
+            admin_user_id = "admin_user_for_upsert"
+            # Mock get_user_roles to return admin role for this test
+            self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin", "system_user"]
+
             mock_orchestrate_sync.return_value = (
                 True,
                 [
@@ -512,7 +516,10 @@ class TestMartyBot(unittest.TestCase):
                     }
                 ],
             )
-            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+            # Use the specific admin_user_id when sending the message
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}", user_id=admin_user_id)
+
+            self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
             mock_orchestrate_sync.assert_called_once_with(
                 self.bot.authentik_client,
                 self.bot.mattermost_api_client,
