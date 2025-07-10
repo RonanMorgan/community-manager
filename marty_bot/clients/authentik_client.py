@@ -331,6 +331,48 @@ class AuthentikClient:
             logging.error(f"Request exception removing user PK {user_pk} from group PK {group_pk}: {e}")
             return False
 
+    def get_all_users_emails(self) -> list[str]:
+        """
+        Fetches all users from Authentik, handling pagination.
+        Returns a list of user email addresses.
+        """
+        if not self.base_url or not self.token:
+            logging.error("Authentik client not configured (URL or Token missing).")
+            return []
+
+        all_user_emails = []
+        current_url = f"{self.base_url}/api/v3/core/users/"
+        logging.info(f"Fetching Authentik users from initial URL: {current_url}")
+
+        page_count = 0
+        while current_url:
+            page_count += 1
+            logging.debug(f"Fetching user page {page_count} from {current_url}")
+            try:
+                response = requests.get(current_url, headers=self.headers)
+                response.raise_for_status()
+                data = response.json()
+
+                page_users = data.get("results", [])
+                for user in page_users:
+                    email = user.get("email")
+                    if email:
+                        all_user_emails.append(email)
+
+                current_url = data.get("pagination", {}).get("next")
+                if current_url:
+                    logging.debug(f"Next page for users: {current_url}")
+
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Error fetching Authentik users from {current_url}: {e}")
+                return []  # Return empty list on error
+            except json.JSONDecodeError as e:
+                logging.error(f"Error decoding JSON from Authentik users response ({current_url}): {e}")
+                return []  # Return empty list on error
+
+        logging.info(f"Fetched {len(all_user_emails)} user emails from Authentik over {page_count} pages.")
+        return all_user_emails
+
 
 if __name__ == "__main__":
     from dotenv import load_dotenv

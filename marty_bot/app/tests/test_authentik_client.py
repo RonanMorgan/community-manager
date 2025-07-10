@@ -256,6 +256,99 @@ class TestAuthentikClient(unittest.TestCase):
             self.assertFalse(self.client.remove_user_from_group("group_pk_1", None))
             mock_log_error.assert_called_with("Group PK and User PK must be provided to remove user from group.")
 
+    # Tests for get_all_users_emails
+    @patch("requests.get")
+    def test_get_all_users_emails_success_no_pagination(self, mock_get):
+        mock_response_data = {
+            "results": [
+                {"email": "user1@example.com", "username": "user1"},
+                {"email": "user2@example.com", "username": "user2"},
+            ],
+            "pagination": {"next": None},
+        }
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = mock_response_data
+        mock_get.return_value = mock_response
+
+        user_emails = self.client.get_all_users_emails()
+
+        self.assertEqual(len(user_emails), 2)
+        self.assertIn("user1@example.com", user_emails)
+        self.assertIn("user2@example.com", user_emails)
+        expected_url = f"{self.mock_url}/api/v3/core/users/"
+        mock_get.assert_called_once_with(expected_url, headers=self.client.headers)
+
+    @patch("requests.get")
+    def test_get_all_users_emails_success_with_pagination(self, mock_get):
+        mock_response_page1_data = {
+            "results": [{"email": "user1@example.com", "username": "user1"}],
+            "pagination": {"next": f"{self.mock_url}/api/v3/core/users/?page=2"},
+        }
+        mock_response_page2_data = {
+            "results": [{"email": "user2@example.com", "username": "user2"}],
+            "pagination": {"next": None},
+        }
+        mock_response_page1 = Mock(status_code=200)
+        mock_response_page1.json.return_value = mock_response_page1_data
+        mock_response_page2 = Mock(status_code=200)
+        mock_response_page2.json.return_value = mock_response_page2_data
+
+        mock_get.side_effect = [mock_response_page1, mock_response_page2]
+
+        user_emails = self.client.get_all_users_emails()
+
+        self.assertEqual(len(user_emails), 2)
+        self.assertIn("user1@example.com", user_emails)
+        self.assertIn("user2@example.com", user_emails)
+        self.assertEqual(mock_get.call_count, 2)
+        mock_get.assert_any_call(f"{self.mock_url}/api/v3/core/users/", headers=self.client.headers)
+        mock_get.assert_any_call(f"{self.mock_url}/api/v3/core/users/?page=2", headers=self.client.headers)
+
+    @patch("requests.get")
+    def test_get_all_users_emails_api_error(self, mock_get):
+        mock_get.side_effect = requests.exceptions.RequestException("API error")
+        user_emails = self.client.get_all_users_emails()
+        self.assertEqual(user_emails, [])
+
+    @patch("requests.get")
+    def test_get_all_users_emails_json_decode_error(self, mock_get):
+        mock_response = Mock(status_code=200)
+        # Import json if not already imported at the top of the file
+        import json
+
+        mock_response.json.side_effect = json.JSONDecodeError("JSON decode error", "doc", 0)
+        mock_get.return_value = mock_response
+        user_emails = self.client.get_all_users_emails()
+        self.assertEqual(user_emails, [])
+
+    @patch("requests.get")
+    def test_get_all_users_emails_empty_response(self, mock_get):
+        mock_response_data = {"results": [], "pagination": {"next": None}}
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = mock_response_data
+        mock_get.return_value = mock_response
+        user_emails = self.client.get_all_users_emails()
+        self.assertEqual(user_emails, [])
+
+    @patch("requests.get")
+    def test_get_all_users_emails_user_without_email(self, mock_get):
+        mock_response_data = {
+            "results": [
+                {"username": "user1_no_email"},  # User without email field
+                {"email": "user2@example.com", "username": "user2"},
+            ],
+            "pagination": {"next": None},
+        }
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = mock_response_data
+        mock_get.return_value = mock_response
+
+        user_emails = self.client.get_all_users_emails()
+
+        self.assertEqual(len(user_emails), 1)
+        self.assertIn("user2@example.com", user_emails)
+        self.assertNotIn(None, user_emails)  # Ensure None is not added if email is missing
+
 
 if __name__ == "__main__":
     unittest.main()

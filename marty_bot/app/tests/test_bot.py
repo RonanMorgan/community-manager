@@ -600,7 +600,7 @@ class TestMartyBot(unittest.TestCase):
 
         asyncio.run(actual_test_logic())
 
-    @async_test # This test was missing the async_test decorator
+    @async_test  # This test was missing the async_test decorator
     @patch("app.bot.orchestrate_group_synchronization")
     async def test_sync_commands_permission_denied_non_admin(self, mock_orchestrate_sync):
         commands_to_test = [
@@ -722,7 +722,9 @@ class TestMartyBot(unittest.TestCase):
         self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin", "system_user"]
         mock_orchestrate_sync.return_value = (True, [])  # Minimal successful result
 
-        await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}", user_id=admin_user_id)
+        await self._send_test_message(
+            f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}", user_id=admin_user_id
+        )
 
         self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
         mock_orchestrate_sync.assert_called_once_with(
