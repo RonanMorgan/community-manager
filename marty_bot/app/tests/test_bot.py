@@ -548,9 +548,13 @@ class TestMartyBot(unittest.TestCase):
         asyncio.run(actual_test_logic())
 
     @patch("app.bot.orchestrate_group_synchronization")
-    def test_handle_update_user_rights_and_remove_command_success(self, mock_orchestrate_sync):
+    def test_handle_update_user_rights_and_remove_command_success_admin_user(self, mock_orchestrate_sync):
         async def actual_test_logic():
             command_name = "update_user_rights_and_remove"
+            admin_user_id = "admin_user_id_for_sync"
+            # Mock get_user_roles to return admin role
+            self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin", "system_user"]
+
             mock_orchestrate_sync.return_value = (
                 True,
                 [
@@ -563,23 +567,25 @@ class TestMartyBot(unittest.TestCase):
                     }
                 ],
             )
-            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}")
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}", user_id=admin_user_id)
+
+            self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
             mock_orchestrate_sync.assert_called_once_with(
                 self.bot.authentik_client,
                 self.bot.mattermost_api_client,
                 self.bot.outline_client,
                 self.bot.brevo_client,
                 self.bot.nocodb_client,
-                self.bot.vaultwarden_client,  # Added vaultwarden_client
+                self.bot.vaultwarden_client,
                 self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
                 fetch_remote_members=True,
-                skip_services=None,  # Expect None when no arg_string
+                skip_services=None,
             )
-            self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
+            self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)  # Initial + summary
             summary_call_found = False
             for call_args_tuple in self.bot.envoyer_message.call_args_list:
-                message_text = call_args_tuple[0][1]
+                message_text = call_args_tuple[0][1]  # message_text is the second arg of the first call in the tuple
                 if "Résumé de Suppression/synchronisation des droits" in message_text:
                     summary_call_found = True
                     break
@@ -587,46 +593,82 @@ class TestMartyBot(unittest.TestCase):
 
         asyncio.run(actual_test_logic())
 
+    @patch("app.bot.orchestrate_group_synchronization")
+    async def test_sync_commands_permission_denied_non_admin(self, mock_orchestrate_sync):
+        commands_to_test = [
+            "update_all_user_rights",
+            "update_user_rights_and_remove",
+        ]
+        non_admin_user_id = "non_admin_user_for_sync"
+        self.bot.mattermost_api_client.get_user_roles.return_value = ["system_user"]  # Not an admin
+
+        for command_key in commands_to_test:
+            with self.subTest(command=command_key):
+                self.bot.envoyer_message.reset_mock()
+                self.bot.mattermost_api_client.get_user_roles.reset_mock()  # Reset for each subtest
+                mock_orchestrate_sync.reset_mock()
+
+                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_key}", user_id=non_admin_user_id)
+
+                self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(non_admin_user_id)
+                mock_orchestrate_sync.assert_not_called()  # Orchestration should not be called
+                self.bot.envoyer_message.assert_called_once()
+                sent_message = self.bot.envoyer_message.call_args[0][1]
+                self.assertIn(":no_entry_sign: Accès refusé.", sent_message)
+
     @async_test
-    async def test_sync_commands_orchestration_failure(self):
+    async def test_sync_commands_orchestration_failure_admin_user(self):
         commands_to_test = {
             "update_all_user_rights": self.bot._handle_update_all_user_rights_command,
             "update_user_rights_and_remove": self.bot._handle_update_user_rights_and_remove_command,
         }
+        admin_user_id = "admin_user_for_fail_test"
+        self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin"]
+
         for command_key, handler_method in commands_to_test.items():
             with self.subTest(command=command_key):
                 self.bot.envoyer_message.reset_mock()
+                self.bot.mattermost_api_client.get_user_roles.reset_mock()
                 with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
-                    mock_orchestrate.return_value = (False, [])
-                    if asyncio.iscoroutinefunction(handler_method):
-                        await handler_method(channel_id="test_channel", arg_string=None)
-                    else:
-                        handler_method(channel_id="test_channel", arg_string=None)
-                    self.assertEqual(self.bot.envoyer_message.call_count, 2)
+                    mock_orchestrate.return_value = (False, [])  # Simulate orchestration failure
+
+                    # We call the handler method directly here for testing its behavior post-permission check
+                    # The _send_test_message helper is for testing the full flow including parsing and permission.
+                    # Here, we assume permission check passed and want to test the handler's reaction to orchestrate failure.
+                    await handler_method(channel_id="test_channel", arg_string=None, user_id_who_posted=admin_user_id)
+
+                    self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
+                    mock_orchestrate.assert_called_once()  # Ensure it was called
+                    self.assertEqual(self.bot.envoyer_message.call_count, 2)  # Initial "processing" + error message
                     final_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                     self.assertIn("échoué de manière critique durant l'orchestration", final_message_text)
 
     @async_test
-    async def test_sync_commands_no_clients_configured(self):
+    async def test_sync_commands_no_clients_configured_admin_user(self):
         commands_to_test = {
             "update_all_user_rights": self.bot._handle_update_all_user_rights_command,
             "update_user_rights_and_remove": self.bot._handle_update_user_rights_and_remove_command,
         }
+        admin_user_id = "admin_user_for_noclient_test"
+        self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin"]
+
         original_auth_client = self.bot.authentik_client
-        self.bot.authentik_client = None
+        self.bot.authentik_client = None  # Simulate Authentik client not configured
+
         for command_key, handler_method in commands_to_test.items():
             with self.subTest(command=command_key):
                 self.bot.envoyer_message.reset_mock()
-                if asyncio.iscoroutinefunction(handler_method):
-                    await handler_method(channel_id="test_channel", arg_string=None)
-                else:
-                    handler_method(channel_id="test_channel", arg_string=None)
-                self.assertEqual(self.bot.envoyer_message.call_count, 2)
+                self.bot.mattermost_api_client.get_user_roles.reset_mock()
+
+                await handler_method(channel_id="test_channel", arg_string=None, user_id_who_posted=admin_user_id)
+
+                self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
+                self.assertEqual(self.bot.envoyer_message.call_count, 2)  # Initial "processing" + error message
                 error_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                 self.assertIn("Le bot n'est pas correctement configuré", error_message_text)
-        self.bot.authentik_client = original_auth_client
+        self.bot.authentik_client = original_auth_client  # Restore
 
-    @patch.dict(os.environ, {"BW_PASSWORD": "testpassword"})  # Mock BW_PASSWORD for Vaultwarden
+    @patch.dict(os.environ, {"BW_PASSWORD": "testpassword"})
     @async_test
     async def test_handle_create_projet_calls_vaultwarden_client(self):
         project_name = "VWTestProjet"

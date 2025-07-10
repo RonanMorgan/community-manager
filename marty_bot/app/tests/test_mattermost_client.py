@@ -624,6 +624,82 @@ class TestMattermostClient(unittest.TestCase):
         self.assertEqual(len(channels), 1)  # Should still return private channels
         self.assertEqual(channels[0]["id"], "priv_E")
 
+    # Tests for get_user_roles
+    @patch("requests.get")
+    def test_get_user_roles_success_admin(self, mock_get_request):
+        user_id = "admin_user_id"
+        expected_roles_data = {"id": user_id, "roles": "system_user system_admin"}
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = expected_roles_data
+        mock_get_request.return_value = mock_response
+
+        roles = self.client.get_user_roles(user_id)
+        self.assertEqual(roles, ["system_user", "system_admin"])
+        expected_url = f"{self.mock_url}/api/v4/users/{user_id}"
+        mock_get_request.assert_called_once_with(expected_url, headers=self.client.headers)
+
+    @patch("requests.get")
+    def test_get_user_roles_success_user_only(self, mock_get_request):
+        user_id = "normal_user_id"
+        expected_roles_data = {"id": user_id, "roles": "system_user"}
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = expected_roles_data
+        mock_get_request.return_value = mock_response
+
+        roles = self.client.get_user_roles(user_id)
+        self.assertEqual(roles, ["system_user"])
+
+    @patch("requests.get")
+    def test_get_user_roles_success_no_roles_string(self, mock_get_request):
+        user_id = "user_with_no_roles_field"
+        # Simulate response where 'roles' field is missing or null
+        expected_roles_data = {"id": user_id, "username": "norolesuser"}  # No 'roles' key
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = expected_roles_data
+        mock_get_request.return_value = mock_response
+        roles = self.client.get_user_roles(user_id)
+        self.assertEqual(roles, [])
+
+    @patch("requests.get")
+    def test_get_user_roles_success_empty_roles_string(self, mock_get_request):
+        user_id = "user_with_empty_roles_field"
+        expected_roles_data = {"id": user_id, "roles": ""}  # Empty 'roles' string
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = expected_roles_data
+        mock_get_request.return_value = mock_response
+        roles = self.client.get_user_roles(user_id)
+        self.assertEqual(roles, [])  # Should return empty list, not list with one empty string
+
+    @patch("requests.get")
+    def test_get_user_roles_user_not_found(self, mock_get_request):
+        user_id = "non_existent_user_id"
+        mock_response = Mock(status_code=404)
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
+        mock_get_request.return_value = mock_response
+
+        roles = self.client.get_user_roles(user_id)
+        self.assertEqual(roles, [])
+
+    @patch("requests.get")
+    def test_get_user_roles_api_error(self, mock_get_request):
+        user_id = "user_id_api_error"
+        mock_get_request.side_effect = requests.exceptions.RequestException("API connection error")
+        roles = self.client.get_user_roles(user_id)
+        self.assertEqual(roles, [])
+
+    @patch("requests.get")
+    def test_get_user_roles_json_decode_error(self, mock_get_request):
+        user_id = "user_id_json_error"
+        mock_response = Mock(status_code=200)
+        mock_response.json.side_effect = json.JSONDecodeError("Syntax error", "doc", 0)
+        mock_get_request.return_value = mock_response
+        roles = self.client.get_user_roles(user_id)
+        self.assertEqual(roles, [])
+
+    def test_get_user_roles_no_user_id(self):
+        roles = self.client.get_user_roles("")
+        self.assertEqual(roles, [])
+
 
 if __name__ == "__main__":
     unittest.main()
