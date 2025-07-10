@@ -711,15 +711,19 @@ class TestMartyBot(unittest.TestCase):
             summary_text,
         )
 
-    @async_test  # Moved decorator order
+    @async_test
     @patch("app.bot.orchestrate_group_synchronization")
     async def test_handle_update_user_rights_and_remove_command_with_skip_nocodb(self, mock_orchestrate_sync):
         command_name = "update_user_rights_and_remove"
         arg_string = "nocodb=false"
+        admin_user_id = "admin_for_skip_nocodb"
+        # Ensure this user is treated as admin
+        self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin", "system_user"]
         mock_orchestrate_sync.return_value = (True, [])  # Minimal successful result
 
-        await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}")
+        await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}", user_id=admin_user_id)
 
+        self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
         mock_orchestrate_sync.assert_called_once_with(
             self.bot.authentik_client,
             self.bot.mattermost_api_client,
