@@ -11,14 +11,46 @@ load_dotenv()
 # It's better to load environment variables inside the function or pass them as parameters,
 # especially for testability. For now, we'll move them into the function.
 
+# --- Attribute Mapping ---
+AUTHENTIK_TO_BREVO_ATTRIBUTE_MAPPING = {
+    "attributes.ville": "CITY",
+    "attributes.activity": "DOMAIN",
+    "attributes.metier": "JOB",
+    "attributes.exp": "EXPERIENCE",
+    "attributes.sp1": "SKILLS1",
+    "attributes.sp2": "SKILLS2",
+    "attributes.sp3": "SKILLS3",
+    "attributes.framework": "FRAMEWORK",
+    "attributes.totem": "TOTEM",
+}
+
+
+def _map_authentik_attributes_to_brevo(authentik_attrs: dict) -> dict:
+    """
+    Maps Authentik attribute keys to Brevo attribute keys (in uppercase)
+    and handles the 'attributes.' prefix from Authentik.
+    """
+    if not authentik_attrs:
+        return {}
+
+    brevo_attrs = {}
+    for auth_key, auth_value in authentik_attrs.items():
+        # Check if the Authentik key is in our mapping
+        if auth_key in AUTHENTIK_TO_BREVO_ATTRIBUTE_MAPPING:
+            brevo_key = AUTHENTIK_TO_BREVO_ATTRIBUTE_MAPPING[auth_key]
+            brevo_attrs[brevo_key] = auth_value
+        # else:
+        # logging.debug(f"Attribute '{auth_key}' from Authentik is not mapped to Brevo. Skipping.")
+    return brevo_attrs
+
 
 def sync_authentik_users_to_brevo_list():
     """
-    Synchronizes users from Authentik to a specific Brevo list.
+    Synchronizes users from Authentik to a specific Brevo list, including attributes.
     Fetches all users from Authentik and all contacts from the specified Brevo list.
     Adds users present in Authentik but not in the Brevo list to Brevo.
     """
-    logging.info("Starting Authentik to Brevo users synchronization.")
+    logging.info("Starting Authentik to Brevo users synchronization with attributes.")
 
     AUTHENTIK_URL = os.getenv("AUTHENTIK_URL")
     AUTHENTIK_TOKEN = os.getenv("AUTHENTIK_TOKEN")
@@ -45,26 +77,24 @@ def sync_authentik_users_to_brevo_list():
         auth_client = AuthentikClient(base_url=AUTHENTIK_URL, token=AUTHENTIK_TOKEN)
         brevo_client = BrevoClient(api_url=BREVO_API_URL, api_key=BREVO_API_KEY)
 
-        # 1. Récupérer tous les utilisateurs d'Authentik
-        logging.info("Fetching all users from Authentik...")
-        authentik_user_emails = auth_client.get_all_users_emails()
-        if (
-            authentik_user_emails is None
-        ):  # get_all_users_emails returns [] on error, None is not expected but good to check
-            logging.error("Failed to fetch users from Authentik. Aborting sync.")
+        # 1. Récupérer tous les utilisateurs et leurs attributs d'Authentik
+        logging.info("Fetching all users data from Authentik...")
+        authentik_users_data = auth_client.get_all_users_data()  # Returns list of {'email': ..., 'attributes': ...}
+
+        if authentik_users_data is None:
+            logging.error("Failed to fetch users data from Authentik. Aborting sync.")
             return
 
-        if not authentik_user_emails:
+        if not authentik_users_data:
             logging.info("No users found in Authentik.")
-            # Decide if we should proceed to clear the Brevo list or just stop.
-            # For now, let's stop if no Authentik users.
-            # If the goal is to ensure Brevo list *only* contains current Authentik users,
-            # then we might want to fetch Brevo list and remove users not in (empty) authentik_user_emails.
-            # Current scope is to ADD missing users.
             return
 
-        logging.info(f"Fetched {len(authentik_user_emails)} user emails from Authentik.")
-        authentik_user_emails_set = set(email.lower() for email in authentik_user_emails)
+        logging.info(f"Fetched data for {len(authentik_users_data)} users from Authentik.")
+
+        # Create a dictionary for quick lookup of Authentik users by email
+        authentik_users_map = {
+            user["email"].lower(): user["attributes"] for user in authentik_users_data if user.get("email")
+        }
 
         # 2. Récupérer tous les contacts de la liste Brevo
         logging.info(f"Fetching all contacts from Brevo list ID {brevo_list_id}...")
@@ -77,18 +107,30 @@ def sync_authentik_users_to_brevo_list():
         brevo_contact_emails_set = set(email.lower() for email in brevo_contact_emails)
 
         # 3. Comparer les listes et identifier les utilisateurs à ajouter
-        users_to_add_to_brevo = authentik_user_emails_set - brevo_contact_emails_set
+        users_to_add_to_brevo = []
+        for auth_email_lower, auth_attrs in authentik_users_map.items():
+            if auth_email_lower not in brevo_contact_emails_set:
+                users_to_add_to_brevo.append({"email": auth_email_lower, "attributes": auth_attrs})
 
         if not users_to_add_to_brevo:
             logging.info("No new users from Authentik to add to Brevo list.")
         else:
-            logging.info(f"Found {len(users_to_add_to_brevo)} users to add to Brevo list: {users_to_add_to_brevo}")
+            logging.info(f"Found {len(users_to_add_to_brevo)} users to add to Brevo list.")
             added_count = 0
             failed_count = 0
-            for email_to_add in users_to_add_to_brevo:
-                logging.debug(f"Adding '{email_to_add}' to Brevo list {brevo_list_id}.")
-                # The add_contact_to_list method in the client already handles logging for success/failure per contact
-                if brevo_client.add_contact_to_list(email=email_to_add, list_id=brevo_list_id):
+            for user_data_to_add in users_to_add_to_brevo:
+                email_to_add = user_data_to_add["email"]
+                authentik_attrs = user_data_to_add["attributes"]
+
+                brevo_attributes = _map_authentik_attributes_to_brevo(authentik_attrs)
+
+                logging.debug(
+                    f"Adding '{email_to_add}' to Brevo list {brevo_list_id} with attributes: {brevo_attributes}"
+                )
+
+                if brevo_client.add_contact_to_list(
+                    email=email_to_add, list_id=brevo_list_id, attributes=brevo_attributes
+                ):
                     added_count += 1
                 else:
                     failed_count += 1
