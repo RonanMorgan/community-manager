@@ -10,6 +10,7 @@ from libraries.group_sync_services import (
     _extract_base_name,
 )
 from app import config as app_config
+import asyncio # Needed for async_test
 from clients.mattermost_client import MattermostClient, slugify
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
@@ -23,6 +24,11 @@ def reload_config_module():
 
     importlib.reload(app_config)
 
+# Helper to run async test methods (copied from test_bot.py)
+def async_test(f):
+    def wrapper(*args, **kwargs):
+        asyncio.run(f(*args, **kwargs))
+    return wrapper
 
 class TestGroupSyncServices(unittest.TestCase):
 
@@ -1238,6 +1244,7 @@ permissions:
     @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
+    @async_test # Added decorator
     async def test_orchestrate_sync_fetch_remote_false_discover_via_mm_no_deletions(
         self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
     ):
@@ -1309,6 +1316,7 @@ permissions:
     @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
+    @async_test # Added decorator
     async def test_orchestrate_sync_fetch_remote_true_discover_via_auth_with_deletions(
         self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
     ):

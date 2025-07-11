@@ -15,6 +15,8 @@ from clients.brevo_client import BrevoClient
 from clients.nocodb_client import NocoDBClient
 from clients.vaultwarden_client import VaultwardenClient  # Added
 
+import asyncio # For async_test helper
+
 # Functions/modules to be tested
 import scripts.sync_mm_authentik_groups as script_module
 from libraries.group_sync_services import (
@@ -23,6 +25,11 @@ from libraries.group_sync_services import (
     # sync_entity_permissions removed as it's not directly used by these tests after refactor
 )
 
+# Helper to run async test methods (copied from test_bot.py)
+def async_test(f):
+    def wrapper(*args, **kwargs):
+        asyncio.run(f(*args, **kwargs))
+    return wrapper
 
 class TestSyncLogic(unittest.TestCase):
 
@@ -143,7 +150,8 @@ class TestSyncLogic(unittest.TestCase):
     @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
-    async def test_library_orchestrate_sync_success_all_clients(  # Added async
+    @async_test # Added decorator
+    async def test_library_orchestrate_sync_success_all_clients(
         self, mock_lib_config, mock_get_groups_map, mock_sync_entity_permissions
     ):
         mock_auth_client = MagicMock(spec=AuthentikClient)
@@ -226,7 +234,8 @@ class TestSyncLogic(unittest.TestCase):
     @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
-    async def test_library_orchestrate_sync_success_outline_client_none(  # Added async
+    @async_test # Added decorator
+    async def test_library_orchestrate_sync_success_outline_client_none(
         self, mock_lib_config, mock_get_groups_map, mock_sync_entity_permissions
     ):
         mock_auth_client = MagicMock(spec=AuthentikClient)
@@ -278,7 +287,8 @@ class TestSyncLogic(unittest.TestCase):
 
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
-    async def test_library_orchestrate_sync_no_groups_found(self, mock_lib_config, mock_get_groups_map):  # Added async
+    @async_test # Added decorator
+    async def test_library_orchestrate_sync_no_groups_found(self, mock_lib_config, mock_get_groups_map):
         mock_auth_client = MagicMock(spec=AuthentikClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
         mock_outline_client = MagicMock(spec=OutlineClient)
@@ -301,12 +311,15 @@ class TestSyncLogic(unittest.TestCase):
         self.assertEqual(detailed_results, [])
         mock_get_groups_map.assert_called_once_with(mock_auth_client)
 
-    async def test_library_orchestrate_sync_core_clients_missing(self):  # Added async
+    # This test needs to be wrapped if it's to be run by unittest's default discovery with async methods
+    # For pytest, @pytest.mark.asyncio would be used, or a helper like async_test from test_bot.py
+    # Let's assume an async_test wrapper is available or this will be run with pytest-asyncio
+    @async_test # Added decorator
+    async def test_library_orchestrate_sync_core_clients_missing(self):
         mock_outline_client = MagicMock(spec=OutlineClient)
-        # Using self.mock_brevo_client_instance now that it's in setUp
 
         # Test with Authentik client missing
-        success_auth, results_auth = await orchestrate_group_synchronization(  # Added await
+        success_auth, results_auth = await orchestrate_group_synchronization(
             authentik_client=None,
             mattermost_client=MagicMock(spec=MattermostClient),
             outline_client=mock_outline_client,
@@ -318,10 +331,10 @@ class TestSyncLogic(unittest.TestCase):
             sync_mode="FULL_SYNC",
         )
         self.assertTrue(success_auth)
-        self.assertEqual(results_auth, [])  # Expect empty results as it will log error and skip auth part
+        self.assertEqual(results_auth, [])
 
         # Test with Mattermost client missing (critical)
-        success_mm, results_mm = await orchestrate_group_synchronization(  # Added await
+        success_mm, results_mm = await orchestrate_group_synchronization(
             authentik_client=MagicMock(spec=AuthentikClient),
             mattermost_client=None,
             outline_client=mock_outline_client,
@@ -333,10 +346,10 @@ class TestSyncLogic(unittest.TestCase):
             sync_mode="FULL_SYNC",
         )
         self.assertFalse(success_mm)
-        self.assertEqual(results_mm, [])  # Should return False and empty results
+        self.assertEqual(results_mm, [])
 
         # Test with Mattermost team_id missing (critical)
-        success_team, results_team = await orchestrate_group_synchronization(  # Added await
+        success_team, results_team = await orchestrate_group_synchronization(
             authentik_client=MagicMock(spec=AuthentikClient),
             mattermost_client=MagicMock(spec=MattermostClient),
             outline_client=mock_outline_client,
@@ -396,7 +409,8 @@ class TestSyncLogic(unittest.TestCase):
     @patch("scripts.sync_mm_authentik_groups.config")
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
     @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
-    async def test_script_main_sync_logic_init_auth_fails(  # Added async
+    @async_test # Added decorator
+    async def test_script_main_sync_logic_orchestration(
         self, mock_orchestrate_lib, mock_script_init_clients, mock_script_config
     ):
         mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
@@ -420,7 +434,8 @@ class TestSyncLogic(unittest.TestCase):
     @patch("scripts.sync_mm_authentik_groups.config")
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
     @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
-    async def test_script_main_sync_logic_init_mm_fails(  # Added async
+    @async_test # Added decorator
+    async def test_script_main_sync_logic_init_auth_fails(
         self, mock_orchestrate_lib, mock_script_init_clients, mock_script_config
     ):
         mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
@@ -444,7 +459,8 @@ class TestSyncLogic(unittest.TestCase):
     @patch("scripts.sync_mm_authentik_groups.config")
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
     @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
-    async def test_script_main_sync_logic_no_team_id(  # Added async
+    @async_test # Added decorator
+    async def test_script_main_sync_logic_no_team_id( # Corrected function name
         self, mock_orchestrate_lib, mock_script_init_clients, mock_script_config
     ):
         mock_script_config.MATTERMOST_TEAM_ID = None
