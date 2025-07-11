@@ -521,16 +521,16 @@ class TestMartyBot(unittest.TestCase):
 
             self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
             mock_orchestrate_sync.assert_called_once_with(
-                self.bot.authentik_client,
-                self.bot.mattermost_api_client,
-                self.bot.outline_client,
-                self.bot.brevo_client,
-                self.bot.nocodb_client,
-                self.bot.vaultwarden_client,  # Added vaultwarden_client
-                self.bot.config.MATTERMOST_TEAM_ID,
+                authentik_client=self.bot.authentik_client,
+                mattermost_client=self.bot.mattermost_api_client,
+                outline_client=self.bot.outline_client,
+                brevo_client=self.bot.brevo_client,
+                nocodb_client=self.bot.nocodb_client,
+                vaultwarden_client=self.bot.vaultwarden_client,
+                mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,
-                fetch_remote_members=False,
-                skip_services=None,  # For calls without the arg_string
+                sync_mode="MM_TO_TOOLS",  # Corrected: was fetch_remote_members=False
+                skip_services=None,
             )
             # The actual call from bot.py for orchestrate_group_synchronization is:
             # orchestrate_group_synchronization(
@@ -578,15 +578,15 @@ class TestMartyBot(unittest.TestCase):
 
             self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
             mock_orchestrate_sync.assert_called_once_with(
-                self.bot.authentik_client,
-                self.bot.mattermost_api_client,
-                self.bot.outline_client,
-                self.bot.brevo_client,
-                self.bot.nocodb_client,
-                self.bot.vaultwarden_client,
-                self.bot.config.MATTERMOST_TEAM_ID,
+                authentik_client=self.bot.authentik_client,
+                mattermost_client=self.bot.mattermost_api_client,
+                outline_client=self.bot.outline_client,
+                brevo_client=self.bot.brevo_client,
+                nocodb_client=self.bot.nocodb_client,
+                vaultwarden_client=self.bot.vaultwarden_client,
+                mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
-                fetch_remote_members=True,
+                sync_mode="TOOLS_TO_MM",  # Corrected: was fetch_remote_members=True
                 skip_services=None,
             )
             self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)  # Initial + summary
@@ -728,16 +728,16 @@ class TestMartyBot(unittest.TestCase):
 
         self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
         mock_orchestrate_sync.assert_called_once_with(
-            self.bot.authentik_client,
-            self.bot.mattermost_api_client,
-            self.bot.outline_client,
-            self.bot.brevo_client,
-            self.bot.nocodb_client,
-            self.bot.vaultwarden_client,  # Added vaultwarden_client
-            self.bot.config.MATTERMOST_TEAM_ID,
+            authentik_client=self.bot.authentik_client,
+            mattermost_client=self.bot.mattermost_api_client,
+            outline_client=self.bot.outline_client,
+            brevo_client=self.bot.brevo_client,
+            nocodb_client=self.bot.nocodb_client,
+            vaultwarden_client=self.bot.vaultwarden_client,
+            mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
             perform_deletions=True,
-            fetch_remote_members=True,
-            skip_services=["nocodb"],  # Crucial check
+            sync_mode="TOOLS_TO_MM",  # Corrected: was fetch_remote_members=True
+            skip_services=["nocodb"],
         )
         # Check if initial message indicates skipping nocodb
         # The "processing..." message is the first one sent if permission passes.

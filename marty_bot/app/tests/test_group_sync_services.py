@@ -1238,9 +1238,10 @@ permissions:
     @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
-    def test_orchestrate_sync_fetch_remote_false_discover_via_mm_no_deletions(
+    async def test_orchestrate_sync_fetch_remote_false_discover_via_mm_no_deletions(
         self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
     ):
+        # This test will now test sync_mode="MM_TO_TOOLS"
         self.mock_authentik_client.reset_mock()
         self.mock_mattermost_client.reset_mock()
         self.mock_outline_client.reset_mock()
@@ -1286,16 +1287,16 @@ permissions:
         )
         # mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_UPSERT"}] # Not called if no channels
 
-        success, detailed_results = orchestrate_group_synchronization(
-            self.mock_authentik_client,
-            self.mock_mattermost_client,
-            self.mock_outline_client,
-            self.mock_brevo_client,
-            self.mock_nocodb_client,
-            self.mock_vaultwarden_client,
-            mock_team_id,
+        success, detailed_results = await orchestrate_group_synchronization(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
+            mm_team_id=mock_team_id,
             perform_deletions=False,
-            fetch_remote_members=False,
+            sync_mode="MM_TO_TOOLS",  # Was fetch_remote_members=False
         )
 
         self.assertTrue(success)
@@ -1308,9 +1309,10 @@ permissions:
     @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
-    def test_orchestrate_sync_fetch_remote_true_discover_via_auth_with_deletions(
+    async def test_orchestrate_sync_fetch_remote_true_discover_via_auth_with_deletions(
         self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
     ):
+        # This test will now test sync_mode="FULL_SYNC"
         self.mock_authentik_client.reset_mock()
         self.mock_mattermost_client.reset_mock()
         self.mock_outline_client.reset_mock()
@@ -1354,16 +1356,16 @@ permissions:
         }
         mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_FULL_SYNC"}]
 
-        success, detailed_results = orchestrate_group_synchronization(
-            self.mock_authentik_client,
-            self.mock_mattermost_client,
-            self.mock_outline_client,
-            self.mock_brevo_client,
-            self.mock_nocodb_client,
-            self.mock_vaultwarden_client,
-            mock_team_id,
+        success, detailed_results = await orchestrate_group_synchronization(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
+            mm_team_id=mock_team_id,
             perform_deletions=True,
-            fetch_remote_members=True,
+            sync_mode="FULL_SYNC",  # Was fetch_remote_members=True
         )
 
         self.assertTrue(success)
