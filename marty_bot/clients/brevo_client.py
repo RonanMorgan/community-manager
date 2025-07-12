@@ -41,18 +41,18 @@ class BrevoClient:
             logging.error(f"Brevo API JSON Decode Error for {method.upper()} {url}: {e}")
             return 500, {"error": f"JSON decode error: {e}"}
 
-    def get_lists(self, list_name: Optional[str] = None) -> list[dict] | dict | None:
+    def get_lists(self, name: Optional[str] = None) -> list[dict] | None:
         """
-        Retrieves lists from Brevo. If a list_name is provided, it returns a single list object.
-        If no list_name is provided, it returns all lists.
+        Retrieves lists from Brevo. If a name is provided, it returns a list containing the single matching list object.
+        If no name is provided, it returns all lists.
         """
-        if list_name:
-            logging.info(f"Attempting to find Brevo list with name: '{list_name}'")
+        if name:
+            logging.info(f"Attempting to find Brevo list with name: '{name}'")
         else:
             logging.info("Fetching all Brevo lists...")
 
         all_lists = []
-        processed_list_name = list_name.strip().lower() if list_name else None
+        processed_list_name = name.strip().lower() if name else None
         limit = 50
         offset = 0
 
@@ -66,8 +66,8 @@ class BrevoClient:
                 if processed_list_name:
                     for lst in lists_on_page:
                         if lst.get("name", "").strip().lower() == processed_list_name:
-                            logging.info(f"Found Brevo list '{list_name}' with ID {lst['id']}.")
-                            return lst
+                            logging.info(f"Found Brevo list '{name}' with ID {lst['id']}.")
+                            return [lst]
                 else:
                     all_lists.extend(lists_on_page)
 
@@ -78,9 +78,9 @@ class BrevoClient:
                 logging.error(f"Failed to fetch Brevo lists at offset {offset}. Status: {status_code}, Response: {data}")
                 return None
 
-        if list_name:
-            logging.info(f"Brevo list '{list_name}' not found after checking all pages.")
-            return None
+        if name:
+            logging.info(f"Brevo list '{name}' not found after checking all pages.")
+            return []
 
         logging.info(f"Successfully fetched {len(all_lists)} Brevo lists.")
         return all_lists
@@ -101,7 +101,8 @@ class BrevoClient:
             return self.get_list_by_id(data["id"])
         elif status_code == 400 and data and "code" in data and data["code"] == "duplicate_parameter":
             logging.warning(f"Brevo list '{list_name}' already exists. Attempting to fetch it.")
-            return self.get_lists(list_name=list_name)
+            lists = self.get_lists(name=list_name)
+            return lists[0] if lists else None
         else:
             logging.error(f"Failed to create Brevo list '{list_name}'. Status: {status_code}, Response: {data}")
             return None

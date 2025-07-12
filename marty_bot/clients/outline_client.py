@@ -31,8 +31,11 @@ class OutlineClient:
         """
         # 1. Check if collection already exists
         existing_collection = self.list_collections(name=project_name)
-        if existing_collection:
-            return existing_collection  # Return the existing collection object
+        if existing_collection is not None:
+            if existing_collection:
+                return existing_collection  # Return the existing collection object
+        else: # API call failed
+            return None
 
         # 2. If not found (and no error during check), try to create it
         create_api_url = f"{self.base_url}/api/collections.create"

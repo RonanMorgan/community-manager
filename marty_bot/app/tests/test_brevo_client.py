@@ -69,10 +69,10 @@ class TestBrevoClient(unittest.TestCase):
         mock_response_data = {"lists": [{"id": list_id, "name": list_name}]}
         mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
-        result = self.client.get_lists(list_name=list_name)
+        result = self.client.get_lists(name=list_name)
         self.assertIsNotNone(result)
-        self.assertEqual(result["id"], list_id)
-        self.assertEqual(result["name"], list_name)
+        self.assertEqual(result[0]["id"], list_id)
+        self.assertEqual(result[0]["name"], list_name)
         mock_request.assert_called_once_with(
             "GET",
             f"{FAKE_API_URL}/contacts/lists",
@@ -91,15 +91,15 @@ class TestBrevoClient(unittest.TestCase):
             mock_brevo_response(200, json_data={"lists": []}) # End of lists
         ]
 
-        result = self.client.get_lists(list_name=list_name)
-        self.assertIsNone(result)
+        result = self.client.get_lists(name=list_name)
+        self.assertEqual(result, [])
         self.assertEqual(mock_request.call_count, 2)
 
     @patch("requests.request")
     def test_get_lists_by_name_api_error(self, mock_request):
         """Test retrieving lists when API returns an error."""
         mock_request.return_value = mock_brevo_response(500, json_data={"error": "Server Error"})
-        result = self.client.get_lists(list_name="Any List")
+        result = self.client.get_lists(name="Any List")
         self.assertIsNone(result)
 
     @patch("requests.request")
