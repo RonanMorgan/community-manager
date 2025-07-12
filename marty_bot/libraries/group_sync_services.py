@@ -1465,7 +1465,8 @@ def _sync_single_brevo_list(
         return results
 
     # 1. Get or Create the Brevo list
-    brevo_list_obj = brevo_client.get_list_by_name(brevo_list_name)
+    brevo_lists = brevo_client.get_lists(name=brevo_list_name)
+    brevo_list_obj = brevo_lists[0] if brevo_lists else None
     if not brevo_list_obj:
         brevo_list_obj = brevo_client.create_list(brevo_list_name)
         if not brevo_list_obj:
@@ -1948,7 +1949,7 @@ async def _sync_entity_permissions_tools_to_mm(
 
     elif service_name == "BREVO":
         brevo_client = service_client
-        all_lists = brevo_client.get_all_lists()
+        all_lists = brevo_client.get_lists() # Changed from get_all_lists
         if not all_lists:
             logging.warning("TOOLS_TO_MM: No Brevo lists found to sync.")
             return results
