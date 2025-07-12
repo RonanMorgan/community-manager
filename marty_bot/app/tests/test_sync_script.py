@@ -15,7 +15,7 @@ from clients.brevo_client import BrevoClient
 from clients.nocodb_client import NocoDBClient
 from clients.vaultwarden_client import VaultwardenClient  # Added
 
-import asyncio # For async_test helper
+import asyncio  # For async_test helper
 
 # Functions/modules to be tested
 import scripts.sync_mm_authentik_groups as script_module
@@ -25,11 +25,14 @@ from libraries.group_sync_services import (
     # sync_entity_permissions removed as it's not directly used by these tests after refactor
 )
 
+
 # Helper to run async test methods (copied from test_bot.py)
 def async_test(f):
     def wrapper(*args, **kwargs):
         asyncio.run(f(*args, **kwargs))
+
     return wrapper
+
 
 class TestSyncLogic(unittest.TestCase):
 
@@ -150,7 +153,7 @@ class TestSyncLogic(unittest.TestCase):
     @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
-    @async_test # Added decorator
+    @async_test  # Added decorator
     async def test_library_orchestrate_sync_success_all_clients(
         self, mock_lib_config, mock_get_groups_map, mock_sync_entity_permissions
     ):
@@ -234,7 +237,7 @@ class TestSyncLogic(unittest.TestCase):
     @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
-    @async_test # Added decorator
+    @async_test  # Added decorator
     async def test_library_orchestrate_sync_success_outline_client_none(
         self, mock_lib_config, mock_get_groups_map, mock_sync_entity_permissions
     ):
@@ -287,7 +290,7 @@ class TestSyncLogic(unittest.TestCase):
 
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
-    @async_test # Added decorator
+    @async_test  # Added decorator
     async def test_library_orchestrate_sync_no_groups_found(self, mock_lib_config, mock_get_groups_map):
         mock_auth_client = MagicMock(spec=AuthentikClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
@@ -314,7 +317,7 @@ class TestSyncLogic(unittest.TestCase):
     # This test needs to be wrapped if it's to be run by unittest's default discovery with async methods
     # For pytest, @pytest.mark.asyncio would be used, or a helper like async_test from test_bot.py
     # Let's assume an async_test wrapper is available or this will be run with pytest-asyncio
-    @async_test # Added decorator
+    @async_test  # Added decorator
     async def test_library_orchestrate_sync_core_clients_missing(self):
         mock_outline_client = MagicMock(spec=OutlineClient)
 
@@ -367,8 +370,9 @@ class TestSyncLogic(unittest.TestCase):
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
     @patch(
         "scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock
-    )  # Use AsyncMock
-    async def test_script_main_sync_logic_orchestration(  # Added async
+    )
+    @async_test
+    async def test_script_main_sync_logic_orchestration(
         self, mock_orchestrate_lib, mock_script_init_clients, mock_script_config
     ):
         mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
@@ -406,41 +410,16 @@ class TestSyncLogic(unittest.TestCase):
             skip_services=None,  # Default from script
         )
 
-    @patch("scripts.sync_mm_authentik_groups.config")
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
     @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
-    @async_test # Added decorator
-    async def test_script_main_sync_logic_orchestration(
-        self, mock_orchestrate_lib, mock_script_init_clients, mock_script_config
-    ):
-        mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
-        mock_script_config.OUTLINE_URL = None
-        mock_script_config.OUTLINE_TOKEN = None
-        mock_script_config.BREVO_API_URL = None
-        mock_script_config.BREVO_API_KEY = None
-        mock_script_config.NOCODB_URL = None
-        mock_script_config.NOCODB_TOKEN = None
-        mock_script_init_clients.return_value = (
-            None,
-            MagicMock(spec=MattermostClient),
-            None,
-            None,
-            None,
-            None,
-        )
-        await script_module.main_sync_logic()  # Added await
-        mock_orchestrate_lib.assert_not_called()
-
-    @patch("scripts.sync_mm_authentik_groups.config")
-    @patch("scripts.sync_mm_authentik_groups.initialize_clients")
-    @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
-    @async_test # Added decorator
+    @async_test
     async def test_script_main_sync_logic_init_auth_fails(
-        self, mock_orchestrate_lib, mock_script_init_clients, mock_script_config
+        self, mock_orchestrate_lib, mock_script_init_clients
     ):
-        mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
-        mock_script_config.OUTLINE_URL = None
-        mock_script_config.OUTLINE_TOKEN = None
+        with patch("scripts.sync_mm_authentik_groups.config") as mock_script_config:
+            mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
+            mock_script_config.OUTLINE_URL = None
+            mock_script_config.OUTLINE_TOKEN = None
         mock_script_config.BREVO_API_URL = None
         mock_script_config.BREVO_API_KEY = None
         mock_script_config.NOCODB_URL = None
@@ -459,8 +438,8 @@ class TestSyncLogic(unittest.TestCase):
     @patch("scripts.sync_mm_authentik_groups.config")
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
     @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
-    @async_test # Added decorator
-    async def test_script_main_sync_logic_no_team_id( # Corrected function name
+    @async_test  # Added decorator
+    async def test_script_main_sync_logic_no_team_id(  # Corrected function name
         self, mock_orchestrate_lib, mock_script_init_clients, mock_script_config
     ):
         mock_script_config.MATTERMOST_TEAM_ID = None

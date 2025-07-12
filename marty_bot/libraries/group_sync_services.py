@@ -347,6 +347,62 @@ def sync_entity_permissions(
     return results
 
 
+def _get_mm_users_for_entity(
+    mattermost_client: "MattermostClient",
+    mm_team_id: str,
+    base_name: str,
+    entity_config: dict,
+) -> tuple[dict, list, list]:  # Returns mm_users_for_services, std_mm_users, adm_mm_users
+    """
+    Fetches Mattermost users for a given entity, from both standard and admin channels.
+    Returns a consolidated dictionary of users with their admin status, and separate lists for std/admin channel users.
+    """
+    std_config = entity_config.get("standard", {})
+    admin_config = entity_config.get("admin")
+
+    std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(base_name=base_name)
+    std_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(std_mm_channel_name))
+    std_mm_users_in_channel = []
+    if std_mm_channel:
+        std_mm_users_in_channel = mattermost_client.get_users_in_channel(std_mm_channel["id"])
+    else:
+        logging.warning(f"Mattermost channel '{std_mm_channel_name}' for entity '{base_name}' not found.")
+
+    adm_mm_users_in_channel = []
+    if admin_config:
+        adm_mm_channel_name = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin").format(
+            base_name=base_name
+        )
+        adm_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(adm_mm_channel_name))
+        if adm_mm_channel:
+            adm_mm_users_in_channel = mattermost_client.get_users_in_channel(adm_mm_channel["id"])
+        else:
+            logging.warning(f"Mattermost admin channel '{adm_mm_channel_name}' for entity '{base_name}' not found.")
+
+    mm_users_for_services = {}
+    for mm_user in std_mm_users_in_channel:
+        email = mm_user.get("email", "").lower()
+        if email:
+            mm_users_for_services[email] = {
+                "username": mm_user.get("username"),
+                "mm_user_id": mm_user.get("id"),
+                "is_admin_channel_member": False,
+            }
+
+    if admin_config:
+        for mm_user in adm_mm_users_in_channel:
+            email = mm_user.get("email", "").lower()
+            if email:
+                existing_data = mm_users_for_services.get(email, {})
+                mm_users_for_services[email] = {
+                    "username": mm_user.get("username", existing_data.get("username")),
+                    "mm_user_id": mm_user.get("id", existing_data.get("mm_user_id")),
+                    "is_admin_channel_member": True,
+                }
+
+    return mm_users_for_services, std_mm_users_in_channel, adm_mm_users_in_channel
+
+
 def _sync_single_nocodb_base(
     nocodb_client: "NocoDBClient",
     mattermost_client: "MattermostClient",  # Added MattermostClient for DMs
@@ -1730,16 +1786,212 @@ async def _sync_entity_permissions_tools_to_mm(
     #       - Reuse/create helper functions for adding/removing users from tool resources.
 
     # This is a complex part that will be built out.
-    # For now, returning an empty list.
-    results.append(
-        {
-            "service": service_name.upper(),
-            "target_resource_name": "N/A_IMPLEMENTATION_PENDING",
-            "status": "SKIPPED",
-            "action": "TOOLS_TO_MM_NOT_IMPLEMENTED",
-            "error_message": f"TOOLS_TO_MM sync logic for {service_name} is pending.",
-        }
-    )
+    if service_name == "AUTHENTIK":
+        authentik_client = service_client
+        all_auth_groups, _ = authentik_client.get_groups_with_users()
+        if not all_auth_groups:
+            logging.warning("TOOLS_TO_MM: No Authentik groups found to sync.")
+            return results
+
+        for group in all_auth_groups:
+            entity_key, base_name = _map_auth_group_to_entity_and_base_name(group.get("name"), permissions_matrix)
+            if not entity_key or not base_name:
+                logging.debug(
+                    f"TOOLS_TO_MM: Authentik group '{group.get('name')}' did not map to an entity. Skipping."
+                )
+                continue
+
+            logging.info(
+                f"TOOLS_TO_MM: Processing Authentik group '{group.get('name')}' for entity '{base_name}' ({entity_key})"
+            )
+            entity_config = permissions_matrix.get(entity_key, {})
+
+            # Determine if the current Authentik group is an admin or standard group
+            # This heuristic is simple and relies on naming convention. A more robust way would be to check against both patterns.
+            admin_cfg = entity_config.get("admin", {})
+            is_admin_group = False
+            if admin_cfg and _extract_base_name(group.get("name"), admin_cfg.get("authentik_group_name_pattern", "")):
+                is_admin_group = True
+
+            _, std_mm_users, adm_mm_users = _get_mm_users_for_entity(
+                mattermost_client, mm_team_id, base_name, entity_config
+            )
+
+            mm_users_for_this_group = adm_mm_users if is_admin_group else std_mm_users
+
+            # Re-use the existing sync function which contains the comparison logic.
+            # This function will now enforce that the authentik group membership matches the corresponding MM channel membership.
+            sync_results = _sync_single_authentik_group(
+                authentik_client=authentik_client,
+                auth_group_obj=group,
+                mm_users_in_corresponding_channel=mm_users_for_this_group,
+                email_to_authentik_user_pk_map=email_to_authentik_user_pk_map,
+                mm_channel_display_name_for_log=f"{base_name} (Admin)" if is_admin_group else base_name,
+                perform_deletions=perform_deletions,  # This will be True for TOOLS_TO_MM mode
+            )
+            results.extend(sync_results)
+
+    elif service_name == "OUTLINE":
+        outline_client = service_client
+        # Assuming an `list_collections` method exists on the client.
+        # This might need to be implemented in the OutlineClient.
+        try:
+            all_collections = outline_client.list_collections()
+            if not all_collections:
+                logging.warning("TOOLS_TO_MM: No Outline collections found to sync.")
+                return results
+        except (AttributeError, NotImplementedError):
+            logging.error(
+                "TOOLS_TO_MM: `outline_client.list_collections()` method not implemented. Skipping Outline sync."
+            )
+            results.append(
+                {
+                    "service": "OUTLINE",
+                    "target_resource_name": "N/A",
+                    "status": "FAILURE",
+                    "action": "LIST_COLLECTIONS_NOT_IMPLEMENTED",
+                    "error_message": "Client has no 'list_collections' method.",
+                }
+            )
+            return results
+
+        for collection in all_collections:
+            collection_name = collection.get("name")
+            entity_key, base_name = _map_outline_collection_to_entity_and_base_name(
+                collection_name, permissions_matrix
+            )
+
+            if not entity_key or not base_name:
+                logging.debug(
+                    f"TOOLS_TO_MM: Outline collection '{collection_name}' did not map to an entity. Skipping."
+                )
+                continue
+
+            logging.info(
+                f"TOOLS_TO_MM: Processing Outline collection '{collection_name}' for entity '{base_name}' ({entity_key})"
+            )
+            entity_config = permissions_matrix.get(entity_key, {})
+            outline_cfg = entity_config.get("outline", {})
+            default_permission = outline_cfg.get("default_access", "read")
+            admin_permission = outline_cfg.get("admin_access", "read_write")
+
+            mm_users_for_services, _, _ = _get_mm_users_for_entity(
+                mattermost_client, mm_team_id, base_name, entity_config
+            )
+
+            sync_results = _sync_single_outline_collection(
+                outline_client=outline_client,
+                mattermost_client=mattermost_client,
+                collection_name=collection_name,
+                mm_users_for_permission=mm_users_for_services,
+                default_permission=default_permission,
+                admin_permission=admin_permission,
+                mm_channel_context_name=base_name,  # Simplified context name
+                perform_deletions=perform_deletions,
+            )
+            results.extend(sync_results)
+
+    elif service_name == "NOCODB":
+        nocodb_client = service_client
+        try:
+            all_bases = nocodb_client.list_bases()
+            if not all_bases:
+                logging.warning("TOOLS_TO_MM: No NoCoDB bases found to sync.")
+                return results
+        except (AttributeError, NotImplementedError):
+            logging.error("TOOLS_TO_MM: `nocodb_client.list_bases()` method not implemented. Skipping NoCoDB sync.")
+            results.append(
+                {
+                    "service": "NOCODB",
+                    "target_resource_name": "N/A",
+                    "status": "FAILURE",
+                    "action": "LIST_BASES_NOT_IMPLEMENTED",
+                    "error_message": "Client has no 'list_bases' method.",
+                }
+            )
+            return results
+
+        for base in all_bases:
+            base_title = base.get("title")
+            entity_key, base_name = _map_nocodb_base_to_entity_and_base_name(base_title, permissions_matrix)
+
+            if not entity_key or not base_name:
+                logging.debug(f"TOOLS_TO_MM: NoCoDB base '{base_title}' did not map to an entity. Skipping.")
+                continue
+
+            logging.info(f"TOOLS_TO_MM: Processing NoCoDB base '{base_title}' for entity '{base_name}' ({entity_key})")
+            entity_config = permissions_matrix.get(entity_key, {})
+            nocodb_cfg = entity_config.get("nocodb", {})
+            default_permission = nocodb_cfg.get("default_access", "viewer")
+            admin_permission = nocodb_cfg.get("admin_access", "owner")
+
+            # For NoCoDB, permissions depend on both std and admin channels
+            mm_users_for_services, _, _ = _get_mm_users_for_entity(
+                mattermost_client, mm_team_id, base_name, entity_config
+            )
+
+            # We need to pass the base_title_pattern to _sync_single_nocodb_base
+            base_title_pattern = nocodb_cfg.get("base_title_pattern", "nocodb_{base_name}")
+
+            sync_results = _sync_single_nocodb_base(
+                nocodb_client=nocodb_client,
+                mattermost_client=mattermost_client,
+                base_title_pattern=base_title_pattern,
+                entity_base_name=base_name,
+                mm_users_for_permission=mm_users_for_services,
+                default_permission=default_permission,
+                admin_permission=admin_permission,
+                mm_channel_context_name=base_name,  # Simplified context
+                perform_deletions=perform_deletions,
+            )
+            results.extend(sync_results)
+
+    elif service_name == "BREVO":
+        brevo_client = service_client
+        all_lists = brevo_client.get_all_lists()
+        if not all_lists:
+            logging.warning("TOOLS_TO_MM: No Brevo lists found to sync.")
+            return results
+
+        for brevo_list in all_lists:
+            list_name = brevo_list.get("name")
+            entity_key, base_name = _map_brevo_list_to_entity_and_base_name(list_name, permissions_matrix)
+            if not entity_key or not base_name:
+                logging.debug(f"TOOLS_TO_MM: Brevo list '{list_name}' did not map to an entity. Skipping.")
+                continue
+
+            logging.info(f"TOOLS_TO_MM: Processing Brevo list '{list_name}' for entity '{base_name}' ({entity_key})")
+            entity_config = permissions_matrix.get(entity_key, {})
+
+            # Brevo sync is tied to the standard channel users
+            _, std_mm_users, _ = _get_mm_users_for_entity(mattermost_client, mm_team_id, base_name, entity_config)
+
+            sync_results = _sync_single_brevo_list(
+                brevo_client=brevo_client,
+                brevo_list_name=list_name,
+                mm_users_in_channel=std_mm_users,
+                mm_channel_display_name_for_log=base_name,  # Simplified context name
+                perform_deletions=perform_deletions,
+            )
+            results.extend(sync_results)
+
+    elif service_name == "VAULTWARDEN":
+        logging.info(
+            "TOOLS_TO_MM: Vaultwarden sync is additive only and does not support user removal based on MM channels. Skipping."
+        )
+        pass  # Explicitly do nothing
+
+    # If no specific logic is implemented for the service yet, or after it runs
+    if not results:
+        results.append(
+            {
+                "service": service_name.upper(),
+                "target_resource_name": "N/A_IMPLEMENTATION_PENDING",
+                "status": "SKIPPED",
+                "action": "TOOLS_TO_MM_NOT_IMPLEMENTED",
+                "error_message": f"TOOLS_TO_MM sync logic for {service_name} is pending.",
+            }
+        )
     return results
 
 
@@ -1772,6 +2024,57 @@ def _map_auth_group_to_entity_and_base_name(
                 # with other admin patterns would yield the same auth_group_name.
                 # For now, this assumes that if it matched an admin pattern above, it was handled.
                 return entity_key, base_name
+    return None, None
+
+
+def _map_outline_collection_to_entity_and_base_name(
+    collection_name: str, permissions_matrix: dict
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Attempts to map an Outline collection name to an entity key and base_name from the PERMISSIONS_MATRIX.
+    """
+    for entity_key, entity_cfg in permissions_matrix.items():
+        outline_cfg = entity_cfg.get("outline")
+        if outline_cfg:
+            pattern = outline_cfg.get("collection_name_pattern")
+            if pattern:
+                base_name = _extract_base_name(collection_name, pattern)
+                if base_name is not None:
+                    return entity_key, base_name
+    return None, None
+
+
+def _map_brevo_list_to_entity_and_base_name(
+    list_name: str, permissions_matrix: dict
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Attempts to map a Brevo list name to an entity key and base_name from the PERMISSIONS_MATRIX.
+    """
+    for entity_key, entity_cfg in permissions_matrix.items():
+        brevo_cfg = entity_cfg.get("brevo")
+        if brevo_cfg:
+            pattern = brevo_cfg.get("list_name_pattern")
+            if pattern:
+                base_name = _extract_base_name(list_name, pattern)
+                if base_name is not None:
+                    return entity_key, base_name
+    return None, None
+
+
+def _map_nocodb_base_to_entity_and_base_name(
+    base_title: str, permissions_matrix: dict
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Attempts to map a NoCoDB base title to an entity key and base_name from the PERMISSIONS_MATRIX.
+    """
+    for entity_key, entity_cfg in permissions_matrix.items():
+        nocodb_cfg = entity_cfg.get("nocodb")
+        if nocodb_cfg:
+            pattern = nocodb_cfg.get("base_title_pattern")
+            if pattern:
+                base_name = _extract_base_name(base_title, pattern)
+                if base_name is not None:
+                    return entity_key, base_name
     return None, None
 
 
