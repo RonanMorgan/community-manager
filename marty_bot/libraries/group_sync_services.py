@@ -335,7 +335,7 @@ def sync_entity_permissions(
                 # mm_users_for_services contains all users from standard and admin channels relevant to this entity
                 # The invite logic in Vaultwarden client uses default permissions, so no specific admin/default distinction needed here.
                 mm_users_for_services,
-                std_mm_channel_name_for_log,  # Context for logging
+                std_mm_channel_context_name,  # Context for logging
             )
         )
     elif vaultwarden_client and not vaultwarden_cfg:
@@ -1571,11 +1571,11 @@ async def orchestrate_group_synchronization(
     nocodb_client: Optional["NocoDBClient"],
     vaultwarden_client: Optional["VaultwardenClient"],
     mm_team_id: str,
-    perform_deletions: bool = True,
     sync_mode: str = "FULL_SYNC",  # MM_TO_TOOLS, TOOLS_TO_MM, FULL_SYNC
     skip_services: list[str] | None = None,
 ) -> tuple[bool, list[dict]]:
     skip_services = skip_services or []
+    perform_deletions = sync_mode in ["TOOLS_TO_MM", "FULL_SYNC"]
     logging.info(
         f"Starting group synchronization task (async)... "
         f"(Perform Deletions: {perform_deletions}, Sync Mode: {sync_mode}, Skip Services: {skip_services})"

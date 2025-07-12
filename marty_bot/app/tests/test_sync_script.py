@@ -194,7 +194,6 @@ class TestSyncLogic(unittest.TestCase):
             nocodb_client=MagicMock(spec=NocoDBClient),
             vaultwarden_client=MagicMock(spec=VaultwardenClient),
             mm_team_id=mock_team_id,
-            perform_deletions=True,
             sync_mode="FULL_SYNC",  # Assuming default test was for full sync (fetch_remote_members=True)
         )
         self.assertTrue(success)
@@ -266,7 +265,6 @@ class TestSyncLogic(unittest.TestCase):
             nocodb_client=MagicMock(spec=NocoDBClient),
             vaultwarden_client=MagicMock(spec=VaultwardenClient),
             mm_team_id=mock_team_id,
-            perform_deletions=True,
             sync_mode="FULL_SYNC",  # Assuming default test was for full sync
         )
         self.assertTrue(success)
@@ -307,7 +305,6 @@ class TestSyncLogic(unittest.TestCase):
             nocodb_client=MagicMock(spec=NocoDBClient),
             vaultwarden_client=MagicMock(spec=VaultwardenClient),
             mm_team_id=mock_team_id,
-            perform_deletions=True,
             sync_mode="FULL_SYNC",  # Assuming default test was for full sync
         )
         self.assertTrue(success)
@@ -330,7 +327,6 @@ class TestSyncLogic(unittest.TestCase):
             nocodb_client=MagicMock(spec=NocoDBClient),
             vaultwarden_client=MagicMock(spec=VaultwardenClient),
             mm_team_id="team_id",
-            perform_deletions=True,
             sync_mode="FULL_SYNC",
         )
         self.assertTrue(success_auth)
@@ -345,7 +341,6 @@ class TestSyncLogic(unittest.TestCase):
             nocodb_client=MagicMock(spec=NocoDBClient),
             vaultwarden_client=MagicMock(spec=VaultwardenClient),
             mm_team_id="team_id",
-            perform_deletions=True,
             sync_mode="FULL_SYNC",
         )
         self.assertFalse(success_mm)
@@ -360,7 +355,6 @@ class TestSyncLogic(unittest.TestCase):
             nocodb_client=MagicMock(spec=NocoDBClient),
             vaultwarden_client=MagicMock(spec=VaultwardenClient),
             mm_team_id=None,
-            perform_deletions=True,
             sync_mode="FULL_SYNC",
         )
         self.assertFalse(success_team)
@@ -405,7 +399,6 @@ class TestSyncLogic(unittest.TestCase):
             nocodb_client=None,
             vaultwarden_client=None,
             mm_team_id="script_team_id",
-            perform_deletions=True,  # Default from script
             sync_mode="FULL_SYNC",  # Default from script
             skip_services=None,  # Default from script
         )
