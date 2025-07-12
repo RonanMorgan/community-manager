@@ -806,7 +806,6 @@ class MartyBot:
                 nocodb_client=self.nocodb_client,
                 vaultwarden_client=self.vaultwarden_client,
                 mm_team_id=self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=False,  # MM_TO_TOOLS with perform_deletions=False is upsert
                 sync_mode="MM_TO_TOOLS",
                 skip_services=None,
             )
