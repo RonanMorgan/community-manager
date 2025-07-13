@@ -34,7 +34,7 @@ class OutlineClient:
         if existing_collection is not None:
             if existing_collection:
                 return existing_collection  # Return the existing collection object
-        else: # API call failed
+        else:
             return None
 
         # 2. If not found (and no error during check), try to create it
@@ -152,7 +152,7 @@ class OutlineClient:
                         return collections[0]
                     else:
                         logging.info(f"Outline collection named '{name}' not found after checking all collections.")
-                        return None
+                        return []
                 else:
                     all_collections.extend(collections)
 

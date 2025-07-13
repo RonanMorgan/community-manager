@@ -36,14 +36,14 @@ class TestOutlineClient(unittest.TestCase):
         mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 100, "total":0}}
 
         # Mock for collections.create (second call)
-        expected_collection_data = {"id": "collection_id_123", "name": "new_project"}
+        project_name = "new_project"
+        expected_collection_data = {"id": "collection_id_123", "name": project_name}
         mock_create_response = Mock()
         mock_create_response.status_code = 200
         mock_create_response.json.return_value = {"data": expected_collection_data}
 
         mock_post_request.side_effect = [mock_list_response, mock_create_response]
-
-        project_name = "new_project"
+        
         result = self.client.create_group(project_name)
         self.assertEqual(result, expected_collection_data)
 
@@ -77,9 +77,9 @@ class TestOutlineClient(unittest.TestCase):
 
     @patch("requests.post")
     def test_create_group_failure_during_list_check(self, mock_post_request):
-        mock_post_request.side_effect = requests.exceptions.RequestException("Network error during list")
-
         project_name = "project_list_fail"
+        mock_post_request.side_effect = requests.exceptions.RequestException(f"Request failed while fetching Outline collections: {project_name}")
+
         result = self.client.create_group(project_name)
         self.assertIsNone(result)
         self.assertEqual(mock_post_request.call_count, 1)
@@ -147,7 +147,7 @@ class TestOutlineClient(unittest.TestCase):
     def test_list_collections_not_found(self, mock_post):
         mock_post.return_value = Mock(status_code=200, json=lambda: {"data": [], "pagination": {"limit": 25, "offset": 0, "total": 0}})
         collection = self.client.list_collections(name="Non-Existent Collection")
-        self.assertIsNone(collection)
+        self.assertEqual(collection,[])
 
     @patch("requests.post")
     def test_list_collections_http_error(self, mock_post):
