@@ -1,5 +1,6 @@
 import requests
 import logging
+from typing import Optional
 
 
 class BrevoClient:
@@ -40,61 +41,49 @@ class BrevoClient:
             logging.error(f"Brevo API JSON Decode Error for {method.upper()} {url}: {e}")
             return 500, {"error": f"JSON decode error: {e}"}
 
-    def get_list_by_name(self, list_name: str) -> dict | None:
+    def get_lists(self, name: Optional[str] = None) -> list[dict] | None:
         """
-        Retrieves a list by its name, handling pagination and case-insensitive comparison.
+        Retrieves lists from Brevo. If a name is provided, it returns a list containing the single matching list object.
+        If no name is provided, it returns all lists.
         """
-        logging.info(f"Attempting to find Brevo list with name: '{list_name}' (case-insensitive, pagination aware)")
+        if name:
+            logging.info(f"Attempting to find Brevo list with name: '{name}'")
+        else:
+            logging.info("Fetching all Brevo lists...")
 
-        processed_list_name = list_name.strip().lower()
-        limit = 50  # Default limit, adjust if needed or make configurable
+        all_lists = []
+        processed_list_name = name.strip().lower() if name else None
+        limit = 50
         offset = 0
-        # total_lists = None # Not used as Brevo API might not provide total count easily
 
         while True:
             params = {"limit": limit, "offset": offset}
             status_code, data = self._make_request("GET", "contacts/lists", params=params)
 
             if status_code == 200 and data and "lists" in data:
-                # if total_lists is None: # Initialize total_lists on first successful call
-                #     total_lists = data.get("count", 0) # Assuming 'count' holds total lists; this may vary by API
-
                 lists_on_page = data["lists"]
-                for lst in lists_on_page:
-                    current_list_name = lst.get("name", "").strip().lower()
-                    if current_list_name == processed_list_name:
-                        log_msg = (
-                            f"Found Brevo list '{list_name}' (matched as '{current_list_name}') "
-                            f"with ID {lst['id']}."
-                        )
-                        logging.info(log_msg)
-                        return lst
 
-                if len(lists_on_page) < limit:  # Reached the end of all lists
-                    log_msg = (
-                        f"Brevo list '{list_name}' not found after checking all pages "
-                        f"(last page had {len(lists_on_page)} items)."
-                    )
-                    logging.info(log_msg)
-                    return None
+                if processed_list_name:
+                    for lst in lists_on_page:
+                        if lst.get("name", "").strip().lower() == processed_list_name:
+                            logging.info(f"Found Brevo list '{name}' with ID {lst['id']}.")
+                            return [lst]
+                else:
+                    all_lists.extend(lists_on_page)
 
-                offset += len(lists_on_page)
-                # if offset >= total_lists and total_lists > 0: # Alternative end condition if total_lists is known and reliable
-                #     logging.info(f"Brevo list '{list_name}' not found after checking all {total_lists} lists.")
-                #     return None
-                if (
-                    not lists_on_page
-                ):  # Safeguard if API returns empty list before len(lists_on_page) < limit condition met (e.g. offset out of bounds)
-                    log_msg = f"Brevo list '{list_name}' not found (empty page returned, offset {offset})."
-                    logging.info(log_msg)
-                    return None
+                if len(lists_on_page) < limit:
+                    break
+                offset += limit
             else:
-                log_msg = (
-                    f"Could not retrieve lists from Brevo or data format unexpected. "
-                    f"Status: {status_code}, Offset: {offset}"
-                )
-                logging.warning(log_msg)
-                return None  # Error during API call
+                logging.error(f"Failed to fetch Brevo lists at offset {offset}. Status: {status_code}, Response: {data}")
+                return None
+
+        if name:
+            logging.info(f"Brevo list '{name}' not found after checking all pages.")
+            return []
+
+        logging.info(f"Successfully fetched {len(all_lists)} Brevo lists.")
+        return all_lists
 
     def create_list(self, list_name: str, folder_id: int = 1) -> dict | None:
         """
@@ -112,7 +101,8 @@ class BrevoClient:
             return self.get_list_by_id(data["id"])
         elif status_code == 400 and data and "code" in data and data["code"] == "duplicate_parameter":
             logging.warning(f"Brevo list '{list_name}' already exists. Attempting to fetch it.")
-            return self.get_list_by_name(list_name)
+            lists = self.get_lists(name=list_name)
+            return lists[0] if lists else None
         else:
             logging.error(f"Failed to create Brevo list '{list_name}'. Status: {status_code}, Response: {data}")
             return None
@@ -125,6 +115,35 @@ class BrevoClient:
             return data
         logging.warning(f"Could not retrieve list with ID {list_id}. Status: {status_code}")
         return None
+
+    def get_all_lists(self) -> list[dict] | None:
+        """
+        Retrieves all contact lists, handling pagination.
+        Returns a list of list objects or None on failure.
+        """
+        logging.info("Fetching all Brevo lists...")
+        all_lists = []
+        limit = 50
+        offset = 0
+
+        while True:
+            params = {"limit": limit, "offset": offset}
+            status_code, data = self._make_request("GET", "contacts/lists", params=params)
+
+            if status_code == 200 and data and "lists" in data:
+                page_lists = data["lists"]
+                if not page_lists:
+                    break
+                all_lists.extend(page_lists)
+                offset += len(page_lists)
+                if len(page_lists) < limit:
+                    break
+            else:
+                logging.error(f"Failed to fetch Brevo lists at offset {offset}. Status: {status_code}, Response: {data}")
+                return None
+
+        logging.info(f"Successfully fetched {len(all_lists)} Brevo lists.")
+        return all_lists
 
     def add_contact_to_list(
         self, email: str, list_id: int, attributes: dict = None, update_enabled: bool = True

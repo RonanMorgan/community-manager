@@ -102,7 +102,7 @@ def initialize_clients():
     return auth_client, mm_client, outline_client, brevo_client, nocodb_client, vaultwarden_client
 
 
-def main_sync_logic():
+async def main_sync_logic():  # Changed to async
     logging.info(
         "Attempting to run Mattermost to Authentik, Outline, Brevo, NocoDB, & Vaultwarden group synchronization via script..."
     )
@@ -111,8 +111,8 @@ def main_sync_logic():
         initialize_clients()
     )
 
-    if not authentik_client:
-        logging.critical("Authentik client not initialized in script. Aborting sync.")
+    if not authentik_client:  # Keeping Authentik mandatory for FULL_SYNC mode often initiated by script
+        logging.critical("Authentik client not initialized in script. Aborting FULL_SYNC.")
         return
     if not mattermost_client:
         logging.critical("Mattermost client not initialized in script. Aborting sync.")
@@ -121,36 +121,40 @@ def main_sync_logic():
         logging.critical("MATTERMOST_TEAM_ID not configured in script. Aborting sync.")
         return
 
-    # Optional clients logging already handled in initialize_clients
+    logging.info(
+        "Clients initialized by script. Calling group synchronization function from library (FULL_SYNC mode)..."
+    )
 
-    logging.info("Clients initialized by script. Calling group synchronization function from library...")
-
-    success, detailed_results = orchestrate_group_synchronization(
-        authentik_client,
-        mattermost_client,
-        outline_client,
-        brevo_client,
-        nocodb_client,
-        vaultwarden_client,  # Pass Vaultwarden client
-        config.MATTERMOST_TEAM_ID,
-        # Defaults for perform_deletions=True and fetch_remote_members=True are used from orchestrator
+    success, detailed_results = await orchestrate_group_synchronization(  # Changed to await
+        authentik_client=authentik_client,
+        mattermost_client=mattermost_client,
+        outline_client=outline_client,
+        brevo_client=brevo_client,
+        nocodb_client=nocodb_client,
+        vaultwarden_client=vaultwarden_client,
+        mm_team_id=config.MATTERMOST_TEAM_ID,
+        perform_deletions=True,  # FULL_SYNC typically implies deletions
+        sync_mode="FULL_SYNC",  # Explicitly set sync_mode
+        skip_services=None,  # Can be configured via script arguments in future if needed
     )
 
     if success:
         logging.info(
-            f"Group synchronization process orchestrated by script completed. Success: {success}. Results count: {len(detailed_results)}"
+            f"Group synchronization process (FULL_SYNC) orchestrated by script completed. Success: {success}. Results count: {len(detailed_results)}"
         )
         actions_summary = {}
         for res in detailed_results:
             action = res.get("action", "UNKNOWN_ACTION")
             actions_summary[action] = actions_summary.get(action, 0) + 1
-        if detailed_results:  # Only log summary if there were results
-            logging.info(f"Script run actions summary: {actions_summary}")
+        if detailed_results:
+            logging.info(f"Script run (FULL_SYNC) actions summary: {actions_summary}")
         else:
-            logging.info("Script run completed with no specific actions performed or results reported.")
+            logging.info("Script run (FULL_SYNC) completed with no specific actions performed or results reported.")
     else:
-        logging.error("Synchronization process orchestrated by script encountered errors or failed.")
+        logging.error("Synchronization process (FULL_SYNC) orchestrated by script encountered errors or failed.")
 
 
 if __name__ == "__main__":
-    main_sync_logic()
+    import asyncio
+
+    asyncio.run(main_sync_logic())

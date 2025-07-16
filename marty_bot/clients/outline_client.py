@@ -1,6 +1,7 @@
 import requests
 import json
-import logging  # Added logging
+import logging
+from typing import Optional
 
 # Removed direct import of config
 
@@ -29,17 +30,12 @@ class OutlineClient:
         :return: The collection object (dict with at least 'id' and 'name') if successful/exists, None otherwise.
         """
         # 1. Check if collection already exists
-        try:
-            existing_collection = self.get_collection_by_name(project_name)
+        existing_collection = self.list_collections(name=project_name)
+        if existing_collection is not None:
             if existing_collection:
-                collection_id = existing_collection.get("id")
-                logging.info(
-                    f"Outline collection '{project_name}' (ID: {collection_id}) already exists. Returning existing object."
-                )
                 return existing_collection  # Return the existing collection object
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Outline API >> Error during existence check for collection '{project_name}': {e}")
-            return None  # If we can't check, we can't safely determine existence or create
+        else:
+            return None
 
         # 2. If not found (and no error during check), try to create it
         create_api_url = f"{self.base_url}/api/collections.create"
@@ -121,49 +117,61 @@ class OutlineClient:
             logging.error(f"Error decoding JSON from Outline users.list response for email '{email}': {e}")
             return None
 
-    def get_collection_by_name(self, name: str) -> dict | None:
+    def list_collections(self, name: Optional[str] = None, limit: int = 100) -> list[dict] | dict | None:
         """
-        Retrieves an Outline collection by its exact name.
-        Note: This might be inefficient if there are many collections, as it lists them and filters.
-        :param name: The exact name of the collection to find.
-        :return: A dictionary containing the collection data if found, None otherwise.
+        Retrieves collections from Outline. If a name is provided, it returns a single matching collection object.
+        If no name is provided, it returns all collections.
+        :param name: The exact name of the collection to find (optional).
+        :param limit: The number of items to return per page. Max 100.
+        :return: A list of collection objects or a single collection object, or None on failure.
         """
         api_url = f"{self.base_url}/api/collections.list"
-        limit = 100
+        all_collections = []
         offset = 0
 
-        logging.debug(f"Outline API >> Attempting to find collection by name '{name}'. Listing collections...")
+        if name:
+            logging.debug(f"Outline API >> Attempting to find collection by name '{name}'.")
+        else:
+            logging.info("Outline API >> Listing all collections...")
+
         try:
             while True:
-                payload = {"limit": limit, "offset": offset}
+                payload = {"limit": min(limit, 100), "offset": offset}
+                if name:
+                    payload["query"] = name
                 response = requests.post(api_url, headers=self.headers, json=payload)
                 response.raise_for_status()
                 response_data = response.json()
                 collections = response_data.get("data", [])
+                pagination = response_data.get("pagination", {})
+                total = pagination.get("total", 0)
 
-                for collection in collections:
-                    if collection.get("name") == name:
-                        logging.info(f"Found Outline collection '{name}' (ID: {collection.get('id')}).")
-                        return collection
+                if name:
+                    if collections:
+                        logging.info(f"Found Outline collection '{name}' (ID: {collections[0].get('id')}).")
+                        return collections[0]
+                    else:
+                        logging.info(f"Outline collection named '{name}' not found after checking all collections.")
+                        return []
+                else:
+                    all_collections.extend(collections)
 
-                if not collections or len(collections) < limit:
+                if not collections or len(all_collections) >= total:
                     break
-                offset += limit
 
-            logging.info(f"Outline collection named '{name}' not found after checking all collections.")
-            return None
+                offset += len(all_collections)
+
+
+            logging.info(f"Successfully fetched {len(all_collections)} Outline collections.")
+            return all_collections
         except requests.exceptions.HTTPError as e:
-            logging.error(
-                f"HTTP error fetching Outline collections to find '{name}': {e.response.status_code} - {e.response.text}"  # noqa: E501
-            )
+            logging.error(f"HTTP error fetching Outline collections: {e.response.status_code} - {e.response.text}")
             return None
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request failed while fetching Outline collections to find '{name}': {e}")
+            logging.error(f"Request failed while fetching Outline collections: {e}")
             return None
         except json.JSONDecodeError as e:
-            logging.error(
-                f"Error decoding JSON from Outline collections.list response when searching for '{name}': {e}"  # noqa: E501
-            )
+            logging.error(f"Error decoding JSON from Outline collections.list response: {e}")
             return None
 
     def get_collection_members(self, collection_id: str, limit: int = 100) -> list[str] | None:

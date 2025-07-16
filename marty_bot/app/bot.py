@@ -363,19 +363,20 @@ class MartyBot:
             )
 
         try:
-            logging.info("Dispatching group synchronization task (for rights removal) to a thread...")
-            orchestration_success, detailed_results = await asyncio.to_thread(
-                orchestrate_group_synchronization,
-                self.authentik_client,
-                self.mattermost_api_client,
-                self.outline_client,
-                self.brevo_client,
-                self.nocodb_client,
-                self.vaultwarden_client,  # Pass Vaultwarden client
-                self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=True,
-                fetch_remote_members=True,
-                skip_services=skip_services_list if skip_services_list else None,  # Pass skip_services
+            logging.info(  # Corrected log message for upsert
+                "Calling 'orchestrate_group_synchronization' with sync_mode='MM_TO_TOOLS' for upsert..."
+            )
+            orchestration_success, detailed_results = await orchestrate_group_synchronization(
+                authentik_client=self.authentik_client,
+                mattermost_client=self.mattermost_api_client,
+                outline_client=self.outline_client,
+                brevo_client=self.brevo_client,
+                nocodb_client=self.nocodb_client,
+                vaultwarden_client=self.vaultwarden_client,
+                mm_team_id=self.config.MATTERMOST_TEAM_ID,
+                perform_deletions=True,  # TOOLS_TO_MM implies deletions based on MM state
+                sync_mode="TOOLS_TO_MM",
+                skip_services=skip_services_list if skip_services_list else None,
             )
 
             if not orchestration_success:
@@ -794,19 +795,20 @@ class MartyBot:
             logging.info("Outline client not configured. Outline operations will be skipped for update_user_rights.")
 
         try:
-            logging.info("Dispatching group synchronization task (upsert mode) to a thread...")
-            orchestration_success, detailed_results = await asyncio.to_thread(
-                orchestrate_group_synchronization,
-                self.authentik_client,
-                self.mattermost_api_client,
-                self.outline_client,
-                self.brevo_client,
-                self.nocodb_client,
-                self.vaultwarden_client,  # Pass Vaultwarden client
-                self.config.MATTERMOST_TEAM_ID,
-                perform_deletions=False,
-                fetch_remote_members=False,
-                skip_services=None,  # Explicitly pass None
+            logging.info(
+                "Calling 'orchestrate_group_synchronization' with sync_mode='TOOLS_TO_MM' for rights removal..."
+            )
+            orchestration_success, detailed_results = await orchestrate_group_synchronization(
+                authentik_client=self.authentik_client,
+                mattermost_client=self.mattermost_api_client,
+                outline_client=self.outline_client,
+                brevo_client=self.brevo_client,
+                nocodb_client=self.nocodb_client,
+                vaultwarden_client=self.vaultwarden_client,
+                mm_team_id=self.config.MATTERMOST_TEAM_ID,
+                perform_deletions=False,  # MM_TO_TOOLS with perform_deletions=False is upsert
+                sync_mode="MM_TO_TOOLS",
+                skip_services=None,
             )
 
             if not orchestration_success:

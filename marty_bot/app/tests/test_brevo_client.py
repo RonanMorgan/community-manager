@@ -62,40 +62,44 @@ class TestBrevoClient(unittest.TestCase):
             BrevoClient(api_url=FAKE_API_URL, api_key="")
 
     @patch("requests.request")
-    def test_get_list_by_name_found(self, mock_request):
+    def test_get_lists_by_name_found(self, mock_request):
         """Test retrieving a list by name when it exists."""
         list_name = "Existing List"
         list_id = 123
         mock_response_data = {"lists": [{"id": list_id, "name": list_name}]}
         mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
-        result = self.client.get_list_by_name(list_name)
+        result = self.client.get_lists(name=list_name)
         self.assertIsNotNone(result)
-        self.assertEqual(result["id"], list_id)
-        self.assertEqual(result["name"], list_name)
+        self.assertEqual(result[0]["id"], list_id)
+        self.assertEqual(result[0]["name"], list_name)
         mock_request.assert_called_once_with(
             "GET",
             f"{FAKE_API_URL}/contacts/lists",
             headers=self.client.headers,
             json=None,
-            params={"limit": 50, "offset": 0},  # Updated params
+            params={"limit": 50, "offset": 0},
         )
 
     @patch("requests.request")
-    def test_get_list_by_name_not_found(self, mock_request):
+    def test_get_lists_by_name_not_found(self, mock_request):
         """Test retrieving a list by name when it does not exist."""
         list_name = "Non Existing List"
-        mock_response_data = {"lists": [{"id": 1, "name": "Another List"}]}
-        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
+        # Simulate pagination where the list is not on the first page
+        mock_request.side_effect = [
+            mock_brevo_response(200, json_data={"lists": [{"id": 1, "name": "Another List"}]*50}),
+            mock_brevo_response(200, json_data={"lists": []}) # End of lists
+        ]
 
-        result = self.client.get_list_by_name(list_name)
-        self.assertIsNone(result)
+        result = self.client.get_lists(name=list_name)
+        self.assertEqual(result, [])
+        self.assertEqual(mock_request.call_count, 2)
 
     @patch("requests.request")
-    def test_get_list_by_name_api_error(self, mock_request):
+    def test_get_lists_by_name_api_error(self, mock_request):
         """Test retrieving lists when API returns an error."""
         mock_request.return_value = mock_brevo_response(500, json_data={"error": "Server Error"})
-        result = self.client.get_list_by_name("Any List")
+        result = self.client.get_lists(name="Any List")
         self.assertIsNone(result)
 
     @patch("requests.request")
@@ -153,11 +157,11 @@ class TestBrevoClient(unittest.TestCase):
         mock_get_existing_response = mock_brevo_response(
             200, json_data={"lists": [{"id": existing_list_id, "name": list_name}]}
         )
-        # If get_list_by_name is called, it might call GET /contacts/lists, then we need another mock for get_list_by_id
-        # The create_list method calls get_list_by_name if duplicate_parameter, which internally calls GET /contacts/lists.
-        # Then, if get_list_by_name returns the list object directly, no further call.
-        # Let's refine create_list to return the object from get_list_by_name directly if found.
-        # Current implementation of create_list calls self.get_list_by_name, which should be fine.
+        # If get_lists is called, it might call GET /contacts/lists, then we need another mock for get_list_by_id
+        # The create_list method calls get_lists if duplicate_parameter, which internally calls GET /contacts/lists.
+        # Then, if get_lists returns the list object directly, no further call.
+        # Let's refine create_list to return the object from get_lists directly if found.
+        # Current implementation of create_list calls self.get_lists, which should be fine.
 
         mock_request.side_effect = [mock_post_duplicate_response, mock_get_existing_response]
 

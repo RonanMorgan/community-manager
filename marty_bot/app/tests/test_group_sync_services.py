@@ -10,6 +10,7 @@ from libraries.group_sync_services import (
     _extract_base_name,
 )
 from app import config as app_config
+import asyncio  # Needed for async_test
 from clients.mattermost_client import MattermostClient, slugify
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
@@ -22,6 +23,14 @@ def reload_config_module():
     import importlib
 
     importlib.reload(app_config)
+
+
+# Helper to run async test methods (copied from test_bot.py)
+def async_test(f):
+    def wrapper(*args, **kwargs):
+        asyncio.run(f(*args, **kwargs))
+
+    return wrapper
 
 
 class TestGroupSyncServices(unittest.TestCase):
@@ -64,7 +73,7 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mock_outline_client.create_group.side_effect = create_outline_coll_side_effect
 
         # Mock Brevo client methods
-        self.mock_brevo_client.get_list_by_name.return_value = None
+        self.mock_brevo_client.get_lists.return_value = None
 
         def create_brevo_list_side_effect(
             name, folder_id=None
@@ -74,8 +83,8 @@ class TestGroupSyncServices(unittest.TestCase):
             # For simplicity here, assume create_list can return a direct object or it's handled.
             new_list_id = f"new_brevo_list_id_for_{slugify(name)}"
             # If create_list calls get_list_by_id, that needs a mock too.
-            # Let's assume get_list_by_name is called first, then create, then (optionally) get_list_by_id.
-            # For this test, let's make create_list directly return what's needed if get_list_by_name was None.
+            # Let's assume get_lists is called first, then create, then (optionally) get_list_by_id.
+            # For this test, let's make create_list directly return what's needed if get_lists was None.
             return {"name": name, "id": new_list_id}
 
         self.mock_brevo_client.create_list.side_effect = create_brevo_list_side_effect
@@ -1238,9 +1247,11 @@ permissions:
     @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
-    def test_orchestrate_sync_fetch_remote_false_discover_via_mm_no_deletions(
+    @async_test  # Added decorator
+    async def test_orchestrate_sync_fetch_remote_false_discover_via_mm_no_deletions(
         self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
     ):
+        # This test will now test sync_mode="MM_TO_TOOLS"
         self.mock_authentik_client.reset_mock()
         self.mock_mattermost_client.reset_mock()
         self.mock_outline_client.reset_mock()
@@ -1286,16 +1297,15 @@ permissions:
         )
         # mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_UPSERT"}] # Not called if no channels
 
-        success, detailed_results = orchestrate_group_synchronization(
-            self.mock_authentik_client,
-            self.mock_mattermost_client,
-            self.mock_outline_client,
-            self.mock_brevo_client,
-            self.mock_nocodb_client,
-            self.mock_vaultwarden_client,
-            mock_team_id,
-            perform_deletions=False,
-            fetch_remote_members=False,
+        success, detailed_results = await orchestrate_group_synchronization(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
+            mm_team_id=mock_team_id,
+            sync_mode="MM_TO_TOOLS",
         )
 
         self.assertTrue(success)
@@ -1308,9 +1318,11 @@ permissions:
     @patch("libraries.group_sync_services.sync_entity_permissions")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
-    def test_orchestrate_sync_fetch_remote_true_discover_via_auth_with_deletions(
+    @async_test  # Added decorator
+    async def test_orchestrate_sync_fetch_remote_true_discover_via_auth_with_deletions(
         self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
     ):
+        # This test will now test sync_mode="FULL_SYNC"
         self.mock_authentik_client.reset_mock()
         self.mock_mattermost_client.reset_mock()
         self.mock_outline_client.reset_mock()
@@ -1354,16 +1366,15 @@ permissions:
         }
         mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_FULL_SYNC"}]
 
-        success, detailed_results = orchestrate_group_synchronization(
-            self.mock_authentik_client,
-            self.mock_mattermost_client,
-            self.mock_outline_client,
-            self.mock_brevo_client,
-            self.mock_nocodb_client,
-            self.mock_vaultwarden_client,
-            mock_team_id,
-            perform_deletions=True,
-            fetch_remote_members=True,
+        success, detailed_results = await orchestrate_group_synchronization(
+            authentik_client=self.mock_authentik_client,
+            mattermost_client=self.mock_mattermost_client,
+            outline_client=self.mock_outline_client,
+            brevo_client=self.mock_brevo_client,
+            nocodb_client=self.mock_nocodb_client,
+            vaultwarden_client=self.mock_vaultwarden_client,
+            mm_team_id=mock_team_id,
+            sync_mode="FULL_SYNC",
         )
 
         self.assertTrue(success)
@@ -1417,7 +1428,7 @@ permissions:
         ]
         mm_channel_name_log = "MMChannelForBrevo1"
 
-        self.mock_brevo_client.get_list_by_name.return_value = None  # List does not exist
+        self.mock_brevo_client.get_lists.return_value = []  # List does not exist
         # Use the ID pattern from the mock_brevo_client.create_list setup
         expected_created_list_id = f"new_brevo_list_id_for_{slugify(brevo_list_name)}"
         created_list_obj_for_test = {"id": expected_created_list_id, "name": brevo_list_name}
@@ -1429,7 +1440,7 @@ permissions:
             self.mock_brevo_client, brevo_list_name, mm_users, mm_channel_name_log, perform_deletions=False
         )
 
-        self.mock_brevo_client.get_list_by_name.assert_called_once_with(brevo_list_name)
+        self.mock_brevo_client.get_lists.assert_called_once_with(name=brevo_list_name)
         self.mock_brevo_client.create_list.assert_called_once_with(brevo_list_name)
         self.assertEqual(self.mock_brevo_client.add_contact_to_list.call_count, 2)
         self.mock_brevo_client.add_contact_to_list.assert_any_call(
@@ -1450,7 +1461,7 @@ permissions:
         mock_lib_config_brevo.EXCLUDED_USERS = set()
         brevo_list_name = "TestBrevoListRemoval"
         existing_list_obj = {"id": "brevo_list_id_456", "name": brevo_list_name}
-        self.mock_brevo_client.get_list_by_name.return_value = existing_list_obj
+        self.mock_brevo_client.get_lists.return_value = [existing_list_obj]
         self.mock_brevo_client.create_list.assert_not_called()  # Should not be called if list exists
 
         mm_users_in_channel = [{"username": "user_stay", "email": "stay@example.com"}]
@@ -1490,68 +1501,36 @@ permissions:
         mock_lib_config_brevo.EXCLUDED_USERS = {excluded_username}
         brevo_list_name = "TestBrevoListExcluded"
         existing_list_obj = {"id": "brevo_list_id_789", "name": brevo_list_name}
-        self.mock_brevo_client.get_list_by_name.return_value = existing_list_obj
+        self.mock_brevo_client.get_lists.return_value = [existing_list_obj]
 
         mm_users_in_channel = [
             {"username": excluded_username, "email": "excluded_brevo@example.com"},
             {"username": "normal_user", "email": "normal@example.com"},
         ]
-        # Assume excluded user is somehow on the Brevo list (e.g. manually added)
-        # brevo_contacts_on_list = [{"email": "excluded_brevo@example.com"}, {"email": "other@example.com"}] # Part of the removed initial call
-        # self.mock_brevo_client.get_contacts_from_list.return_value = brevo_contacts_on_list # Part of the removed initial call
+        # Assume an unmanaged user is on the Brevo list and should be removed.
+        # The excluded user is not on the list and should not be added.
+        brevo_contacts_on_list = [{"email": "unmanaged@example.com"}]
+        self.mock_brevo_client.get_contacts_from_list.return_value = brevo_contacts_on_list
 
-        # results = self.sync_single_brevo_list_helper( # This call and its assertions are removed as 'results' was unused.
-        #     self.mock_brevo_client,
-        #     brevo_list_name,
-        #     mm_users_in_channel,
-        #     "MMChannelForBrevoExcluded",
-        #     perform_deletions=True,
-        # )
-
-        # self.mock_brevo_client.add_contact_to_list.assert_called_once_with( # Part of the removed initial call's assertions
-        #     email="normal@example.com", list_id=existing_list_obj["id"]
-        # )
-        # # 'other@example.com' should be removed as it's not in mm_users_in_channel and not excluded
-        # self.mock_brevo_client.remove_contact_from_list.assert_called_once_with( # Part of the removed initial call's assertions
-        #     email="other@example.com", list_id=existing_list_obj["id"]
-        # )
-
-        # Check that no action was taken for the excluded user's email regarding add/remove from Brevo
-        # The current logic for _sync_single_brevo_list:
-        # - Skips adding excluded users.
-        # - If perform_deletions=True, it calculates emails_to_remove = current_emails_in_brevo_list - target_emails_in_list.
-        #   target_emails_in_list does NOT include excluded users.
-        #   So, if an excluded user is in current_emails_in_brevo_list but not target_emails_in_list, they WILL be removed.
-        # This might need adjustment if excluded users should be preserved on Brevo lists even if not in MM channel.
-        # For now, the test reflects current logic: excluded user in MM channel is skipped for add. If on Brevo list and not in MM target, they are removed.
-        # The prompt said: "members n’auront aucun droit sur cette liste par contre il faut gérer l’ajout des adresses emails et la suppression si la personne quitte le channel Mattermost correspondant."
-        # This implies if an excluded user "quits the channel", their email should be removed.
-        # However, if an excluded user is *never* in the channel but on the list, they'd also be removed.
-        # Let's adjust the test to a clearer scenario: excluded user in MM channel, should not be added.
-        # And an unmanaged user on Brevo list (not in MM, not excluded) should be removed.
-
-        # Reset mocks for a cleaner assertion based on the scenario
-        self.mock_brevo_client.reset_mock()
-        self.mock_brevo_client.get_list_by_name.return_value = existing_list_obj
-        self.mock_brevo_client.get_contacts_from_list.return_value = [
-            {"email": "unmanaged@example.com"}
-        ]  # Only unmanaged user on list
-
-        results_rerun = self.sync_single_brevo_list_helper(
+        results = self.sync_single_brevo_list_helper(
             self.mock_brevo_client,
             brevo_list_name,
             mm_users_in_channel,
             "MMChannelForBrevoExcluded",
             perform_deletions=True,
         )
+
+        # "normal_user" should be added because they are in the MM channel and not excluded.
         self.mock_brevo_client.add_contact_to_list.assert_called_once_with(
             email="normal@example.com", list_id=existing_list_obj["id"]
         )
+        # "unmanaged@example.com" should be removed as it's not in the target MM user list.
         self.mock_brevo_client.remove_contact_from_list.assert_called_once_with(
             email="unmanaged@example.com", list_id=existing_list_obj["id"]
         )
 
-        actions_for_excluded = [r for r in results_rerun if r.get("mm_user_email") == "excluded_brevo@example.com"]
+        # Verify that no action was logged for the excluded user.
+        actions_for_excluded = [r for r in results if r.get("mm_user_email") == "excluded_brevo@example.com"]
         self.assertEqual(
             len(actions_for_excluded),
             0,
@@ -1932,7 +1911,7 @@ permissions:
             "id": "outline_coll_skip_id",
             "name": "outline_coll_skip",
         }
-        self.mock_brevo_client.get_list_by_name.return_value = {"id": "brevo_list_skip_id", "name": "brevo_list_skip"}
+        self.mock_brevo_client.get_lists.return_value = [{"id": "brevo_list_skip_id", "name": "brevo_list_skip"}]
 
         sync_entity_permissions(
             authentik_client=self.mock_authentik_client,
@@ -2077,6 +2056,64 @@ permissions:
         self.assertEqual(results[0]["status"], "FAILURE")
         self.assertEqual(results[0]["action"], "FAILED_TO_INVITE_TO_VW_COLLECTION")
         self.mock_mattermost_client.send_dm.assert_not_called()  # No DM if invite failed
+
+    @patch("libraries.group_sync_services._sync_single_authentik_group")
+    @patch("libraries.group_sync_services._map_auth_group_to_entity_and_base_name")
+    @patch("libraries.group_sync_services._get_mm_users_for_entity")
+    @async_test
+    async def test_sync_entity_permissions_tools_to_mm_authentik(
+        self, mock_get_mm_users, mock_map_group, mock_sync_single_auth_group
+    ):
+        mock_authentik_client = MagicMock(spec=AuthentikClient)
+        mock_mattermost_client = MagicMock(spec=MattermostClient)
+        mock_permissions_matrix = {"PROJET": {"standard": {"authentik_group_name_pattern": "projet_{base_name}"}}}
+
+        mock_auth_group1 = {"name": "projet_Test1", "pk": "pk1"}
+        mock_auth_group2 = {"name": "projet_Test2", "pk": "pk2"}
+        mock_auth_group3 = {"name": "unmapped_group", "pk": "pk3"}
+        mock_authentik_client.get_groups_with_users.return_value = (
+            [mock_auth_group1, mock_auth_group2, mock_auth_group3],
+            {},
+        )
+
+        def map_side_effect(group_name, matrix):
+            if group_name == "projet_Test1":
+                return "PROJET", "Test1"
+            if group_name == "projet_Test2":
+                return "PROJET", "Test2"
+            return None, None
+
+        mock_map_group.side_effect = map_side_effect
+
+        mock_get_mm_users.return_value = ({}, [], [])  # Mock return for mm users
+        mock_sync_single_auth_group.return_value = [{"status": "SUCCESS"}]
+
+        from libraries.group_sync_services import _sync_entity_permissions_tools_to_mm
+
+        results = await _sync_entity_permissions_tools_to_mm(
+            service_client=mock_authentik_client,
+            service_name="AUTHENTIK",
+            mattermost_client=mock_mattermost_client,
+            mm_team_id="test_team",
+            email_to_authentik_user_pk_map={},
+            perform_deletions=True,
+            permissions_matrix=mock_permissions_matrix,
+            skip_services=[],
+        )
+
+        mock_authentik_client.get_groups_with_users.assert_called_once()
+        self.assertEqual(mock_map_group.call_count, 3)
+        self.assertEqual(mock_get_mm_users.call_count, 2)
+        self.assertEqual(mock_sync_single_auth_group.call_count, 2)
+        mock_sync_single_auth_group.assert_any_call(
+            authentik_client=mock_authentik_client,
+            auth_group_obj=mock_auth_group1,
+            mm_users_in_corresponding_channel=[],
+            email_to_authentik_user_pk_map={},
+            mm_channel_display_name_for_log="Test1",
+            perform_deletions=True,
+        )
+        self.assertEqual(len(results), 2)
 
 
 if __name__ == "__main__":
