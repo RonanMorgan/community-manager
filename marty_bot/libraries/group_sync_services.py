@@ -1747,24 +1747,15 @@ async def orchestrate_group_synchronization(
 
 
 async def _sync_entity_permissions_tools_to_mm(
-    service_client: object,  # Specific client, e.g., AuthentikClient, OutlineClient
-    service_name: str,  # e.g., "AUTHENTIK", "OUTLINE"
+    service_client: object,
+    service_name: str,
     mattermost_client: "MattermostClient",
     mm_team_id: str,
-    # base_name: str, # This will likely be determined from the tool's resource
-    # entity_key: str, # This will likely be determined from the tool's resource
-    # entity_config: dict, # This will be derived from entity_key
-    email_to_authentik_user_pk_map: Optional[dict],  # Specific to Authentik
+    email_to_authentik_user_pk_map: Optional[dict],
     perform_deletions: bool,
-    permissions_matrix: dict,  # To map resource names back to entities
+    permissions_matrix: dict,
     skip_services: list[str] | None,
 ) -> list[dict]:
-    """
-    Synchronizes permissions for entities discovered within a specific tool (service)
-    by comparing the tool's user list for a resource against Mattermost channel members.
-    - If a user is in the tool's resource but not the corresponding MM channel, remove from tool.
-    - If a user is in the MM channel but not the tool's resource, add/update in tool.
-    """
     results = []
     logging.info(f"Starting TOOLS_TO_MM sync for service: {service_name}")
 
@@ -1772,21 +1763,6 @@ async def _sync_entity_permissions_tools_to_mm(
         logging.info(f"Skipping {service_name} sync for TOOLS_TO_MM as per skip_services.")
         return results
 
-    # Placeholder: Actual logic for listing resources in the tool,
-    # mapping them to entities, fetching MM users, comparing, and syncing
-    # will be implemented here in subsequent steps.
-    logging.warning(f"TOOLS_TO_MM sync logic for service {service_name} is not yet fully implemented.")
-    # Example of what needs to be done:
-    # 1. List all relevant resources from `service_client` (e.g., all Authentik groups, all Outline collections).
-    # 2. For each resource:
-    #    a. Try to map its name to an entity_key and base_name using permissions_matrix.
-    #    b. If mapped, get the corresponding MM channel(s).
-    #    c. Get users from the tool's resource.
-    #    d. Get users from the MM channel(s).
-    #    e. Compare and sync (add to tool, remove from tool).
-    #       - Reuse/create helper functions for adding/removing users from tool resources.
-
-    # This is a complex part that will be built out.
     if service_name == "AUTHENTIK":
         authentik_client = service_client
         all_auth_groups, _ = authentik_client.get_groups_with_users()
@@ -1834,63 +1810,45 @@ async def _sync_entity_permissions_tools_to_mm(
 
     elif service_name == "OUTLINE":
         outline_client = service_client
-        # Assuming an `list_collections` method exists on the client.
-        # This might need to be implemented in the OutlineClient.
         try:
             all_collections = outline_client.list_collections()
             if not all_collections:
                 logging.warning("TOOLS_TO_MM: No Outline collections found to sync.")
                 return results
         except (AttributeError, NotImplementedError):
-            logging.error(
-                "TOOLS_TO_MM: `outline_client.list_collections()` method not implemented. Skipping Outline sync."
-            )
-            results.append(
-                {
-                    "service": "OUTLINE",
-                    "target_resource_name": "N/A",
-                    "status": "FAILURE",
-                    "action": "LIST_COLLECTIONS_NOT_IMPLEMENTED",
-                    "error_message": "Client has no 'list_collections' method.",
-                }
-            )
+            logging.error("`outline_client.list_collections()` method not implemented. Skipping Outline sync.")
             return results
 
         for collection in all_collections:
             collection_name = collection.get("name")
+            collection_id = collection.get("id")
             entity_key, base_name = _map_outline_collection_to_entity_and_base_name(
                 collection_name, permissions_matrix
             )
 
             if not entity_key or not base_name:
-                logging.debug(
-                    f"TOOLS_TO_MM: Outline collection '{collection_name}' did not map to an entity. Skipping."
-                )
                 continue
 
-            logging.info(
-                f"TOOLS_TO_MM: Processing Outline collection '{collection_name}' for entity '{base_name}' ({entity_key})"
-            )
             entity_config = permissions_matrix.get(entity_key, {})
-            outline_cfg = entity_config.get("outline", {})
-            default_permission = outline_cfg.get("default_access", "read")
-            admin_permission = outline_cfg.get("admin_access", "read_write")
-
             mm_users_for_services, _, _ = _get_mm_users_for_entity(
                 mattermost_client, mm_team_id, base_name, entity_config
             )
+            mm_user_emails = {user["email"].lower() for user in mm_users_for_services.values()}
 
-            sync_results = _sync_single_outline_collection(
-                outline_client=outline_client,
-                mattermost_client=mattermost_client,
-                collection_name=collection_name,
-                mm_users_for_permission=mm_users_for_services,
-                default_permission=default_permission,
-                admin_permission=admin_permission,
-                mm_channel_context_name=base_name,  # Simplified context name
-                perform_deletions=perform_deletions,
-            )
-            results.extend(sync_results)
+            outline_users = outline_client.get_collection_users(collection_id)
+            for user in outline_users:
+                user_email = user.get("email", "").lower()
+                if user_email and user_email not in mm_user_emails:
+                    results.append(
+                        _remove_user_from_outline_collection(
+                            outline_client,
+                            collection_id,
+                            collection_name,
+                            user["id"],
+                            user_email,
+                            base_name,
+                        )
+                    )
 
     elif service_name == "NOCODB":
         nocodb_client = service_client
@@ -1900,99 +1858,46 @@ async def _sync_entity_permissions_tools_to_mm(
                 logging.warning("TOOLS_TO_MM: No NoCoDB bases found to sync.")
                 return results
         except (AttributeError, NotImplementedError):
-            logging.error("TOOLS_TO_MM: `nocodb_client.list_bases()` method not implemented. Skipping NoCoDB sync.")
-            results.append(
-                {
-                    "service": "NOCODB",
-                    "target_resource_name": "N/A",
-                    "status": "FAILURE",
-                    "action": "LIST_BASES_NOT_IMPLEMENTED",
-                    "error_message": "Client has no 'list_bases' method.",
-                }
-            )
+            logging.error("`nocodb_client.list_bases()` method not implemented. Skipping NoCoDB sync.")
             return results
 
         for base in all_bases:
             base_title = base.get("title")
+            base_id = base.get("id")
             entity_key, base_name = _map_nocodb_base_to_entity_and_base_name(base_title, permissions_matrix)
 
             if not entity_key or not base_name:
-                logging.debug(f"TOOLS_TO_MM: NoCoDB base '{base_title}' did not map to an entity. Skipping.")
                 continue
 
-            logging.info(f"TOOLS_TO_MM: Processing NoCoDB base '{base_title}' for entity '{base_name}' ({entity_key})")
             entity_config = permissions_matrix.get(entity_key, {})
-            nocodb_cfg = entity_config.get("nocodb", {})
-            default_permission = nocodb_cfg.get("default_access", "viewer")
-            admin_permission = nocodb_cfg.get("admin_access", "owner")
-
-            # For NoCoDB, permissions depend on both std and admin channels
             mm_users_for_services, _, _ = _get_mm_users_for_entity(
                 mattermost_client, mm_team_id, base_name, entity_config
             )
+            mm_user_emails = {user["email"].lower() for user in mm_users_for_services.values()}
 
-            # We need to pass the base_title_pattern to _sync_single_nocodb_base
-            base_title_pattern = nocodb_cfg.get("base_title_pattern", "nocodb_{base_name}")
-
-            sync_results = _sync_single_nocodb_base(
-                nocodb_client=nocodb_client,
-                mattermost_client=mattermost_client,
-                base_title_pattern=base_title_pattern,
-                entity_base_name=base_name,
-                mm_users_for_permission=mm_users_for_services,
-                default_permission=default_permission,
-                admin_permission=admin_permission,
-                mm_channel_context_name=base_name,  # Simplified context
-                perform_deletions=perform_deletions,
-            )
-            results.extend(sync_results)
+            nocodb_users = nocodb_client.list_base_users(base_id)
+            for user in nocodb_users:
+                user_email = user.get("email", "").lower()
+                if user_email and user_email not in mm_user_emails:
+                    results.append(
+                        _remove_user_from_nocodb_base(
+                            nocodb_client,
+                            base_id,
+                            base_title,
+                            user["id"],
+                            user_email,
+                            base_name,
+                        )
+                    )
 
     elif service_name == "BREVO":
-        brevo_client = service_client
-        all_lists = brevo_client.get_lists() # Changed from get_all_lists
-        if not all_lists:
-            logging.warning("TOOLS_TO_MM: No Brevo lists found to sync.")
-            return results
-
-        for brevo_list in all_lists:
-            list_name = brevo_list.get("name")
-            entity_key, base_name = _map_brevo_list_to_entity_and_base_name(list_name, permissions_matrix)
-            if not entity_key or not base_name:
-                logging.debug(f"TOOLS_TO_MM: Brevo list '{list_name}' did not map to an entity. Skipping.")
-                continue
-
-            logging.info(f"TOOLS_TO_MM: Processing Brevo list '{list_name}' for entity '{base_name}' ({entity_key})")
-            entity_config = permissions_matrix.get(entity_key, {})
-
-            # Brevo sync is tied to the standard channel users
-            _, std_mm_users, _ = _get_mm_users_for_entity(mattermost_client, mm_team_id, base_name, entity_config)
-
-            sync_results = _sync_single_brevo_list(
-                brevo_client=brevo_client,
-                brevo_list_name=list_name,
-                mm_users_in_channel=std_mm_users,
-                mm_channel_display_name_for_log=base_name,  # Simplified context name
-                perform_deletions=perform_deletions,
-            )
-            results.extend(sync_results)
+        # Brevo sync is handled by the existing _sync_single_brevo_list
+        pass
 
     elif service_name == "VAULTWARDEN":
-        logging.info(
-            "TOOLS_TO_MM: Vaultwarden sync is additive only and does not support user removal based on MM channels. Skipping."
-        )
-        pass  # Explicitly do nothing
+        logging.info("TOOLS_TO_MM: Vaultwarden sync is additive only. Skipping.")
+        pass
 
-    # If no specific logic is implemented for the service yet, or after it runs
-    if not results:
-        results.append(
-            {
-                "service": service_name.upper(),
-                "target_resource_name": "N/A_IMPLEMENTATION_PENDING",
-                "status": "SKIPPED",
-                "action": "TOOLS_TO_MM_NOT_IMPLEMENTED",
-                "error_message": f"TOOLS_TO_MM sync logic for {service_name} is pending.",
-            }
-        )
     return results
 
 
@@ -2226,3 +2131,53 @@ def _sync_single_vaultwarden_collection_members(
     # Vaultwarden sync is additive only, no removal logic based on MM channel membership.
     logging.info(f"Finished Vaultwarden collection member sync for '{collection_name}'. Total results: {len(results)}")
     return results
+
+
+def _remove_user_from_outline_collection(
+    outline_client: "OutlineClient",
+    collection_id: str,
+    collection_name: str,
+    user_id: str,
+    user_email: str,
+    mm_channel_context_name: str,
+) -> dict:
+    """Removes a user from an Outline collection and returns a result dictionary."""
+    result = {
+        "service": "OUTLINE",
+        "target_resource_name": collection_name,
+        "mm_user_email": user_email,
+        "mm_channel_display_name": mm_channel_context_name,
+        "status": "FAILURE",
+        "action": "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION",
+    }
+    if outline_client.remove_user_from_collection(collection_id, user_id):
+        result["status"] = "SUCCESS"
+        result["action"] = "USER_REMOVED_FROM_OUTLINE_COLLECTION"
+    else:
+        result["error_message"] = "API call to remove user from Outline collection failed."
+    return result
+
+
+def _remove_user_from_nocodb_base(
+    nocodb_client: "NocoDBClient",
+    base_id: str,
+    base_title: str,
+    user_id: str,
+    user_email: str,
+    mm_channel_context_name: str,
+) -> dict:
+    """Removes a user from a NocoDB base and returns a result dictionary."""
+    result = {
+        "service": "NOCODB",
+        "target_resource_name": base_title,
+        "mm_user_email": user_email,
+        "mm_channel_display_name": mm_channel_context_name,
+        "status": "FAILURE",
+        "action": "FAILED_TO_REMOVE_NOCODB_USER",
+    }
+    if nocodb_client.delete_base_user(base_id, user_id):
+        result["status"] = "SUCCESS"
+        result["action"] = "NOCODB_USER_REMOVED_FROM_BASE"
+    else:
+        result["error_message"] = "API call to remove user from NoCoDB base failed."
+    return result
