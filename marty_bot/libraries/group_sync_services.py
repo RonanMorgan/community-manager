@@ -1833,7 +1833,7 @@ async def _sync_entity_permissions_tools_to_mm(
             mm_users_for_services, _, _ = _get_mm_users_for_entity(
                 mattermost_client, mm_team_id, base_name, entity_config
             )
-            mm_user_emails = {user["email"].lower() for user in mm_users_for_services.values() if "email" in user}
+            mm_user_emails = {user["email"].lower() for user in mm_users_for_services.values()}
 
             outline_users = outline_client.get_collection_users(collection_id)
             for user in outline_users:
@@ -1873,7 +1873,7 @@ async def _sync_entity_permissions_tools_to_mm(
             mm_users_for_services, _, _ = _get_mm_users_for_entity(
                 mattermost_client, mm_team_id, base_name, entity_config
             )
-            mm_user_emails = {user["email"].lower() for user in mm_users_for_services.values() if "email" in user}
+            mm_user_emails = {user["email"].lower() for user in mm_users_for_services.values()}
 
             nocodb_users = nocodb_client.list_base_users(base_id)
             for user in nocodb_users:
