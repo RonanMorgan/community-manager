@@ -458,7 +458,7 @@ class TestSyncLogic(unittest.TestCase):
 
 
 class TestVaultwardenSync(unittest.TestCase):
-    @patch("libraries.group_sync_services.AuthentikClient")
+    @patch("clients.authentik_client.AuthentikClient")
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services._get_mm_users_for_entity")
     @patch("libraries.group_sync_services._map_vaultwarden_collection_to_entity_and_base_name")
@@ -477,7 +477,8 @@ class TestVaultwardenSync(unittest.TestCase):
                 "users": [{"id": "user1-pk"}, {"id": "user2-pk"}],
             }
         ]
-        mock_vw_client.get_collection_by_id.return_value = {"name": "projet-test"}
+        mock_vw_client.get_collections = tuple[None,None,None]
+        mock_vw_client.get_email_from_members = "user1@test.com"
         mock_map_collection.return_value = ("PROJET", "test")
         mock_get_users.return_value = ({"user1@test.com": {}}, [], [])
         mock_vw_client.update_collection.return_value = True
