@@ -1798,13 +1798,12 @@ async def _sync_entity_permissions_tools_to_mm(
 
             mm_user_emails = {user["email"].lower() for user in mm_users_for_this_group if "email" in user}
 
-            auth_users = authentik_client.get_group_members(group.get("pk"))
+            auth_users = group.get("users_obj", [])
             for user in auth_users:
                 user_email = user.get("email", "").lower()
                 if user_email and user_email not in mm_user_emails:
                     # Check if user is excluded
-                    auth_user_details = authentik_client.get_user_by_email(user_email)
-                    if auth_user_details and auth_user_details.get("username") in config.EXCLUDED_USERS:
+                    if user.get("username") in config.EXCLUDED_USERS:
                         continue
                     results.append(
                         remove_user_from_authentik_group(

@@ -2065,19 +2065,18 @@ permissions:
         self, mock_get_mm_users, mock_map_group, mock_remove_user
     ):
         mock_authentik_client = MagicMock(spec=AuthentikClient)
-        mock_authentik_client.get_group_members = MagicMock()
-        mock_authentik_client.get_user_by_email = MagicMock()
         mock_mattermost_client = MagicMock(spec=MattermostClient)
         mock_permissions_matrix = {"PROJET": {"standard": {"authentik_group_name_pattern": "projet_{base_name}"}}}
 
-        mock_auth_group1 = {"name": "projet_Test1", "pk": "pk1"}
+        mock_auth_group1 = {
+            "name": "projet_Test1",
+            "pk": "pk1",
+            "users_obj": [
+                {"pk": 1, "email": "remove@me.com", "username": "remove_user"},
+                {"pk": 2, "email": "keep@me.com", "username": "keep_user"},
+            ],
+        }
         mock_authentik_client.get_groups_with_users.return_value = ([mock_auth_group1], {})
-        auth_users = [
-            {"pk": 1, "email": "remove@me.com"},
-            {"pk": 2, "email": "keep@me.com"},
-        ]
-        mock_authentik_client.get_group_members.return_value = auth_users
-        mock_authentik_client.get_user_by_email.side_effect = lambda email: {"username": "keep_user"} if email == "keep@me.com" else {}
 
         mock_map_group.return_value = "PROJET", "Test1"
         mock_get_mm_users.return_value = ({}, [{"email": "keep@me.com", "username": "keep_user"}], [])
@@ -2111,17 +2110,17 @@ permissions:
         self, mock_get_mm_users, mock_map_group, mock_remove_user
     ):
         mock_authentik_client = MagicMock(spec=AuthentikClient)
-        mock_authentik_client.get_group_members = MagicMock()
-        mock_authentik_client.get_user_by_email = MagicMock()
         mock_mattermost_client = MagicMock(spec=MattermostClient)
         mock_permissions_matrix = {"PROJET": {"standard": {"authentik_group_name_pattern": "projet_{base_name}"}}}
 
-        mock_auth_group1 = {"name": "projet_Test1", "pk": "pk1"}
+        mock_auth_group1 = {
+            "name": "projet_Test1",
+            "pk": "pk1",
+            "users_obj": [
+                {"pk": 2, "email": "keep@me.com", "username": "keep_user"},
+            ],
+        }
         mock_authentik_client.get_groups_with_users.return_value = ([mock_auth_group1], {})
-        mock_authentik_client.get_group_members.return_value = [
-            {"pk": 2, "email": "keep@me.com"},
-        ]
-        mock_authentik_client.get_user_by_email.side_effect = lambda email: {"username": "keep_user"}
 
         mock_map_group.return_value = "PROJET", "Test1"
         mock_get_mm_users.return_value = ({}, [{"email": "keep@me.com", "username": "keep_user"}], [])
