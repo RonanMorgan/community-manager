@@ -1906,10 +1906,16 @@ async def _sync_entity_permissions_tools_to_mm(
         if not all_collections:
             logging.warning("TOOLS_TO_MM: No Vaultwarden collections found to sync.")
             return results
-
+        rc_list, sout_list, err_list = vaultwarden_client.get_collections()
+        rc_user_list, sout_user_list, err_user_list = vaultwarden_client.get_members()
         for collection in all_collections:
             collection_id = collection.get("id")
-            collection_name = vaultwarden_client.get_collection_by_id(collection_id).get("name")
+
+            collection_name = None
+            if rc_list == 0:
+                collection_name = vaultwarden_client.get_name_from_collections(collection_id, sout_list)
+            else:
+                logging.error(f"Failed to list collections using 'bw list collections': {err_list.strip()}")
             entity_key, base_name = _map_vaultwarden_collection_to_entity_and_base_name(
                 collection_name, permissions_matrix
             )
@@ -1923,24 +1929,21 @@ async def _sync_entity_permissions_tools_to_mm(
             )
             mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
 
-            vaultwarden_users = collection.get("users", [])
+            vaultwarden_users_by_collection = collection.get("users", [])
             users_to_keep = []
-            for user in vaultwarden_users:
+            for user in vaultwarden_users_by_collection:
                 user_id = user.get("id")
-                # We need to get the user email from the user id
-                # There is no direct way to do this, so we assume that the vaultwarden users are also in authentik
-                # and we can use the email_to_authentik_user_pk_map to find the email
-                # This is a limitation of the current implementation
+                
                 user_email = None
-                if email_to_authentik_user_pk_map:
-                    for email, pk in email_to_authentik_user_pk_map.items():
-                        if pk == user_id:
-                            user_email = email
-                            break
+                if rc_user_list == 0:
+                    user_email = vaultwarden_client.get_email_from_members(user_id, sout_user_list)
+                else:
+                    logging.error(f"Failed to list collections using 'bw list collections': {err_user_list.strip()}")
+
                 if user_email and user_email in mm_user_emails:
                     users_to_keep.append(user)
 
-            if len(users_to_keep) != len(vaultwarden_users):
+            if len(users_to_keep) != len(vaultwarden_users_by_collection):
                 payload = {
                     "users": users_to_keep,
                     "groups": collection.get("groups", []),
@@ -1965,7 +1968,6 @@ async def _sync_entity_permissions_tools_to_mm(
                             "action": "FAILED_TO_REMOVE_FROM_VAULTWARDEN_COLLECTION",
                         }
                     )
-
     return results
 
 
