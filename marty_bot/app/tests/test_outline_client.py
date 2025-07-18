@@ -33,7 +33,7 @@ class TestOutlineClient(unittest.TestCase):
         # Mock for list_collections (first call)
         mock_list_response = Mock()
         mock_list_response.status_code = 200
-        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 100, "total":0}}
+        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 100, "total": 0}}
 
         # Mock for collections.create (second call)
         project_name = "new_project"
@@ -43,7 +43,7 @@ class TestOutlineClient(unittest.TestCase):
         mock_create_response.json.return_value = {"data": expected_collection_data}
 
         mock_post_request.side_effect = [mock_list_response, mock_create_response]
-        
+
         result = self.client.create_group(project_name)
         self.assertEqual(result, expected_collection_data)
 
@@ -78,7 +78,9 @@ class TestOutlineClient(unittest.TestCase):
     @patch("requests.post")
     def test_create_group_failure_during_list_check(self, mock_post_request):
         project_name = "project_list_fail"
-        mock_post_request.side_effect = requests.exceptions.RequestException(f"Request failed while fetching Outline collections: {project_name}")
+        mock_post_request.side_effect = requests.exceptions.RequestException(
+            f"Request failed while fetching Outline collections: {project_name}"
+        )
 
         result = self.client.create_group(project_name)
         self.assertIsNone(result)
@@ -124,7 +126,13 @@ class TestOutlineClient(unittest.TestCase):
     @patch("requests.post")
     def test_list_collections_success_find_by_name(self, mock_post):
         # Test finding a single collection by name
-        mock_post.return_value = Mock(status_code=200, json=lambda: {"data": [{"id": "coll-2", "name": "Test Collection"}], "pagination": {"limit": 100, "offset": 0, "total": 1}})
+        mock_post.return_value = Mock(
+            status_code=200,
+            json=lambda: {
+                "data": [{"id": "coll-2", "name": "Test Collection"}],
+                "pagination": {"limit": 100, "offset": 0, "total": 1},
+            },
+        )
         collection = self.client.list_collections(name="Test Collection")
         self.assertIsNotNone(collection)
         self.assertEqual(collection["id"], "coll-2")
@@ -134,8 +142,20 @@ class TestOutlineClient(unittest.TestCase):
     def test_list_collections_success_get_all(self, mock_post):
         # Test listing all collections with pagination
         mock_post.side_effect = [
-            Mock(status_code=200, json=lambda: {"data": [{"id": "coll-1", "name": "First"}, {"id": "coll-2", "name": "Second"}], "pagination": {"limit": 2, "offset": 0, "total": 3}}),
-            Mock(status_code=200, json=lambda: {"data": [{"id": "coll-3", "name": "Third"}], "pagination": {"limit": 2, "offset": 2, "total": 3}}),
+            Mock(
+                status_code=200,
+                json=lambda: {
+                    "data": [{"id": "coll-1", "name": "First"}, {"id": "coll-2", "name": "Second"}],
+                    "pagination": {"limit": 2, "offset": 0, "total": 3},
+                },
+            ),
+            Mock(
+                status_code=200,
+                json=lambda: {
+                    "data": [{"id": "coll-3", "name": "Third"}],
+                    "pagination": {"limit": 2, "offset": 2, "total": 3},
+                },
+            ),
         ]
         collections = self.client.list_collections()
         self.assertIsInstance(collections, list)
@@ -145,9 +165,11 @@ class TestOutlineClient(unittest.TestCase):
 
     @patch("requests.post")
     def test_list_collections_not_found(self, mock_post):
-        mock_post.return_value = Mock(status_code=200, json=lambda: {"data": [], "pagination": {"limit": 25, "offset": 0, "total": 0}})
+        mock_post.return_value = Mock(
+            status_code=200, json=lambda: {"data": [], "pagination": {"limit": 25, "offset": 0, "total": 0}}
+        )
         collection = self.client.list_collections(name="Non-Existent Collection")
-        self.assertEqual(collection,[])
+        self.assertEqual(collection, [])
 
     @patch("requests.post")
     def test_list_collections_http_error(self, mock_post):

@@ -2141,9 +2141,9 @@ permissions:
         mock_remove_user.assert_not_called()
         self.assertEqual(len(results), 0)
 
-
     def test_remove_user_from_outline_collection(self):
         from libraries.group_sync_services import _remove_user_from_outline_collection
+
         self.mock_outline_client.remove_user_from_collection.return_value = True
         result = _remove_user_from_outline_collection(
             self.mock_outline_client, "coll_id", "coll_name", "user_id", "user_email", "channel_name"
@@ -2154,6 +2154,7 @@ permissions:
 
     def test_remove_user_from_outline_collection_failure(self):
         from libraries.group_sync_services import _remove_user_from_outline_collection
+
         self.mock_outline_client.remove_user_from_collection.return_value = False
         result = _remove_user_from_outline_collection(
             self.mock_outline_client, "coll_id", "coll_name", "user_id", "user_email", "channel_name"
@@ -2162,9 +2163,9 @@ permissions:
         self.assertEqual(result["action"], "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION")
         self.mock_outline_client.remove_user_from_collection.assert_called_once_with("coll_id", "user_id")
 
-
     def test_remove_user_from_nocodb_base(self):
         from libraries.group_sync_services import _remove_user_from_nocodb_base
+
         self.mock_nocodb_client.delete_base_user.return_value = True
         result = _remove_user_from_nocodb_base(
             self.mock_nocodb_client, "base_id", "base_title", "user_id", "user_email", "channel_name"
@@ -2175,6 +2176,7 @@ permissions:
 
     def test_remove_user_from_nocodb_base_failure(self):
         from libraries.group_sync_services import _remove_user_from_nocodb_base
+
         self.mock_nocodb_client.delete_base_user.return_value = False
         result = _remove_user_from_nocodb_base(
             self.mock_nocodb_client, "base_id", "base_title", "user_id", "user_email", "channel_name"

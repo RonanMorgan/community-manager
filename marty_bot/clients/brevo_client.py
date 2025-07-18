@@ -75,7 +75,9 @@ class BrevoClient:
                     break
                 offset += limit
             else:
-                logging.error(f"Failed to fetch Brevo lists at offset {offset}. Status: {status_code}, Response: {data}")
+                logging.error(
+                    f"Failed to fetch Brevo lists at offset {offset}. Status: {status_code}, Response: {data}"
+                )
                 return None
 
         if name:
@@ -139,7 +141,9 @@ class BrevoClient:
                 if len(page_lists) < limit:
                     break
             else:
-                logging.error(f"Failed to fetch Brevo lists at offset {offset}. Status: {status_code}, Response: {data}")
+                logging.error(
+                    f"Failed to fetch Brevo lists at offset {offset}. Status: {status_code}, Response: {data}"
+                )
                 return None
 
         logging.info(f"Successfully fetched {len(all_lists)} Brevo lists.")

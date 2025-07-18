@@ -424,6 +424,111 @@ class VaultwardenClient:
             logging.error(f"Failed to list collections using 'bw list collections': {err_list.strip()}")
             return None
 
+    def get_collections_details(self) -> list | None:
+        access_token = self._get_api_token()
+        if not access_token:
+            return None
+
+        details_url = f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/collections/details"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        try:
+            response = requests.get(details_url, headers=headers)
+            response.raise_for_status()
+            return response.json().get("data", [])
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error getting collection details: {e}")
+            return None
+
+    def get_collections(self) -> tuple[int, str, str]:
+        if not self._get_session():
+            logging.error("Cannot get collection by name: Failed to obtain Vaultwarden CLI session.")
+            return None
+        if not self._sync_vault():
+            logging.warning("Vault sync failed before listing collections. Proceeding, but data might be stale.")
+
+        logging.debug(
+            f"Attempting to find Vaultwarden collection by using 'bw list collections'."
+        )
+        
+        return self._run_bw_command(["list", "org-collections","--organizationid", self.organization_id])
+    
+    def get_members(self) -> tuple[int, str, str]:
+        if not self._get_session():
+            logging.error("Cannot get member: Failed to obtain Vaultwarden CLI session.")
+            return None
+        if not self._sync_vault():
+            logging.warning("Vault sync failed before listing members. Proceeding, but data might be stale.")
+
+        logging.debug(
+            f"Attempting to find Vaultwarden collection by using 'bw list collections'."
+        )
+        
+        return self._run_bw_command(["list", "org-members","--organizationid", self.organization_id])
+
+    def get_name_from_collections(self, collection_id: str, sout_list: str) -> str:
+        try:
+            collections = json.loads(sout_list)
+            for collection in collections:
+                if (
+                    collection.get("id") == collection_id
+                    and collection.get("organizationId") == self.organization_id
+                ):
+                    coll_name = collection.get("name")
+                    if coll_name:
+                        logging.info(
+                            f"Found collection '{coll_name}' with ID: {coll_name} in organization {self.organization_id}."
+                        )
+                        return coll_name
+                    else:
+                        logging.warning(f"Collection '{coll_name}' found but has no ID.")
+            logging.info(
+                f"Collection '{collection_id}' not found in organization '{self.organization_id}' or user does not have access."
+            )
+            return None
+        except json.JSONDecodeError:
+            logging.error(f"Failed to parse JSON from 'bw list collections': {sout_list.strip()}")
+            return None
+
+    def get_email_from_members(self, user_id: str, sout_list: str) -> str:
+        try:
+            users = json.loads(sout_list)
+            for user in users:
+                if (
+                    user.get("id") == user_id
+                ):
+                    email = user.get("email")
+                    if email:
+                        logging.info(
+                            f"Found user '{email}' with ID: {user_id} in organization {self.organization_id}."
+                        )
+                        return email
+                    else:
+                        logging.warning(f"User '{email}' found but has no ID.")
+            logging.info(
+                f"User '{user_id}' not found in organization '{self.organization_id}' or user does not have access."
+            )
+            return None
+        except json.JSONDecodeError:
+            logging.error(f"Failed to parse JSON from 'bw list collections': {sout_list.strip()}")
+            return None
+
+    def update_collection(self, collection_id: str, payload: dict) -> bool:
+        access_token = self._get_api_token()
+        if not access_token:
+            return False
+
+        update_url = (
+            f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/collections/{collection_id}"
+        )
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        try:
+            response = requests.put(update_url, json=payload, headers=headers)
+            response.raise_for_status()
+            return True
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error updating collection: {e}")
+            return False
+
 
 if __name__ == "__main__":
     log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"

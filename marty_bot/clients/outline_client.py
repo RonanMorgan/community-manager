@@ -161,7 +161,6 @@ class OutlineClient:
 
                 offset += len(all_collections)
 
-
             logging.info(f"Successfully fetched {len(all_collections)} Outline collections.")
             return all_collections
         except requests.exceptions.HTTPError as e:
