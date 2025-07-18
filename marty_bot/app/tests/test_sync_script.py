@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 import logging
 import sys
 import os
+import json
 
 # Adjust path to import from the project root directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -477,14 +478,16 @@ class TestVaultwardenSync(unittest.TestCase):
                 "users": [{"id": "user1-pk"}, {"id": "user2-pk"}],
             }
         ]
-        mock_vw_client.get_collections = tuple[None,None,None]
-        mock_vw_client.get_email_from_members = "user1@test.com"
+        mock_vw_client.get_collections.return_value = (0, json.dumps([{"id": "coll1", "name": "projet-test", "organizationId": "test-org-id"}]), "")
+        mock_vw_client.get_members.return_value = (0, json.dumps([{"id": "user1-pk", "email": "user1@test.com"}, {"id": "user2-pk", "email": "user2@test.com"}]), "")
+        mock_vw_client.get_name_from_collections.return_value = "projet-test"
+        mock_vw_client.get_email_from_members.side_effect = ["user1@test.com", "user2@test.com"]
         mock_map_collection.return_value = ("PROJET", "test")
         mock_get_users.return_value = ({"user1@test.com": {}}, [], [])
         mock_vw_client.update_collection.return_value = True
 
         # Act
-        results = asyncio.run(
+        success, results = asyncio.run(
             orchestrate_group_synchronization(
                 authentik_client=mock_auth_instance,
                 mattermost_client=mock_mm_client,
@@ -500,8 +503,8 @@ class TestVaultwardenSync(unittest.TestCase):
 
         # Assert
         mock_vw_client.update_collection.assert_called_once()
-        self.assertEqual(len(results[1]), 1)
-        self.assertEqual(results[1][0]["action"], "USER_REMOVED_FROM_VAULTWARDEN_COLLECTION")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["action"], "USER_REMOVED_FROM_VAULTWARDEN_COLLECTION")
 
 
 if __name__ == "__main__":
