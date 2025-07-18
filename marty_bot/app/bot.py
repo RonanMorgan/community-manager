@@ -1,4 +1,5 @@
 import websockets
+print("<<<<<<<<<< SCRIPT EXECUTED >>>>>>>>>>")
 import json
 import re  # Import re for regular expressions
 import os  # IMPORT MANQUANT !
@@ -256,6 +257,8 @@ class MartyBot:
                     message_parts.append("Déjà membre de la collection Outline, permission assurée.")
                 elif action == "USER_REMOVED_FROM_OUTLINE_COLLECTION":
                     message_parts.append("Supprimé avec succès de la collection Outline.")
+                elif action == "NOCODB_USER_REMOVED_FROM_BASE":
+                    message_parts.append("Supprimé avec succès de la base NoCoDB.")
                 # ... autres actions SUCCESS ...
             elif status == "SKIPPED":
                 message_parts.append(f"Ignoré. Raison : {error_msg if error_msg else 'Non spécifiée'}")
