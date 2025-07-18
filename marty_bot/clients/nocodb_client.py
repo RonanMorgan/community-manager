@@ -19,7 +19,7 @@ class NocoDBClient:
             "xc-token": token,  # Based on NoCoDB docs, token is often passed as xc-token
             "Content-Type": "application/json",
         }
-        logger.debug(f"NocoDBClient initialized for URL: {self.base_url}")  # Changed to DEBUG
+        logger.debug("NocoDBClient initialized for URL: %s", self.base_url)  # Changed to DEBUG
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> dict | list | None:
         """Helper function to make requests to the NoCoDB API."""
@@ -78,16 +78,16 @@ class NocoDBClient:
         API: GET /api/v1/db/meta/projects/
         Filters locally as NoCoDB API for listing projects doesn't seem to have a direct name filter.
         """
-        logger.debug(f"Attempting to find NoCoDB base with title: {base_title}")
+        logger.debug("Attempting to find NoCoDB base with title: %s", base_title)
         response_data = self._make_request("get", "projects/")
         if response_data and isinstance(response_data, dict) and "list" in response_data:
             for base in response_data["list"]:
                 if base.get("title") == base_title:
-                    logger.debug(f"Found NoCoDB base '{base_title}' with ID: {base['id']}")
+                    logger.debug("Found NoCoDB base '%s' with ID: %s", base_title, base["id"])
                     return base
-            logger.debug(f"NoCoDB base with title '{base_title}' not found in the list of bases.")
+            logger.debug("NoCoDB base with title '%s' not found in the list of bases.", base_title)
         else:
-            logger.warning(f"Failed to list NoCoDB bases or unexpected response format. Response: {response_data}")
+            logger.warning("Failed to list NoCoDB bases or unexpected response format. Response: %s", response_data)
         return None
 
     def invite_user_to_base(self, base_id: str, email: str, role: str) -> bool:
@@ -144,7 +144,7 @@ class NocoDBClient:
         Lists all users associated with a specific base.
         API: GET /api/v1/db/meta/projects/{baseId}/users
         """
-        logger.debug(f"Listing users for NoCoDB base ID '{base_id}'")
+        logger.debug("Listing users for NoCoDB base ID '%s'", base_id)
         endpoint = f"projects/{base_id}/users"
         response_data = self._make_request("get", endpoint)
         if (
@@ -154,19 +154,19 @@ class NocoDBClient:
             and "list" in response_data["users"]
         ):
             users_list = response_data["users"]["list"]
-            logger.debug(f"Found {len(users_list)} users for base ID '{base_id}'.")
+            logger.debug("Found %d users for base ID '%s'.", len(users_list), base_id)
             return users_list
         logger.warning(
-            f"Failed to list users for base ID '{base_id}' or unexpected format. " f"Response: {response_data}"
+            "Failed to list users for base ID '%s' or unexpected format. Response: %s", base_id, response_data
         )
         return []
-    
+
     def list_bases(self) -> list[dict]:
         """
         List all base meta data
         """
-        logger.debug(f"Listing bases in NoCoDB")
-        endpoint = f"projects/"
+        logger.debug("Listing bases in NoCoDB")
+        endpoint = "projects/"
         response_data = self._make_request("get", endpoint)
         return response_data
 

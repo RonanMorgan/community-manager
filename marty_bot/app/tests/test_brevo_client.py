@@ -87,8 +87,8 @@ class TestBrevoClient(unittest.TestCase):
         list_name = "Non Existing List"
         # Simulate pagination where the list is not on the first page
         mock_request.side_effect = [
-            mock_brevo_response(200, json_data={"lists": [{"id": 1, "name": "Another List"}]*50}),
-            mock_brevo_response(200, json_data={"lists": []}) # End of lists
+            mock_brevo_response(200, json_data={"lists": [{"id": 1, "name": "Another List"}] * 50}),
+            mock_brevo_response(200, json_data={"lists": []}),  # End of lists
         ]
 
         result = self.client.get_lists(name=list_name)

@@ -424,6 +424,53 @@ class VaultwardenClient:
             logging.error(f"Failed to list collections using 'bw list collections': {err_list.strip()}")
             return None
 
+    def get_collections_details(self) -> list | None:
+        access_token = self._get_api_token()
+        if not access_token:
+            return None
+
+        details_url = f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/collections/details"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        try:
+            response = requests.get(details_url, headers=headers)
+            response.raise_for_status()
+            return response.json().get("data", [])
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error getting collection details: {e}")
+            return None
+
+    def get_collection_by_id(self, collection_id: str) -> dict | None:
+        access_token = self._get_api_token()
+        if not access_token:
+            return None
+
+        collection_url = f"{self.server_url.rstrip('/')}/api/collections/{collection_id}"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        try:
+            response = requests.get(collection_url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error getting collection by id: {e}")
+            return None
+
+    def update_collection(self, collection_id: str, payload: dict) -> bool:
+        access_token = self._get_api_token()
+        if not access_token:
+            return False
+
+        update_url = (
+            f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/collections/{collection_id}"
+        )
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        try:
+            response = requests.put(update_url, json=payload, headers=headers)
+            response.raise_for_status()
+            return True
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error updating collection: {e}")
+            return False
+
 
 if __name__ == "__main__":
     log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"

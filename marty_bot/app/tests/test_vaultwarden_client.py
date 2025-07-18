@@ -377,6 +377,38 @@ class TestVaultwardenClient(unittest.TestCase):
                 already_member_log_found, "Should not log 'already member/invited' for a generic 400 error"
             )
 
+    def test_get_collections_details_success(self):
+        self.client._get_api_token = MagicMock(return_value="test_token")
+        with patch("requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.json.return_value = {"data": [{"id": "1", "name": "test"}]}
+            mock_response.raise_for_status.return_value = None
+            mock_get.return_value = mock_response
+
+            result = self.client.get_collections_details()
+            self.assertEqual(result, [{"id": "1", "name": "test"}])
+
+    def test_get_collection_by_id_success(self):
+        self.client._get_api_token = MagicMock(return_value="test_token")
+        with patch("requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.json.return_value = {"id": "1", "name": "test"}
+            mock_response.raise_for_status.return_value = None
+            mock_get.return_value = mock_response
+
+            result = self.client.get_collection_by_id("1")
+            self.assertEqual(result, {"id": "1", "name": "test"})
+
+    def test_update_collection_success(self):
+        self.client._get_api_token = MagicMock(return_value="test_token")
+        with patch("requests.put") as mock_put:
+            mock_response = MagicMock()
+            mock_response.raise_for_status.return_value = None
+            mock_put.return_value = mock_response
+
+            result = self.client.update_collection("1", {"name": "test"})
+            self.assertTrue(result)
+
 
 if __name__ == "__main__":
     unittest.main()

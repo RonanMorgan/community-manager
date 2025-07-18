@@ -1841,7 +1841,7 @@ async def _sync_entity_permissions_tools_to_mm(
             mm_users_for_services, _, _ = _get_mm_users_for_entity(
                 mattermost_client, mm_team_id, base_name, entity_config
             )
-            
+
             mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
 
             outline_users_id = outline_client.get_collection_members(collection_id)
@@ -1901,8 +1901,70 @@ async def _sync_entity_permissions_tools_to_mm(
         pass
 
     elif service_name == "VAULTWARDEN":
-        logging.info("TOOLS_TO_MM: Vaultwarden sync is additive only. Skipping.")
-        pass
+        vaultwarden_client = service_client
+        all_collections = vaultwarden_client.get_collections_details()
+        if not all_collections:
+            logging.warning("TOOLS_TO_MM: No Vaultwarden collections found to sync.")
+            return results
+
+        for collection in all_collections:
+            collection_id = collection.get("id")
+            collection_name = vaultwarden_client.get_collection_by_id(collection_id).get("name")
+            entity_key, base_name = _map_vaultwarden_collection_to_entity_and_base_name(
+                collection_name, permissions_matrix
+            )
+
+            if not entity_key or not base_name:
+                continue
+
+            entity_config = permissions_matrix.get(entity_key, {})
+            mm_users_for_services, _, _ = _get_mm_users_for_entity(
+                mattermost_client, mm_team_id, base_name, entity_config
+            )
+            mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
+
+            vaultwarden_users = collection.get("users", [])
+            users_to_keep = []
+            for user in vaultwarden_users:
+                user_id = user.get("id")
+                # We need to get the user email from the user id
+                # There is no direct way to do this, so we assume that the vaultwarden users are also in authentik
+                # and we can use the email_to_authentik_user_pk_map to find the email
+                # This is a limitation of the current implementation
+                user_email = None
+                if email_to_authentik_user_pk_map:
+                    for email, pk in email_to_authentik_user_pk_map.items():
+                        if pk == user_id:
+                            user_email = email
+                            break
+                if user_email and user_email in mm_user_emails:
+                    users_to_keep.append(user)
+
+            if len(users_to_keep) != len(vaultwarden_users):
+                payload = {
+                    "users": users_to_keep,
+                    "groups": collection.get("groups", []),
+                    "externalId": collection.get("externalId"),
+                    "name": collection.get("name"),
+                }
+                if vaultwarden_client.update_collection(collection_id, payload):
+                    results.append(
+                        {
+                            "service": "VAULTWARDEN",
+                            "target_resource_name": collection_name,
+                            "status": "SUCCESS",
+                            "action": "USER_REMOVED_FROM_VAULTWARDEN_COLLECTION",
+                        }
+                    )
+                else:
+                    results.append(
+                        {
+                            "service": "VAULTWARDEN",
+                            "target_resource_name": collection_name,
+                            "status": "FAILURE",
+                            "action": "FAILED_TO_REMOVE_FROM_VAULTWARDEN_COLLECTION",
+                        }
+                    )
 
     return results
 
@@ -1949,6 +2011,23 @@ def _map_outline_collection_to_entity_and_base_name(
         outline_cfg = entity_cfg.get("outline")
         if outline_cfg:
             pattern = outline_cfg.get("collection_name_pattern")
+            if pattern:
+                base_name = _extract_base_name(collection_name, pattern)
+                if base_name is not None:
+                    return entity_key, base_name
+    return None, None
+
+
+def _map_vaultwarden_collection_to_entity_and_base_name(
+    collection_name: str, permissions_matrix: dict
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Attempts to map a Vaultwarden collection name to an entity key and base_name from the PERMISSIONS_MATRIX.
+    """
+    for entity_key, entity_cfg in permissions_matrix.items():
+        vaultwarden_cfg = entity_cfg.get("vaultwarden")
+        if vaultwarden_cfg:
+            pattern = vaultwarden_cfg.get("collection_name_pattern")
             if pattern:
                 base_name = _extract_base_name(collection_name, pattern)
                 if base_name is not None:

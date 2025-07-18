@@ -368,9 +368,7 @@ class TestSyncLogic(unittest.TestCase):
 
     @patch("scripts.sync_mm_authentik_groups.config")
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
-    @patch(
-        "scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock
-    )
+    @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
     @async_test
     async def test_script_main_sync_logic_orchestration(
         self, mock_orchestrate_lib, mock_script_init_clients, mock_script_config
@@ -413,9 +411,7 @@ class TestSyncLogic(unittest.TestCase):
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
     @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
     @async_test
-    async def test_script_main_sync_logic_init_auth_fails(
-        self, mock_orchestrate_lib, mock_script_init_clients
-    ):
+    async def test_script_main_sync_logic_init_auth_fails(self, mock_orchestrate_lib, mock_script_init_clients):
         with patch("scripts.sync_mm_authentik_groups.config") as mock_script_config:
             mock_script_config.MATTERMOST_TEAM_ID = "script_team_id"
             mock_script_config.OUTLINE_URL = None
@@ -459,6 +455,52 @@ class TestSyncLogic(unittest.TestCase):
         )
         await script_module.main_sync_logic()  # Added await
         mock_orchestrate_lib.assert_not_called()
+
+
+class TestVaultwardenSync(unittest.TestCase):
+    @patch("libraries.group_sync_services.AuthentikClient")
+    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
+    @patch("libraries.group_sync_services._get_mm_users_for_entity")
+    @patch("libraries.group_sync_services._map_vaultwarden_collection_to_entity_and_base_name")
+    def test_sync_vaultwarden_removes_user(self, mock_map_collection, mock_get_users, mock_get_auth_groups, mock_auth_client_class):
+        # Arrange
+        mock_auth_instance = mock_auth_client_class.return_value
+        mock_auth_instance.get_groups_with_users.return_value = ([], {})
+        mock_get_auth_groups.return_value = ([], {"user1@test.com": "user1-pk", "user2@test.com": "user2-pk"})
+        mock_vw_client = MagicMock(spec=VaultwardenClient)
+        mock_mm_client = MagicMock(spec=MattermostClient)
+        mm_team_id = "test-team-id"
+        mock_vw_client.get_collections_details.return_value = [
+            {
+                "id": "coll1",
+                "name": "projet-test",
+                "users": [{"id": "user1-pk"}, {"id": "user2-pk"}],
+            }
+        ]
+        mock_vw_client.get_collection_by_id.return_value = {"name": "projet-test"}
+        mock_map_collection.return_value = ("PROJET", "test")
+        mock_get_users.return_value = ({"user1@test.com": {}}, [], [])
+        mock_vw_client.update_collection.return_value = True
+
+        # Act
+        results = asyncio.run(
+            orchestrate_group_synchronization(
+                authentik_client=mock_auth_instance,
+                mattermost_client=mock_mm_client,
+                outline_client=None,
+                brevo_client=None,
+                nocodb_client=None,
+                vaultwarden_client=mock_vw_client,
+                mm_team_id=mm_team_id,
+                perform_deletions=True,
+                sync_mode="TOOLS_TO_MM",
+            )
+        )
+
+        # Assert
+        mock_vw_client.update_collection.assert_called_once()
+        self.assertEqual(len(results[1]), 1)
+        self.assertEqual(results[1][0]["action"], "USER_REMOVED_FROM_VAULTWARDEN_COLLECTION")
 
 
 if __name__ == "__main__":

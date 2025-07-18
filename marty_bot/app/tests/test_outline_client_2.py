@@ -26,7 +26,13 @@ class TestOutlineClient2(unittest.TestCase):
     @patch("requests.post")
     def test_list_collections_success_find_by_name(self, mock_post):
         # Test finding a single collection by name
-        mock_post.return_value = Mock(status_code=200, json=lambda: {"data": [{"id": "coll-2", "name": "Test Collection"}], "pagination": {"limit": 100, "offset": 0, "total": 1}})
+        mock_post.return_value = Mock(
+            status_code=200,
+            json=lambda: {
+                "data": [{"id": "coll-2", "name": "Test Collection"}],
+                "pagination": {"limit": 100, "offset": 0, "total": 1},
+            },
+        )
         collection = self.client.list_collections(name="Test Collection")
         self.assertIsNotNone(collection)
         self.assertEqual(collection["id"], "coll-2")
@@ -36,8 +42,20 @@ class TestOutlineClient2(unittest.TestCase):
     def test_list_collections_success_get_all(self, mock_post):
         # Test listing all collections with pagination
         mock_post.side_effect = [
-            Mock(status_code=200, json=lambda: {"data": [{"id": "coll-1", "name": "First"}, {"id": "coll-2", "name": "Second"}], "pagination": {"limit": 2, "offset": 0, "total": 3}}),
-            Mock(status_code=200, json=lambda: {"data": [{"id": "coll-3", "name": "Third"}], "pagination": {"limit": 2, "offset": 2, "total": 3}}),
+            Mock(
+                status_code=200,
+                json=lambda: {
+                    "data": [{"id": "coll-1", "name": "First"}, {"id": "coll-2", "name": "Second"}],
+                    "pagination": {"limit": 2, "offset": 0, "total": 3},
+                },
+            ),
+            Mock(
+                status_code=200,
+                json=lambda: {
+                    "data": [{"id": "coll-3", "name": "Third"}],
+                    "pagination": {"limit": 2, "offset": 2, "total": 3},
+                },
+            ),
         ]
         collections = self.client.list_collections()
         self.assertIsInstance(collections, list)
