@@ -2142,5 +2142,47 @@ permissions:
         self.assertEqual(len(results), 0)
 
 
+    def test_remove_user_from_outline_collection(self):
+        from libraries.group_sync_services import _remove_user_from_outline_collection
+        self.mock_outline_client.remove_user_from_collection.return_value = True
+        result = _remove_user_from_outline_collection(
+            self.mock_outline_client, "coll_id", "coll_name", "user_id", "user_email", "channel_name"
+        )
+        self.assertEqual(result["status"], "SUCCESS")
+        self.assertEqual(result["action"], "USER_REMOVED_FROM_OUTLINE_COLLECTION")
+        self.mock_outline_client.remove_user_from_collection.assert_called_once_with("coll_id", "user_id")
+
+    def test_remove_user_from_outline_collection_failure(self):
+        from libraries.group_sync_services import _remove_user_from_outline_collection
+        self.mock_outline_client.remove_user_from_collection.return_value = False
+        result = _remove_user_from_outline_collection(
+            self.mock_outline_client, "coll_id", "coll_name", "user_id", "user_email", "channel_name"
+        )
+        self.assertEqual(result["status"], "FAILURE")
+        self.assertEqual(result["action"], "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION")
+        self.mock_outline_client.remove_user_from_collection.assert_called_once_with("coll_id", "user_id")
+
+
+    def test_remove_user_from_nocodb_base(self):
+        from libraries.group_sync_services import _remove_user_from_nocodb_base
+        self.mock_nocodb_client.delete_base_user.return_value = True
+        result = _remove_user_from_nocodb_base(
+            self.mock_nocodb_client, "base_id", "base_title", "user_id", "user_email", "channel_name"
+        )
+        self.assertEqual(result["status"], "SUCCESS")
+        self.assertEqual(result["action"], "NOCODB_USER_REMOVED_FROM_BASE")
+        self.mock_nocodb_client.delete_base_user.assert_called_once_with("base_id", "user_id")
+
+    def test_remove_user_from_nocodb_base_failure(self):
+        from libraries.group_sync_services import _remove_user_from_nocodb_base
+        self.mock_nocodb_client.delete_base_user.return_value = False
+        result = _remove_user_from_nocodb_base(
+            self.mock_nocodb_client, "base_id", "base_title", "user_id", "user_email", "channel_name"
+        )
+        self.assertEqual(result["status"], "FAILURE")
+        self.assertEqual(result["action"], "FAILED_TO_REMOVE_NOCODB_USER")
+        self.mock_nocodb_client.delete_base_user.assert_called_once_with("base_id", "user_id")
+
+
 if __name__ == "__main__":
     unittest.main()
