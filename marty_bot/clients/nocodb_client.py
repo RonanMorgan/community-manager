@@ -160,6 +160,15 @@ class NocoDBClient:
             f"Failed to list users for base ID '{base_id}' or unexpected format. " f"Response: {response_data}"
         )
         return []
+    
+    def list_bases(self) -> list[dict]:
+        """
+        List all base meta data
+        """
+        logger.debug(f"Listing bases in NoCoDB")
+        endpoint = f"projects/"
+        response_data = self._make_request("get", endpoint)
+        return response_data
 
     def delete_base_user(self, base_id: str, user_id: str) -> bool:
         """

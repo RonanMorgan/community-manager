@@ -207,8 +207,6 @@ class OutlineClient:
                 response = requests.post(api_url, headers=self.headers, json=payload)
                 response.raise_for_status()
                 response_data = response.json()
-                print("ON EST ICI")
-                print(response_data)
 
                 data_block = response_data.get("data", {})
                 memberships = data_block.get("memberships", [])

@@ -1759,7 +1759,7 @@ async def _sync_entity_permissions_tools_to_mm(
     results = []
     logging.info(f"Starting TOOLS_TO_MM sync for service: {service_name}")
 
-    if service_name.upper() in (skip_services or []):
+    if service_name.lower() in (skip_services or []):
         logging.info(f"Skipping {service_name} sync for TOOLS_TO_MM as per skip_services.")
         return results
 
@@ -1854,16 +1854,12 @@ async def _sync_entity_permissions_tools_to_mm(
 
     elif service_name == "NOCODB":
         nocodb_client = service_client
-        try:
-            all_bases = nocodb_client.list_bases()
-            if not all_bases:
-                logging.warning("TOOLS_TO_MM: No NoCoDB bases found to sync.")
-                return results
-        except (AttributeError, NotImplementedError):
-            logging.error("`nocodb_client.list_bases()` method not implemented. Skipping NoCoDB sync.")
+        all_bases = nocodb_client.list_bases()
+        if not all_bases:
+            logging.warning("TOOLS_TO_MM: No NoCoDB bases found to sync.")
             return results
 
-        for base in all_bases:
+        for base in all_bases["list"]:
             base_title = base.get("title")
             base_id = base.get("id")
             entity_key, base_name = _map_nocodb_base_to_entity_and_base_name(base_title, permissions_matrix)
