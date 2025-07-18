@@ -1796,17 +1796,26 @@ async def _sync_entity_permissions_tools_to_mm(
 
             mm_users_for_this_group = adm_mm_users if is_admin_group else std_mm_users
 
-            # Re-use the existing sync function which contains the comparison logic.
-            # This function will now enforce that the authentik group membership matches the corresponding MM channel membership.
-            sync_results = _sync_single_authentik_group(
-                authentik_client=authentik_client,
-                auth_group_obj=group,
-                mm_users_in_corresponding_channel=mm_users_for_this_group,
-                email_to_authentik_user_pk_map=email_to_authentik_user_pk_map,
-                mm_channel_display_name_for_log=f"{base_name} (Admin)" if is_admin_group else base_name,
-                perform_deletions=perform_deletions,  # This will be True for TOOLS_TO_MM mode
-            )
-            results.extend(sync_results)
+            mm_user_emails = {user["email"].lower() for user in mm_users_for_this_group if "email" in user}
+
+            auth_users = authentik_client.get_group_members(group.get("pk"))
+            for user in auth_users:
+                user_email = user.get("email", "").lower()
+                if user_email and user_email not in mm_user_emails:
+                    # Check if user is excluded
+                    auth_user_details = authentik_client.get_user_by_email(user_email)
+                    if auth_user_details and auth_user_details.get("username") in config.EXCLUDED_USERS:
+                        continue
+                    results.append(
+                        remove_user_from_authentik_group(
+                            authentik_client,
+                            group.get("pk"),
+                            group.get("name"),
+                            user.get("pk"),
+                            user_email,
+                            base_name,
+                        )
+                    )
 
     elif service_name == "OUTLINE":
         outline_client = service_client
@@ -2178,4 +2187,29 @@ def _remove_user_from_nocodb_base(
         result["action"] = "NOCODB_USER_REMOVED_FROM_BASE"
     else:
         result["error_message"] = "API call to remove user from NoCoDB base failed."
+    return result
+
+
+def remove_user_from_authentik_group(
+    authentik_client: "AuthentikClient",
+    group_pk: str,
+    group_name: str,
+    user_pk: int,
+    user_email: str,
+    mm_channel_context_name: str,
+) -> dict:
+    """Removes a user from an Authentik group and returns a result dictionary."""
+    result = {
+        "service": "AUTHENTIK",
+        "target_resource_name": group_name,
+        "mm_user_email": user_email,
+        "mm_channel_display_name": mm_channel_context_name,
+        "status": "FAILURE",
+        "action": "FAILED_TO_REMOVE_FROM_AUTHENTIK_GROUP",
+    }
+    if authentik_client.remove_user_from_group(group_pk, user_pk):
+        result["status"] = "SUCCESS"
+        result["action"] = "USER_REMOVED_FROM_AUTHENTIK_GROUP"
+    else:
+        result["error_message"] = "API call to remove user from Authentik group failed."
     return result
