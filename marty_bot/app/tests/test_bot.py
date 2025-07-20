@@ -19,10 +19,6 @@ def async_test(f):
 class TestMartyBot(unittest.TestCase):
 
     def setUp(self):
-        # Patch VaultwardenClient avant que MartyBot ne soit instancié
-        self.vaultwarden_client_patcher = patch("app.bot.VaultwardenClient", MagicMock())
-        self.mock_vaultwarden_class = self.vaultwarden_client_patcher.start()
-
         self.mock_config = MagicMock()
         self.mock_config.BOT_NAME = "martytest"
         self.mock_config.MATTERMOST_URL = "http://fake-mm.com"
@@ -109,13 +105,10 @@ class TestMartyBot(unittest.TestCase):
         self.bot.mattermost_api_client = MagicMock()
         self.bot.brevo_client = MagicMock()
         self.bot.nocodb_client = MagicMock()  # Added NocoDB mock
-        # self.bot.vaultwarden_client is now an instance of the mocked VaultwardenClient class
+        self.bot.vaultwarden_client = MagicMock()
         self.bot.envoyer_message = MagicMock(return_value="mock_post_id")
         self.test_user_id = "test_user_who_posted"
-
-    def tearDown(self):
-        self.vaultwarden_client_patcher.stop()
-
+        
     async def _send_test_message(self, message_text, channel_id="test_channel", user_id=None):
         self.bot.envoyer_message.reset_mock()
         # Reset all client mocks

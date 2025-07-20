@@ -37,7 +37,7 @@ from clients.outline_client import OutlineClient
 from clients.mattermost_client import MattermostClient
 from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
 from clients.vaultwarden_client import VaultwardenClient  # Added VaultwardenClient
-
+from clients.client_factory import create_clients
 # Import orchestration function for sync command
 from libraries.group_sync_services import orchestrate_group_synchronization
 
@@ -66,103 +66,13 @@ class MartyBot:
 
         self.bot_name_mention = f"@{self.config.BOT_NAME.lower()}" if self.config.BOT_NAME else ""
 
-        # Initialize API Clients
-        self.authentik_client = None
-        if self.config.AUTHENTIK_URL and self.config.AUTHENTIK_TOKEN:
-            try:
-                self.authentik_client = AuthentikClient(self.config.AUTHENTIK_URL, self.config.AUTHENTIK_TOKEN)
-                logging.info("AuthentikClient initialized successfully for MartyBot instance.")
-            except ValueError as e:
-                logging.warning(f"Failed to initialize AuthentikClient for MartyBot instance: {e}")
-        else:
-            logging.warning(
-                "Authentik URL or Token not configured for MartyBot instance. Authentik features will be disabled."
-            )
-
-        self.outline_client = None
-        if self.config.OUTLINE_URL and self.config.OUTLINE_TOKEN:
-            try:
-                self.outline_client = OutlineClient(self.config.OUTLINE_URL, self.config.OUTLINE_TOKEN)
-                logging.info("OutlineClient initialized successfully for MartyBot instance.")
-            except ValueError as e:
-                logging.warning(f"Failed to initialize OutlineClient for MartyBot instance: {e}")
-        else:
-            logging.warning(
-                "Outline URL or Token not configured for MartyBot instance. Outline features will be disabled."
-            )
-
-        self.mattermost_api_client = None
-        if self.config.MATTERMOST_URL and self.config.BOT_TOKEN and self.config.MATTERMOST_TEAM_ID:
-            try:
-                self.mattermost_api_client = MattermostClient(
-                    self.config.MATTERMOST_URL, self.config.BOT_TOKEN, self.config.MATTERMOST_TEAM_ID
-                )
-                logging.info(
-                    "MattermostClient (for API operations using BOT_TOKEN) initialized successfully for MartyBot instance."
-                )
-            except ValueError as e:
-                logging.warning(f"Failed to initialize MattermostClient (API) for MartyBot instance: {e}")
-        else:
-            logging.warning(
-                "Mattermost URL, Bot Token, or Team ID not fully configured for MattermostClient instance. Mattermost API operations may fail or be disabled."
-            )
-
-        self.brevo_client = None  # Initialize brevo_client attribute
-        if (
-            hasattr(self.config, "BREVO_API_URL")
-            and hasattr(self.config, "BREVO_API_KEY")
-            and self.config.BREVO_API_URL
-            and self.config.BREVO_API_KEY
-        ):
-            try:
-                # Ensure BrevoClient is imported
-                from clients.brevo_client import BrevoClient
-
-                self.brevo_client = BrevoClient(self.config.BREVO_API_URL, self.config.BREVO_API_KEY)
-                logging.info("BrevoClient initialized successfully for MartyBot instance.")
-            except ValueError as e:
-                logging.warning(f"Failed to initialize BrevoClient for MartyBot instance: {e}")
-            except ImportError:
-                logging.error("Failed to import BrevoClient. Brevo features will be disabled.")
-        else:
-            logging.warning(
-                "Brevo API URL or Key not configured for MartyBot instance. Brevo features will be disabled."
-            )
-
-        self.nocodb_client = None
-        if self.config.NOCODB_URL and self.config.NOCODB_TOKEN:
-            try:
-                self.nocodb_client = NocoDBClient(self.config.NOCODB_URL, self.config.NOCODB_TOKEN)
-                logging.info("NocoDBClient initialized successfully for MartyBot instance.")
-            except ValueError as e:
-                logging.warning(f"Failed to initialize NocoDBClient for MartyBot instance: {e}")
-        else:
-            logging.warning(
-                "NocoDB URL or Token not configured for MartyBot instance. NocoDB features will be disabled."
-            )
-
-        self.vaultwarden_client = None
-        if self.config.VAULTWARDEN_ORGANIZATION_ID:
-            try:
-                # VAULTWARDEN_SERVER_URL is optional for the client constructor
-                self.vaultwarden_client = VaultwardenClient(
-                    organization_id=self.config.VAULTWARDEN_ORGANIZATION_ID,
-                    server_url=self.config.VAULTWARDEN_SERVER_URL,
-                    api_username=self.config.VAULTWARDEN_API_USERNAME,
-                    api_password=self.config.VAULTWARDEN_API_PASSWORD,
-                )
-                logging.info("VaultwardenClient initialized successfully for MartyBot instance.")
-            except ValueError as e:  # Catch specific error from client if org_id is missing (already checked by if)
-                logging.warning(f"Failed to initialize VaultwardenClient for MartyBot instance: {e}")
-            except Exception as e:  # Catch other potential errors like 'bw' not found
-                logging.error(
-                    f"An unexpected error occurred during VaultwardenClient initialization: {e}", exc_info=True
-                )
-                self.vaultwarden_client = None  # Ensure client is None if init fails
-        else:
-            logging.warning(
-                "Vaultwarden Organization ID not configured for MartyBot instance. Vaultwarden features will be disabled."
-            )
+        clients = create_clients()
+        self.authentik_client = clients.get("authentik")
+        self.outline_client = clients.get("outline")
+        self.mattermost_api_client = clients.get("mattermost")
+        self.brevo_client = clients.get("brevo")
+        self.nocodb_client = clients.get("nocodb")
+        self.vaultwarden_client = clients.get("vaultwarden")
 
         self.websocket = None  # Represents the active WebSocket connection object
 
