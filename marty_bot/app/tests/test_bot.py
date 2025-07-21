@@ -769,9 +769,7 @@ class TestSendEmailCommand(TestMartyBot):
                 "name": admin_channel_slug,
                 "display_name": admin_channel_display_name,
             }
-            self.bot.mattermost_api_client.get_users_in_channel.return_value = [
-                {"id": user_id}
-            ]
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": user_id}]
 
             brevo_list_name_pattern_from_config = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
                 "list_name_pattern"
@@ -786,7 +784,9 @@ class TestSendEmailCommand(TestMartyBot):
             self.bot.brevo_client.get_contacts_from_list.return_value = contacts_on_list
             self.bot.brevo_client.send_transactional_email.return_value = True
 
-            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}", user_id=user_id, channel_id=channel_id)
+            await self._send_test_message(
+                f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}", user_id=user_id, channel_id=channel_id
+            )
 
             self.assertGreaterEqual(mock_map_channel.call_count, 1)
             projet_config_slice = {"PROJET": self.mock_config.PERMISSIONS_MATRIX["PROJET"]}
@@ -822,7 +822,11 @@ class TestSendEmailCommand(TestMartyBot):
                 "display_name": channel_display_name,
             }
             self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]
-            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Subject /// Body", user_id="test_user", channel_id=channel_id)
+            await self._send_test_message(
+                f"@{self.mock_config.BOT_NAME} {command_name} Subject /// Body",
+                user_id="test_user",
+                channel_id=channel_id,
+            )
             self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]
             self.assertIn("Cette commande doit être lancée depuis un canal admin", last_call_args[1])
@@ -856,7 +860,11 @@ class TestSendEmailCommand(TestMartyBot):
             }
             self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]
             self.bot.brevo_client.get_list_by_name.return_value = None
-            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Sujet /// Corps", user_id="test_user", channel_id=channel_id)
+            await self._send_test_message(
+                f"@{self.mock_config.BOT_NAME} {command_name} Sujet /// Corps",
+                user_id="test_user",
+                channel_id=channel_id,
+            )
             self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]
             expected_brevo_list_name = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
@@ -901,7 +909,11 @@ class TestSendEmailCommand(TestMartyBot):
                 "name": expected_brevo_list_name,
             }
             self.bot.brevo_client.get_contacts_from_list.return_value = []
-            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Sujet /// Corps", user_id="test_user", channel_id=channel_id)
+            await self._send_test_message(
+                f"@{self.mock_config.BOT_NAME} {command_name} Sujet /// Corps",
+                user_id="test_user",
+                channel_id=channel_id,
+            )
             self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]
             self.assertIn(f"La liste Brevo '{expected_brevo_list_name}' ne contient aucun contact", last_call_args[1])
@@ -944,7 +956,11 @@ class TestSendEmailCommand(TestMartyBot):
             }
             self.bot.brevo_client.get_contacts_from_list.return_value = [{"email": "contact@example.com"}]
             self.bot.brevo_client.send_transactional_email.return_value = False
-            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Sujet /// Corps", user_id="test_user", channel_id=channel_id)
+            await self._send_test_message(
+                f"@{self.mock_config.BOT_NAME} {command_name} Sujet /// Corps",
+                user_id="test_user",
+                channel_id=channel_id,
+            )
             self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]
             self.assertIn("Échec de l'envoi de l'email", last_call_args[1])
@@ -966,17 +982,29 @@ class TestSendEmailCommand(TestMartyBot):
                 "libraries.group_sync_services._map_mm_channel_to_entity_and_base_name",
                 return_value=("PROJET", "SyntaxTest"),
             ):
-                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Just subject no body", user_id="test_user", channel_id=channel_id)
+                await self._send_test_message(
+                    f"@{self.mock_config.BOT_NAME} {command_name} Just subject no body",
+                    user_id="test_user",
+                    channel_id=channel_id,
+                )
                 self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
                 last_call_args = self.bot.envoyer_message.call_args[0]
                 self.assertIn("Syntaxe incorrecte.", last_call_args[1])
                 self.bot.envoyer_message.reset_mock()
-                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Subject /// ", user_id="test_user", channel_id=channel_id)
+                await self._send_test_message(
+                    f"@{self.mock_config.BOT_NAME} {command_name} Subject /// ",
+                    user_id="test_user",
+                    channel_id=channel_id,
+                )
                 self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
                 last_call_args = self.bot.envoyer_message.call_args[0]
                 self.assertIn("Le sujet et le contenu ne peuvent pas être vides.", last_call_args[1])
                 self.bot.envoyer_message.reset_mock()
-                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}  /// Body", user_id="test_user", channel_id=channel_id)
+                await self._send_test_message(
+                    f"@{self.mock_config.BOT_NAME} {command_name}  /// Body",
+                    user_id="test_user",
+                    channel_id=channel_id,
+                )
                 self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
                 last_call_args = self.bot.envoyer_message.call_args[0]
                 self.assertIn("Le sujet et le contenu ne peuvent pas être vides.", last_call_args[1])

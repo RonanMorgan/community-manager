@@ -74,7 +74,8 @@ def _ensure_contacts_in_brevo_list(
                     **base_user_info,
                     "status": SyncStatus.FAILURE.value,
                     "action": BrevoAction.FAILED_TO_ENSURE_CONTACT.value,
-                    "error_message": f"API call to add/ensure contact '{mm_user_email}' in Brevo list '{list_name}' failed.",
+                    "error_message": f"API call to add/ensure contact '{mm_user_email}' "
+                    f"in Brevo list '{list_name}' failed.",
                 }
             )
 
@@ -154,12 +155,13 @@ def _sync_single_brevo_list(
             page_contacts = brevo_client.get_contacts_from_list(brevo_list_id)
             if page_contacts:
                 current_contacts_in_brevo_list.extend(page_contacts)
-                if len(page_contacts) < 50:
+                if len(page_contacts) < limit:
                     break
-                offset += 50
+                offset += limit
             else:
                 logging.warning(
-                    f"Could not fetch contacts from Brevo list '{brevo_list_name}' (ID: {brevo_list_id}) for deletion check, or list is empty."
+                    f"Could not fetch contacts from Brevo list '{brevo_list_name}' (ID: {brevo_list_id}) "
+                    "for deletion check, or list is empty."
                 )
                 break
 
@@ -191,7 +193,8 @@ def _sync_single_brevo_list(
                         **base_removal_info,
                         "status": SyncStatus.FAILURE.value,
                         "action": BrevoAction.FAILED_TO_REMOVE_CONTACT.value,
-                        "error_message": f"API call to remove contact '{email_to_remove}' from Brevo list '{brevo_list_name}' failed.",
+                        "error_message": f"API call to remove contact '{email_to_remove}' "
+                        f"from Brevo list '{brevo_list_name}' failed.",
                     }
                 )
 
@@ -219,6 +222,19 @@ def _map_brevo_list_to_entity_and_base_name(
     return None, None
 
 
-def _sync_brevo_for_entity(brevo_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
+def _sync_brevo_for_entity(
+    brevo_client,
+    mattermost_client,
+    base_name,
+    config,
+    all_authentik_groups_by_name,
+    email_to_authentik_user_pk_map,
+    std_mm_users,
+    admin_mm_users,
+    mm_users_for_services,
+    log_channel_name,
+    perform_deletions,
+    entity_key,
+):
     brevo_list_name = config.get("list_name_pattern", "mm_{base_name}").format(base_name=base_name)
     return _sync_single_brevo_list(brevo_client, brevo_list_name, std_mm_users, log_channel_name, perform_deletions)

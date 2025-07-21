@@ -39,7 +39,7 @@ def _ensure_users_invited_to_vaultwarden_collection(
             {
                 "service": "VAULTWARDEN",
                 "target_resource_name": collection_name,
-                    "status": SyncStatus.FAILURE.value,
+                "status": SyncStatus.FAILURE.value,
                 "action": "VW_ENSURE_FAILED_NO_TOKEN",
                 "error_message": "Missing Vaultwarden access token.",
             }
@@ -98,7 +98,8 @@ def _ensure_users_invited_to_vaultwarden_collection(
                         invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_FAILED.value
                 else:
                     logging.warning(
-                        f"VAULTWARDEN_SERVER_URL not configured. Cannot send DM for Vaultwarden invite to {mm_username} for collection {collection_name}."
+                        f"VAULTWARDEN_SERVER_URL not configured. Cannot send DM for Vaultwarden invite to "
+                        f"{mm_username} for collection {collection_name}."
                     )
                     invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_URL.value
             else:
@@ -107,7 +108,8 @@ def _ensure_users_invited_to_vaultwarden_collection(
             invite_result.update(
                 {
                     "action": VaultwardenAction.FAILED_TO_INVITE_TO_COLLECTION.value,
-                    "error_message": f"API call to invite {email_lower} to VW collection {collection_name} failed or user already member/invited. See client logs.",
+                    "error_message": f"API call to invite {email_lower} to VW collection {collection_name} "
+                    "failed or user already member/invited. See client logs.",
                 }
             )
         results.append(invite_result)
@@ -208,6 +210,21 @@ def _map_vaultwarden_collection_to_entity_and_base_name(
     return None, None
 
 
-def _sync_vaultwarden_for_entity(vaultwarden_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
+def _sync_vaultwarden_for_entity(
+    vaultwarden_client,
+    mattermost_client,
+    base_name,
+    config,
+    all_authentik_groups_by_name,
+    email_to_authentik_user_pk_map,
+    std_mm_users,
+    admin_mm_users,
+    mm_users_for_services,
+    log_channel_name,
+    perform_deletions,
+    entity_key,
+):
     vw_collection_name = config.get("collection_name_pattern", "Shared - {base_name}").format(base_name=base_name)
-    return _sync_single_vaultwarden_collection_members(vaultwarden_client, mattermost_client, vw_collection_name, mm_users_for_services, log_channel_name)
+    return _sync_single_vaultwarden_collection_members(
+        vaultwarden_client, mattermost_client, vw_collection_name, mm_users_for_services, log_channel_name
+    )

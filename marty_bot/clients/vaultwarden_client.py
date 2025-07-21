@@ -458,11 +458,9 @@ class VaultwardenClient:
         if not self._sync_vault():
             logging.warning("Vault sync failed before listing collections. Proceeding, but data might be stale.")
 
-        logging.debug(
-            f"Attempting to find Vaultwarden collection by using 'bw list collections'."
-        )
+        logging.debug(f"Attempting to find Vaultwarden collection by using 'bw list collections'.")
 
-        return self._run_bw_command(["list", "org-collections","--organizationid", self.organization_id])
+        return self._run_bw_command(["list", "org-collections", "--organizationid", self.organization_id])
 
     def get_members(self) -> tuple[int, str, str]:
         if not self._get_session():
@@ -471,57 +469,57 @@ class VaultwardenClient:
         if not self._sync_vault():
             logging.warning("Vault sync failed before listing members. Proceeding, but data might be stale.")
 
-        logging.debug(
-            f"Attempting to find Vaultwarden collection by using 'bw list collections'."
-        )
+        logging.debug(f"Attempting to find Vaultwarden collection by using 'bw list collections'.")
 
-        return self._run_bw_command(["list", "org-members","--organizationid", self.organization_id])
+        return self._run_bw_command(["list", "org-members", "--organizationid", self.organization_id])
 
     def get_name_from_collections(self, collection_id: str, sout_list: str) -> str:
         try:
             collections = json.loads(sout_list)
             for collection in collections:
-                if (
-                    collection.get("id") == collection_id
-                    and collection.get("organizationId") == self.organization_id
-                ):
+                if collection.get("id") == collection_id and collection.get("organizationId") == self.organization_id:
                     coll_name = collection.get("name")
                     if coll_name:
                         logging.info(
-                            f"Found collection '{coll_name}' with ID: {coll_name} in organization {self.organization_id}."
+                            "Found collection '%s' with ID: %s in organization %s.",
+                            coll_name,
+                            coll_name,
+                            self.organization_id,
                         )
                         return coll_name
                     else:
-                        logging.warning(f"Collection '{coll_name}' found but has no ID.")
+                        logging.warning("Collection '%s' found but has no ID.", coll_name)
             logging.info(
-                f"Collection '{collection_id}' not found in organization '{self.organization_id}' or user does not have access."
+                "Collection '%s' not found in organization '%s' or user does not have access.",
+                collection_id,
+                self.organization_id,
             )
             return None
         except json.JSONDecodeError:
-            logging.error(f"Failed to parse JSON from 'bw list collections': {sout_list.strip()}")
+            logging.error("Failed to parse JSON from 'bw list collections': %s", sout_list.strip())
             return None
 
     def get_email_from_members(self, user_id: str, sout_list: str) -> str:
         try:
             users = json.loads(sout_list)
             for user in users:
-                if (
-                    user.get("id") == user_id
-                ):
+                if user.get("id") == user_id:
                     email = user.get("email")
                     if email:
                         logging.info(
-                            f"Found user '{email}' with ID: {user_id} in organization {self.organization_id}."
+                            "Found user '%s' with ID: %s in organization %s.", email, user_id, self.organization_id
                         )
                         return email
                     else:
-                        logging.warning(f"User '{email}' found but has no ID.")
+                        logging.warning("User '%s' found but has no ID.", email)
             logging.info(
-                f"User '{user_id}' not found in organization '{self.organization_id}' or user does not have access."
+                "User '%s' not found in organization '%s' or user does not have access.",
+                user_id,
+                self.organization_id,
             )
             return None
         except json.JSONDecodeError:
-            logging.error(f"Failed to parse JSON from 'bw list collections': {sout_list.strip()}")
+            logging.error("Failed to parse JSON from 'bw list collections': %s", sout_list.strip())
             return None
 
     def update_collection(self, collection_id: str, payload: dict) -> bool:

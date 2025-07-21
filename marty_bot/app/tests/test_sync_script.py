@@ -493,7 +493,9 @@ class TestVaultwardenSync(unittest.TestCase):
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services._get_mm_users_for_entity")
     @patch("libraries.group_sync_services._map_vaultwarden_collection_to_entity_and_base_name")
-    def test_sync_vaultwarden_removes_user(self, mock_map_collection, mock_get_users, mock_get_auth_groups, mock_auth_client_class):
+    def test_sync_vaultwarden_removes_user(
+        self, mock_map_collection, mock_get_users, mock_get_auth_groups, mock_auth_client_class
+    ):
         # Arrange
         mock_auth_instance = mock_auth_client_class.return_value
         mock_auth_instance.get_groups_with_users.return_value = ([], {})
@@ -508,8 +510,16 @@ class TestVaultwardenSync(unittest.TestCase):
                 "users": [{"id": "user1-pk"}, {"id": "user2-pk"}],
             }
         ]
-        mock_vw_client.get_collections.return_value = (0, json.dumps([{"id": "coll1", "name": "projet-test", "organizationId": "test-org-id"}]), "")
-        mock_vw_client.get_members.return_value = (0, json.dumps([{"id": "user1-pk", "email": "user1@test.com"}, {"id": "user2-pk", "email": "user2@test.com"}]), "")
+        mock_vw_client.get_collections.return_value = (
+            0,
+            json.dumps([{"id": "coll1", "name": "projet-test", "organizationId": "test-org-id"}]),
+            "",
+        )
+        mock_vw_client.get_members.return_value = (
+            0,
+            json.dumps([{"id": "user1-pk", "email": "user1@test.com"}, {"id": "user2-pk", "email": "user2@test.com"}]),
+            "",
+        )
         mock_vw_client.get_name_from_collections.return_value = "projet-test"
         mock_vw_client.get_email_from_members.side_effect = ["user1@test.com", "user2@test.com"]
         mock_map_collection.return_value = ("PROJET", "test")

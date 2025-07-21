@@ -6,6 +6,7 @@ import json  # Added import for json
 from clients.mattermost_client import MattermostClient
 from libraries.services.mattermost import slugify
 
+
 class TestMattermostClient(unittest.TestCase):
 
     # Patch requests.get at the class level to affect setUp

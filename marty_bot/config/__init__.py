@@ -72,7 +72,9 @@ else:
 
 
 # Permissions Matrix Configuration
-PERMISSIONS_MATRIX_FILE_PATH = os.getenv("PERMISSIONS_MATRIX_FILE_PATH", os.path.join(config_dir, "permissions_matrix.yml"))
+PERMISSIONS_MATRIX_FILE_PATH = os.getenv(
+    "PERMISSIONS_MATRIX_FILE_PATH", os.path.join(config_dir, "permissions_matrix.yml")
+)
 PERMISSIONS_MATRIX: dict = {}
 
 if PERMISSIONS_MATRIX_FILE_PATH:

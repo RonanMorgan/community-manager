@@ -3,6 +3,7 @@ import json
 import logging
 import websockets
 
+
 class WebsocketHandler:
     def __init__(self, bot):
         self.bot = bot
@@ -17,7 +18,8 @@ class WebsocketHandler:
         try:
             data = json.loads(message_str)
             logging.debug(
-                f"WebSocket << Event received: Type='{data.get('event')}', Seq='{data.get('seq')}', DataKeys='{list(data.get('data', {}).keys()) if data.get('data') else None}'"
+                f"WebSocket << Event received: Type='{data.get('event')}', Seq='{data.get('seq')}', "
+                f"DataKeys='{list(data.get('data', {}).keys()) if data.get('data') else None}'"
             )
             event_type = data.get("event")
 
