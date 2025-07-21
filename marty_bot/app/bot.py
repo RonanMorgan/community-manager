@@ -40,6 +40,7 @@ from clients.vaultwarden_client import VaultwardenClient  # Added VaultwardenCli
 from clients.client_factory import create_clients
 # Import orchestration function for sync command
 from libraries.group_sync_services import orchestrate_group_synchronization
+from app.commands.command_factory import CommandFactory
 
 
 class MartyBot:
@@ -84,21 +85,7 @@ class MartyBot:
         self.INITIAL_RECONNECT_DELAY = 5  # seconds
         self.MAX_RECONNECT_DELAY = 60  # seconds
 
-        self.commands = {
-            "create_projet": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(
-                c, arg_str, "projet", "PROJET", user_id_who_posted
-            ),
-            "create_antenne": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(
-                c, arg_str, "antenne", "ANTENNE", user_id_who_posted
-            ),
-            "create_pole": lambda c, arg_str, user_id_who_posted: self._execute_batch_create_command(
-                c, arg_str, "pôle", "POLES", user_id_who_posted
-            ),
-            "help": self._send_help_message,  # help handler does not need user_id_who_posted
-            "update_all_user_rights": self._handle_update_all_user_rights_command,  # Will now take user_id_who_posted
-            "update_user_rights_and_remove": self._handle_update_user_rights_and_remove_command,  # Will now take user_id_who_posted
-            "send_email": self._handle_send_email_command,
-        }
+        self.command_factory = CommandFactory(self)
 
     async def _format_and_send_sync_results(
         self,
@@ -815,12 +802,12 @@ class MartyBot:
     async def _send_help_message(self, channel_id, arg_string=None):  # Added user_id, but not used by help
         """Displays this help message listing all available commands."""
         help_lines = ["### Commandes disponibles pour MartyBot", "---"]
-        if not self.commands:
+        if not self.command_factory.commands:
             help_lines.append("Aucune commande n'est actuellement disponible.")
         else:
-            for cmd, handler_method in self.commands.items():
-                docstring = handler_method.__doc__
+            for cmd, handler_instance in self.command_factory.commands.items():
                 description = ""
+                docstring = handler_instance.get_help()
                 if docstring:
                     first_line = docstring.strip().split("\n")[0]
                     description = f" - _{first_line}_"
@@ -1081,30 +1068,9 @@ class MartyBot:
         command_verb, arg_string = self._parse_command_from_mention(text_after_mention if text_after_mention else "")
 
         if command_verb:
-            handler_method = self.commands.get(command_verb)
-            if handler_method:
-                # Pass user_id_who_posted to command handlers that need it
-                # For lambdas, arguments must be positional if not explicitly defined with same name.
-                if command_verb in [
-                    "create_projet",
-                    "create_antenne",
-                    "create_pole",
-                    "send_email",
-                    "update_all_user_rights",  # Now expects user_id_who_posted
-                    "update_user_rights_and_remove",  # Now expects user_id_who_posted
-                ]:  # These handlers expect (channel_id, arg_string, user_id_who_posted)
-                    await handler_method(channel_id, arg_string, user_id_who_posted)
-                elif command_verb in ["help"]:  # help does not need user_id_who_posted
-                    # These handlers are defined to accept (self, channel_id, arg_string)
-                    await handler_method(channel_id, arg_string)
-                # else: # No other command types currently defined that would fall here without specific handling
-                #     # Fallback for any other command type if they were to be added without specific handling
-                #     # await handler_method(channel_id, arg_string) # This would error for handlers expecting user_id
-                #     # Consider a more robust dispatch or ensure all commands are explicitly handled
-                #     logging.warning(f"Command '{command_verb}' called without specific user_id handling logic in _handle_message_event dispatcher.")
-                #     # For safety, if a command isn't in the specific lists, we might avoid calling it or call it without user_id
-                #     # This depends on the desired default behavior for unlisted commands.
-                #     # For now, unlisted commands (if any were added to self.commands without updating here) would not be called.
+            command = self.command_factory.get_command(command_verb)
+            if command:
+                await command.execute(channel_id, arg_string, user_id_who_posted)
             else:
                 message = f":question: Commande inconnue : **`{command_verb}`**. Essayez `{self.bot_name_mention} help` pour une liste des commandes disponibles."
                 await asyncio.to_thread(self.envoyer_message, channel_id, message)
