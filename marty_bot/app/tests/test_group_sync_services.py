@@ -2323,6 +2323,37 @@ permissions:
         )
         self.mock_nocodb_client.list_base_users.assert_called_once_with("base_id")
 
+    @async_test
+    async def test_sync_entity_permissions_tools_to_mm_with_admin_group(self):
+        from libraries.group_sync_services import _sync_entity_permissions_tools_to_mm
+
+        mock_authentik_client = MagicMock(spec=AuthentikClient)
+        mock_mattermost_client = MagicMock(spec=MattermostClient)
+        mock_permissions_matrix = {
+            "PROJET": {
+                "standard": {"authentik_group_name_pattern": "projet_{base_name}"},
+                "admin": {"authentik_group_name_pattern": "projet_{base_name}_admin"},
+            }
+        }
+        mock_auth_group = {
+            "name": "projet_Test_admin",
+            "pk": "pk1",
+            "users_obj": [],
+        }
+        mock_authentik_client.get_groups_with_users.return_value = ([mock_auth_group], {})
+
+        with patch("libraries.group_sync_services._get_mm_users_for_entity", return_value=({}, [], [])):
+            await _sync_entity_permissions_tools_to_mm(
+                service_client=mock_authentik_client,
+                service_name="AUTHENTIK",
+                mattermost_client=mock_mattermost_client,
+                mm_team_id="test_team",
+                email_to_authentik_user_pk_map={},
+                perform_deletions=True,
+                permissions_matrix=mock_permissions_matrix,
+                skip_services=[],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

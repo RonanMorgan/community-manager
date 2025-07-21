@@ -42,7 +42,7 @@ from libraries.services.authentik import (
     _map_auth_group_to_entity_and_base_name,
     _sync_authentik_for_entity,
 )
-from libraries.services.mattermost import _map_mm_channel_to_entity_and_base_name
+from libraries.services.mattermost import _map_mm_channel_to_entity_and_base_name, _extract_base_name
 
 
 if TYPE_CHECKING:
