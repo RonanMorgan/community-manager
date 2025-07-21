@@ -130,7 +130,7 @@ class TestMartyBot(unittest.TestCase):
             "user_id": user_id if user_id else self.test_user_id,
         }
         mock_message_data = {"event": "posted", "data": {"post": json.dumps(post_content)}}
-        await self.bot.on_message(None, json.dumps(mock_message_data))
+        await self.bot.websocket_handler.on_message(None, json.dumps(mock_message_data))
 
     @async_test
     async def test_handle_help_command(self):
@@ -460,13 +460,13 @@ class TestMartyBot(unittest.TestCase):
                 )
             },
         }
-        await self.bot.on_message(None, json.dumps(mock_message_data))
+        await self.bot.websocket_handler.on_message(None, json.dumps(mock_message_data))
         self.bot.envoyer_message.assert_not_called()
 
     @async_test
     async def test_ignore_message_not_posted_event(self):
         mock_message_data = {"event": "typing", "data": {"user_id": "user123"}}
-        await self.bot.on_message(None, json.dumps(mock_message_data))
+        await self.bot.websocket_handler.on_message(None, json.dumps(mock_message_data))
         self.bot.envoyer_message.assert_not_called()
 
     def test_parse_command_from_mention_logic(self):
