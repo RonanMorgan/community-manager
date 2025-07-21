@@ -173,7 +173,7 @@ class TestGroupSyncServices(unittest.TestCase):
             ("PROJET", "my-cool-project"),
         )
 
-    @patch("services.outline.config")
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
     def test_sync_single_group_user_exclusion(
         self, mock_config_module_in_service, mock_config_module_in_outline_service
@@ -432,7 +432,7 @@ permissions:
             self.assertEqual(app_config.PERMISSIONS_MATRIX["PROJET"]["outline"]["default_access"], "read")
         self.assertEqual(app_config.EXCLUDED_USERS, set())
 
-    @patch("services.outline.config")
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
     def test_sync_single_group_outline_dm_on_new_add(
         self, mock_config_module_in_service, mock_config_module_in_outline_service
@@ -529,7 +529,7 @@ permissions:
             expected_collection_id, "outline_user_id_dm", permission="read"
         )
 
-    @patch("services.outline.config")
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
     def test_sync_single_group_outline_dm_fails(
         self, mock_config_module_in_service, mock_config_module_in_outline_service
@@ -676,7 +676,7 @@ permissions:
         self.mock_mattermost_client.send_dm.assert_not_called()
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
-    @patch("services.outline.config")
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
     def test_sync_outline_dm_skipped_no_outline_url(
         self, mock_config_module_in_service, mock_config_module_in_outline_service
@@ -744,7 +744,7 @@ permissions:
         )
         self.mock_mattermost_client.send_dm.assert_not_called()
 
-    @patch("services.outline.config")
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
     def test_sync_outline_dm_skipped_incomplete_details(
         self, mock_config_module_in_service, mock_config_module_in_outline_service
@@ -1039,7 +1039,7 @@ permissions:
             self.assertEqual(kept_action["mm_username"], "keepme_outline")
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
-    @patch("services.outline.config")
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
     def test_sync_single_group_outline_excluded_user_not_removed(
         self, mock_config_module_in_service, mock_config_module_in_outline_service
@@ -1113,7 +1113,7 @@ permissions:
         )
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
-    @patch("services.outline.config")
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
     def test_sync_single_group_outline_permissions(
         self, mock_config_module_in_service, mock_config_module_in_outline_service

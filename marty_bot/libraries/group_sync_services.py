@@ -16,7 +16,7 @@ from clients.authentik_client import AuthentikAction
 from clients.nocodb_client import NocoDBAction
 from clients.brevo_client import BrevoAction
 from clients.vaultwarden_client import VaultwardenAction
-from services.outline import (
+from libraries.services.outline import (
     _sync_single_outline_collection,
     _remove_user_from_outline_collection,
 )
