@@ -1986,11 +1986,14 @@ permissions:
         # For this test, focus is on NoCoDB not being called.
 
     # --- Tests for Vaultwarden collection member synchronization ---
+    @patch("libraries.services.vaultwarden.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_vaultwarden_collection_invite_with_dm(self, mock_lib_config_vw):
+    def test_sync_vaultwarden_collection_invite_with_dm(self, mock_lib_config_vw, mock_service_config_vw):
         mock_lib_config_vw.EXCLUDED_USERS = set()
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+        mock_service_config_vw.EXCLUDED_USERS = set()
+        mock_service_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
+        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
 
         collection_name = "TestVWCollection"
         mm_user_data = {"username": "vw_user1", "mm_user_id": "mm_vw_u1", "is_admin_channel_member": False}
@@ -2029,11 +2032,14 @@ permissions:
         self.assertEqual(results[0]["status"], "SUCCESS")
         self.assertEqual(results[0]["action"], "USER_INVITED_TO_VW_COLLECTION_AND_DM_SENT")
 
+    @patch("libraries.services.vaultwarden.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_vaultwarden_invite_dm_fails(self, mock_lib_config_vw):
+    def test_sync_vaultwarden_invite_dm_fails(self, mock_lib_config_vw, mock_service_config_vw):
         mock_lib_config_vw.EXCLUDED_USERS = set()
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+        mock_service_config_vw.EXCLUDED_USERS = set()
+        mock_service_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
+        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
 
         collection_name = "VWCollectionDMFail"
         mm_users_for_services = {"vw.dm.fail@example.com": {"username": "vw_dm_fail", "mm_user_id": "mm_vw_dm_fail"}}
