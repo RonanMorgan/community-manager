@@ -10,7 +10,7 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app import config
+import config
 from app.enums import SyncStatus
 from clients.vaultwarden_client import VaultwardenAction
 from libraries.services.outline import (

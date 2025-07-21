@@ -48,7 +48,8 @@ VAULTWARDEN_API_PASSWORD = os.getenv("VAULTWARDEN_API_PASSWORD")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # User Exclusion Configuration
-EXCLUDED_USERS_FILE_PATH = os.getenv("EXCLUDED_USERS_FILE_PATH", "config/excluded_users.txt")
+config_dir = os.path.dirname(__file__)
+EXCLUDED_USERS_FILE_PATH = os.getenv("EXCLUDED_USERS_FILE_PATH", os.path.join(config_dir, "excluded_users.txt"))
 EXCLUDED_USERS: set[str] = set()
 
 if EXCLUDED_USERS_FILE_PATH:  # Only try to load if path is provided
@@ -71,7 +72,7 @@ else:
 
 
 # Permissions Matrix Configuration
-PERMISSIONS_MATRIX_FILE_PATH = os.getenv("PERMISSIONS_MATRIX_FILE_PATH", "config/permissions_matrix.yml")
+PERMISSIONS_MATRIX_FILE_PATH = os.getenv("PERMISSIONS_MATRIX_FILE_PATH", os.path.join(config_dir, "permissions_matrix.yml"))
 PERMISSIONS_MATRIX: dict = {}
 
 if PERMISSIONS_MATRIX_FILE_PATH:

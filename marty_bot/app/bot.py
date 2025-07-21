@@ -14,7 +14,7 @@ import markdown2  # For send_email Markdown to HTML conversion
 # import signal  # No longer used directly in MartyBot class after removing signal handlers
 import threading  # For logging current thread name in start()
 
-from app import config
+import config
 from app.websocket_handler import WebsocketHandler
 
 # Configure basic logging based on DEBUG status

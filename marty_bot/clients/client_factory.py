@@ -1,5 +1,5 @@
 import logging
-from app import config
+import config
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.mattermost_client import MattermostClient
