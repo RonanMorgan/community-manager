@@ -16,9 +16,7 @@ class TestOutlineClient2(unittest.TestCase):
 
     @patch("requests.post")
     def test_create_group_failure_during_list_check(self, mock_post_request):
-        mock_post_request.side_effect = requests.exceptions.RequestException(
-            "Network error during list"
-        )
+        mock_post_request.side_effect = requests.exceptions.RequestException("Network error during list")
 
         project_name = "project_list_fail"
         result = self.client.create_group(project_name)
@@ -47,10 +45,7 @@ class TestOutlineClient2(unittest.TestCase):
             Mock(
                 status_code=200,
                 json=lambda: {
-                    "data": [
-                        {"id": "coll-1", "name": "First"},
-                        {"id": "coll-2", "name": "Second"},
-                    ],
+                    "data": [{"id": "coll-1", "name": "First"}, {"id": "coll-2", "name": "Second"}],
                     "pagination": {"limit": 2, "offset": 0, "total": 3},
                 },
             ),

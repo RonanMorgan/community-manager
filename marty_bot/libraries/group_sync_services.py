@@ -8,16 +8,16 @@ from typing import TYPE_CHECKING, Optional
 
 import sys
 import os
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app import config
 from app.enums import SyncStatus
 from clients.authentik_client import AuthentikAction
-from clients.outline_client import OutlineAction
-from clients.nocodb_client import NocoDBAction
 from clients.brevo_client import BrevoAction
+from clients.nocodb_client import NocoDBAction
+from clients.outline_client import OutlineAction
 from clients.vaultwarden_client import VaultwardenAction
+from libraries.outline import sync_single_outline_collection
 
 # Import client-specific utilities and classes for type hinting
 # from clients.mattermost_client import slugify # Removed to avoid potential circular dependency if this slugify is widely used
@@ -56,9 +56,7 @@ def slugify(text: str) -> str:
     text = re.sub(r"-+", "-", text)
 
     if len(text) > 64:
-        text = text[:64].strip(
-            "-"
-        )  # Re-strip if truncation creates leading/trailing hyphen
+        text = text[:64].strip("-")  # Re-strip if truncation creates leading/trailing hyphen
 
     if not text or text == "-":  # Handle if slug becomes empty or just a hyphen
         return "default-slug-name"  # Changed default from 'default-channel-name' to be more generic
@@ -75,25 +73,17 @@ def get_all_authentik_groups_and_user_map(authentik_client: "AuthentikClient"):
     Fetches all Authentik groups and constructs a user email-to-PK map.
     Uses the get_groups_with_users method from AuthentikClient.
     """
-    logging.info(
-        "Fetching all Authentik groups and constructing user email-to-PK map..."
-    )
+    logging.info("Fetching all Authentik groups and constructing user email-to-PK map...")
     if not authentik_client:
-        logging.error(
-            "Authentik client not provided to get_all_authentik_groups_and_user_map."
-        )
+        logging.error("Authentik client not provided to get_all_authentik_groups_and_user_map.")
         return [], {}
 
     groups, email_map = authentik_client.get_groups_with_users()
 
     if not groups:
-        logging.warning(
-            "No Authentik groups found or an error occurred during fetching."
-        )
+        logging.warning("No Authentik groups found or an error occurred during fetching.")
     if not email_map:
-        logging.warning(
-            "Authentik user email-to-PK map is empty or could not be constructed."
-        )
+        logging.warning("Authentik user email-to-PK map is empty or could not be constructed.")
 
     return groups, email_map
 
@@ -120,9 +110,7 @@ def sync_entity_permissions(
     Includes deletion logic based on `perform_deletions` flag.
     """
     results = []
-    logging.info(
-        f"Processing sync for entity '{base_name}' (type: {entity_key}, deletions: {perform_deletions})"
-    )
+    logging.info(f"Processing sync for entity '{base_name}' (type: {entity_key}, deletions: {perform_deletions})")
 
     std_config = entity_config.get("standard", {})
     admin_config = entity_config.get("admin")
@@ -131,25 +119,17 @@ def sync_entity_permissions(
     nocodb_cfg = entity_config.get("nocodb", {})
     vaultwarden_cfg = entity_config.get("vaultwarden", {})  # Added Vaultwarden config
 
-    std_auth_group_name = std_config.get(
-        "authentik_group_name_pattern", "{base_name}"
-    ).format(base_name=base_name)
-    std_mm_channel_name = std_config.get(
-        "mattermost_channel_name_pattern", "{base_name}"
-    ).format(base_name=base_name)
+    std_auth_group_name = std_config.get("authentik_group_name_pattern", "{base_name}").format(base_name=base_name)
+    std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(base_name=base_name)
 
     std_auth_group_obj = all_authentik_groups_by_name.get(std_auth_group_name)
-    if (
-        not std_auth_group_obj
-    ):  # Group not pre-fetched (e.g. fetch_remote_members=False)
+    if not std_auth_group_obj:  # Group not pre-fetched (e.g. fetch_remote_members=False)
         logging.info(
             f"Authentik group '{std_auth_group_name}' for entity '{base_name}' not in pre-fetched list. Attempting to fetch/create."
         )
         std_auth_group_obj = authentik_client.get_group_by_name(std_auth_group_name)
         if not std_auth_group_obj:
-            logging.info(
-                f"Authentik group '{std_auth_group_name}' not found, attempting to create."
-            )
+            logging.info(f"Authentik group '{std_auth_group_name}' not found, attempting to create.")
             # Ensure create_group returns the group object or None if failed
             created_group = authentik_client.create_group(std_auth_group_name)
             if created_group:
@@ -160,22 +140,16 @@ def sync_entity_permissions(
                     std_auth_group_obj["users"] = []
                 if "users_obj" not in std_auth_group_obj:
                     std_auth_group_obj["users_obj"] = []
-                logging.info(
-                    f"Authentik group '{std_auth_group_name}' created successfully."
-                )
+                logging.info(f"Authentik group '{std_auth_group_name}' created successfully.")
             else:
                 logging.error(
                     f"Failed to create Authentik group '{std_auth_group_name}'. Skipping standard Authentik sync for this group."
                 )
         else:
-            logging.info(
-                f"Authentik group '{std_auth_group_name}' fetched successfully."
-            )
+            logging.info(f"Authentik group '{std_auth_group_name}' fetched successfully.")
             # Ensure users and users_obj are present, even if empty, to match structure from get_groups_with_users
             if "users" not in std_auth_group_obj:
-                std_auth_group_obj["users"] = (
-                    []
-                )  # Should be populated by get_group_by_name if it includes users
+                std_auth_group_obj["users"] = []  # Should be populated by get_group_by_name if it includes users
             if "users_obj" not in std_auth_group_obj:
                 std_auth_group_obj["users_obj"] = []  # Same as above
 
@@ -185,14 +159,10 @@ def sync_entity_permissions(
         )
     # else: std_auth_group_obj is now available for sync
 
-    std_mm_channel = mattermost_client.get_channel_by_name(
-        mm_team_id, slugify(std_mm_channel_name)
-    )
+    std_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(std_mm_channel_name))
     std_mm_users_in_channel = []
     if std_mm_channel:
-        std_mm_users_in_channel = mattermost_client.get_users_in_channel(
-            std_mm_channel["id"]
-        )
+        std_mm_users_in_channel = mattermost_client.get_users_in_channel(std_mm_channel["id"])
     else:
         logging.warning(
             f"Mattermost channel '{std_mm_channel_name}' for entity '{base_name}' not found. Standard sync might be incomplete."
@@ -203,12 +173,12 @@ def sync_entity_permissions(
     adm_mm_channel_name_for_log = "N/A"
 
     if admin_config:
-        adm_auth_group_name = admin_config.get(
-            "authentik_group_name_pattern", "{base_name} Admin"
-        ).format(base_name=base_name)
-        adm_mm_channel_name = admin_config.get(
-            "mattermost_channel_name_pattern", "{base_name} Admin"
-        ).format(base_name=base_name)
+        adm_auth_group_name = admin_config.get("authentik_group_name_pattern", "{base_name} Admin").format(
+            base_name=base_name
+        )
+        adm_mm_channel_name = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin").format(
+            base_name=base_name
+        )
         adm_mm_channel_name_for_log = adm_mm_channel_name  # For logging context
         adm_auth_group_obj = all_authentik_groups_by_name.get(adm_auth_group_name)
         if not adm_auth_group_obj:  # Group not pre-fetched
@@ -217,9 +187,7 @@ def sync_entity_permissions(
             )
             adm_auth_group_obj = authentik_client.get_group_by_name(adm_auth_group_name)
             if not adm_auth_group_obj:
-                logging.info(
-                    f"Authentik admin group '{adm_auth_group_name}' not found, attempting to create."
-                )
+                logging.info(f"Authentik admin group '{adm_auth_group_name}' not found, attempting to create.")
                 created_group = authentik_client.create_group(adm_auth_group_name)
                 if created_group:
                     adm_auth_group_obj = created_group
@@ -227,17 +195,13 @@ def sync_entity_permissions(
                         adm_auth_group_obj["users"] = []
                     if "users_obj" not in adm_auth_group_obj:
                         adm_auth_group_obj["users_obj"] = []
-                    logging.info(
-                        f"Authentik admin group '{adm_auth_group_name}' created successfully."
-                    )
+                    logging.info(f"Authentik admin group '{adm_auth_group_name}' created successfully.")
                 else:
                     logging.error(
                         f"Failed to create Authentik admin group '{adm_auth_group_name}'. Skipping admin Authentik sync for this group."
                     )
             else:
-                logging.info(
-                    f"Authentik admin group '{adm_auth_group_name}' fetched successfully."
-                )
+                logging.info(f"Authentik admin group '{adm_auth_group_name}' fetched successfully.")
                 if "users" not in adm_auth_group_obj:
                     adm_auth_group_obj["users"] = []
                 if "users_obj" not in adm_auth_group_obj:
@@ -249,16 +213,10 @@ def sync_entity_permissions(
             )
         # else: adm_auth_group_obj is now available for sync
 
-        adm_mm_channel = mattermost_client.get_channel_by_name(
-            mm_team_id, slugify(adm_mm_channel_name)
-        )
+        adm_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(adm_mm_channel_name))
         if adm_mm_channel:
-            adm_mm_users_in_channel = mattermost_client.get_users_in_channel(
-                adm_mm_channel["id"]
-            )
-            adm_mm_channel_name_for_log = adm_mm_channel.get(
-                "display_name", adm_mm_channel_name
-            )
+            adm_mm_users_in_channel = mattermost_client.get_users_in_channel(adm_mm_channel["id"])
+            adm_mm_channel_name_for_log = adm_mm_channel.get("display_name", adm_mm_channel_name)
         else:
             logging.warning(
                 f"Mattermost channel '{adm_mm_channel_name}' for entity '{base_name}' (admin) not found. Admin sync might be incomplete."
@@ -271,9 +229,7 @@ def sync_entity_permissions(
     # if the admin channel is a superset or if they are also in the standard channel.
     # The current logic assumes Brevo list membership is primarily tied to the standard channel.
 
-    mm_users_for_services = (
-        {}
-    )  # email_lower -> {username, mm_user_id, is_admin_channel_member}
+    mm_users_for_services = {}  # email_lower -> {username, mm_user_id, is_admin_channel_member}
     # Prioritize admin channel membership status if a user is in both
     for mm_user in std_mm_users_in_channel:
         email = mm_user.get("email", "").lower()
@@ -283,9 +239,7 @@ def sync_entity_permissions(
                 "mm_user_id": mm_user.get("id"),
                 "is_admin_channel_member": False,  # Default, might be overridden by admin channel check
             }
-    if (
-        admin_config
-    ):  # If there's an admin channel, its members might have different roles
+    if admin_config:  # If there's an admin channel, its members might have different roles
         for mm_user in adm_mm_users_in_channel:
             email = mm_user.get("email", "").lower()
             if email:
@@ -296,9 +250,7 @@ def sync_entity_permissions(
                     "is_admin_channel_member": True,  # User is in admin channel
                 }
 
-    std_mm_channel_name_for_log = (
-        std_mm_channel.get("display_name") if std_mm_channel else std_mm_channel_name
-    )
+    std_mm_channel_name_for_log = std_mm_channel.get("display_name") if std_mm_channel else std_mm_channel_name
 
     # Authentik Sync
     if std_auth_group_obj:
@@ -326,14 +278,12 @@ def sync_entity_permissions(
 
     # Outline Sync
     if outline_client and outline_cfg:
-        outline_coll_name_pattern = outline_cfg.get(
-            "collection_name_pattern", "{base_name}"
-        )
+        outline_coll_name_pattern = outline_cfg.get("collection_name_pattern", "{base_name}")
         outline_coll_name = outline_coll_name_pattern.format(base_name=base_name)
         default_permission = outline_cfg.get("default_access", "read")
         admin_permission = outline_cfg.get("admin_access", "read_write")
         results.extend(
-            _sync_single_outline_collection(
+            sync_single_outline_collection(
                 outline_client,
                 mattermost_client,
                 outline_coll_name,
@@ -361,15 +311,8 @@ def sync_entity_permissions(
 
     # NoCoDB Sync (only for ANTENNE and POLES)
     skip_services = skip_services or []  # Ensure it's a list for safe checking
-    if (
-        "nocodb" not in skip_services
-        and nocodb_client
-        and nocodb_cfg
-        and entity_key in ["ANTENNE", "POLES"]
-    ):
-        nocodb_base_title_pattern = nocodb_cfg.get(
-            "base_title_pattern", "nocodb_{base_name}"
-        )
+    if "nocodb" not in skip_services and nocodb_client and nocodb_cfg and entity_key in ["ANTENNE", "POLES"]:
+        nocodb_base_title_pattern = nocodb_cfg.get("base_title_pattern", "nocodb_{base_name}")
         # base_name is the entity's base name (e.g., "MyAntenne")
         # mm_users_for_services contains the necessary user details including 'is_admin_channel_member'
         default_nocodb_permission = nocodb_cfg.get("default_access", "viewer")
@@ -393,9 +336,7 @@ def sync_entity_permissions(
     # It's additive: users in MM channels are invited.
     # If `perform_deletions` is True for the overall sync, it doesn't apply here.
     if "vaultwarden" not in skip_services and vaultwarden_client and vaultwarden_cfg:
-        vw_collection_name_pattern = vaultwarden_cfg.get(
-            "collection_name_pattern", "Shared - {base_name}"
-        )
+        vw_collection_name_pattern = vaultwarden_cfg.get("collection_name_pattern", "Shared - {base_name}")
         vw_collection_name = vw_collection_name_pattern.format(base_name=base_name)
         results.extend(
             _sync_single_vaultwarden_collection_members(
@@ -413,9 +354,7 @@ def sync_entity_permissions(
             f"Vaultwarden client available but no vaultwarden config for entity '{base_name}'. Skipping VW sync."
         )
 
-    logging.info(
-        f"Finished sync for entity '{base_name}'. Total results: {len(results)}"
-    )
+    logging.info(f"Finished sync for entity '{base_name}'. Total results: {len(results)}")
     return results
 
 
@@ -424,9 +363,7 @@ def _get_mm_users_for_entity(
     mm_team_id: str,
     base_name: str,
     entity_config: dict,
-) -> tuple[
-    dict, list, list
-]:  # Returns mm_users_for_services, std_mm_users, adm_mm_users
+) -> tuple[dict, list, list]:  # Returns mm_users_for_services, std_mm_users, adm_mm_users
     """
     Fetches Mattermost users for a given entity, from both standard and admin channels.
     Returns a consolidated dictionary of users with their admin status, and separate lists for std/admin channel users.
@@ -434,38 +371,24 @@ def _get_mm_users_for_entity(
     std_config = entity_config.get("standard", {})
     admin_config = entity_config.get("admin")
 
-    std_mm_channel_name = std_config.get(
-        "mattermost_channel_name_pattern", "{base_name}"
-    ).format(base_name=base_name)
-    std_mm_channel = mattermost_client.get_channel_by_name(
-        mm_team_id, slugify(std_mm_channel_name)
-    )
+    std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(base_name=base_name)
+    std_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(std_mm_channel_name))
     std_mm_users_in_channel = []
     if std_mm_channel:
-        std_mm_users_in_channel = mattermost_client.get_users_in_channel(
-            std_mm_channel["id"]
-        )
+        std_mm_users_in_channel = mattermost_client.get_users_in_channel(std_mm_channel["id"])
     else:
-        logging.warning(
-            f"Mattermost channel '{std_mm_channel_name}' for entity '{base_name}' not found."
-        )
+        logging.warning(f"Mattermost channel '{std_mm_channel_name}' for entity '{base_name}' not found.")
 
     adm_mm_users_in_channel = []
     if admin_config:
-        adm_mm_channel_name = admin_config.get(
-            "mattermost_channel_name_pattern", "{base_name} Admin"
-        ).format(base_name=base_name)
-        adm_mm_channel = mattermost_client.get_channel_by_name(
-            mm_team_id, slugify(adm_mm_channel_name)
+        adm_mm_channel_name = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin").format(
+            base_name=base_name
         )
+        adm_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(adm_mm_channel_name))
         if adm_mm_channel:
-            adm_mm_users_in_channel = mattermost_client.get_users_in_channel(
-                adm_mm_channel["id"]
-            )
+            adm_mm_users_in_channel = mattermost_client.get_users_in_channel(adm_mm_channel["id"])
         else:
-            logging.warning(
-                f"Mattermost admin channel '{adm_mm_channel_name}' for entity '{base_name}' not found."
-            )
+            logging.warning(f"Mattermost admin channel '{adm_mm_channel_name}' for entity '{base_name}' not found.")
 
     mm_users_for_services = {}
     for mm_user in std_mm_users_in_channel:
@@ -505,9 +428,7 @@ def _sync_single_nocodb_base(
     results = []
     nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
     # Main entry log changed to DEBUG, INFO will be for specific actions taken.
-    logging.debug(
-        f"Starting NoCoDB base sync for '{nocodb_base_title}'. Deletions: {perform_deletions}"
-    )
+    logging.debug(f"Starting NoCoDB base sync for '{nocodb_base_title}'. Deletions: {perform_deletions}")
 
     nocodb_base_obj = nocodb_client.get_base_by_title(nocodb_base_title)
     if not nocodb_base_obj or not nocodb_base_obj.get("id"):
@@ -518,7 +439,7 @@ def _sync_single_nocodb_base(
             {
                 "service": "NOCODB",
                 "target_resource_name": nocodb_base_title,
-                "status": SyncStatus.SKIPPED.value,
+                    "status": SyncStatus.SKIPPED.value,
                 "action": "SKIPPED_NOCODB_BASE_NOT_FOUND",
                 "error_message": f"Base '{nocodb_base_title}' not found in NoCoDB.",
             }
@@ -528,9 +449,7 @@ def _sync_single_nocodb_base(
     current_nocodb_users_list = nocodb_client.list_base_users(base_id)
     # Create a map of email_lower -> user_obj for current NoCoDB users for quick lookup
     current_nocodb_users_map = {
-        user.get("email", "").lower(): user
-        for user in current_nocodb_users_list
-        if user.get("email")
+        user.get("email", "").lower(): user for user in current_nocodb_users_list if user.get("email")
     }
     target_nocodb_user_emails = set()
 
@@ -566,11 +485,7 @@ def _sync_single_nocodb_base(
             # Try to find original Mattermost username for logging if possible, otherwise use email.
             # This requires mm_users_for_permission to be comprehensive or another source for username if not in current MM channels.
             # For simplicity, we'll use the email as the primary identifier from NoCoDB's user list.
-            username_for_log = (
-                nocodb_user_obj.get("firstname", "")
-                + " "
-                + nocodb_user_obj.get("lastname", "")
-            )
+            username_for_log = nocodb_user_obj.get("firstname", "") + " " + nocodb_user_obj.get("lastname", "")
             if not username_for_log.strip():  # Fallback if no name
                 username_for_log = existing_email_lower
 
@@ -578,10 +493,7 @@ def _sync_single_nocodb_base(
             # This requires a reverse lookup: find if any mm_user_data maps to this email_lower and has an excluded username
             is_excluded = False
             for mm_email, mm_data in mm_users_for_permission.items():
-                if (
-                    mm_email == existing_email_lower
-                    and mm_data.get("username") in config.EXCLUDED_USERS
-                ):
+                if mm_email == existing_email_lower and mm_data.get("username") in config.EXCLUDED_USERS:
                     is_excluded = True
                     break
             # Also, if the user was directly added to target_nocodb_user_emails due to exclusion earlier, respect that.
@@ -592,10 +504,7 @@ def _sync_single_nocodb_base(
             ):
                 is_excluded = True
 
-            if (
-                not is_excluded
-                and existing_email_lower not in target_nocodb_user_emails
-            ):
+            if not is_excluded and existing_email_lower not in target_nocodb_user_emails:
                 removal_base_info = {
                     "mm_username": username_for_log,  # Best effort username from NoCoDB
                     "mm_user_email": existing_email_lower,
@@ -603,18 +512,9 @@ def _sync_single_nocodb_base(
                     "target_resource_name": nocodb_base_title,
                     "service": "NOCODB",
                 }
-                removal_result = {
-                    **removal_base_info,
-                    "status": SyncStatus.FAILURE.value,
-                    "action": "FAILED_TO_REMOVE_NOCODB_USER",
-                }
+                removal_result = {**removal_base_info, "status": SyncStatus.FAILURE.value, "action": "FAILED_TO_REMOVE_NOCODB_USER"}
                 if nocodb_client.delete_base_user(base_id, nocodb_user_id_to_remove):
-                    removal_result.update(
-                        {
-                            "status": SyncStatus.SUCCESS.value,
-                            "action": NocoDBAction.USER_REMOVED_FROM_BASE.value,
-                        }
-                    )
+                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": NocoDBAction.USER_REMOVED_FROM_BASE.value})
                 else:
                     removal_result["error_message"] = (
                         "API call to remove user (set no-access) from NoCoDB base failed."
@@ -627,9 +527,7 @@ def _sync_single_nocodb_base(
                 )
 
     # Summary log changed to DEBUG. INFO logs will be for specific successful/failed actions.
-    logging.debug(
-        f"Finished NoCoDB base sync for '{nocodb_base_title}'. Total results: {len(results)}"
-    )
+    logging.debug(f"Finished NoCoDB base sync for '{nocodb_base_title}'. Total results: {len(results)}")
     return results
 
 
@@ -674,18 +572,12 @@ def _ensure_users_in_authentik_group(
             "target_resource_name": auth_group_name,
             "service": "AUTHENTIK",
         }
-        auth_user_result = {
-            **base_user_info,
-            "status": "FAILURE",
-            "action": "AUTHENTIK_GROUP_UNCHANGED",
-        }
+        auth_user_result = {**base_user_info, "status": "FAILURE", "action": "AUTHENTIK_GROUP_UNCHANGED"}
 
         if mm_username in config.EXCLUDED_USERS:
             # If user is excluded, we don't try to add them.
             # The calling function will handle ensuring they are preserved if already in group.
-            logging.debug(
-                f"User '{mm_username}' is excluded. Skipping ensure in Authentik group '{auth_group_name}'."
-            )
+            logging.debug(f"User '{mm_username}' is excluded. Skipping ensure in Authentik group '{auth_group_name}'.")
             continue
 
         if not mm_user_email_lower:
@@ -815,19 +707,13 @@ def _ensure_users_in_authentik_group(
             "target_resource_name": auth_group_name,
             "service": "AUTHENTIK",
         }
-        auth_user_result = {
-            **base_user_info,
-            "status": "FAILURE",
-            "action": "AUTHENTIK_GROUP_UNCHANGED",
-        }
+        auth_user_result = {**base_user_info, "status": "FAILURE", "action": "AUTHENTIK_GROUP_UNCHANGED"}
 
         if mm_username in config.EXCLUDED_USERS:
             # If user is excluded, we don't try to add them.
             # If they are already in the group, their PK would have been added to
             # targeted_auth_pks by the calling function to prevent removal.
-            logging.debug(
-                f"User '{mm_username}' is excluded. Skipping ensure in Authentik group '{auth_group_name}'."
-            )
+            logging.debug(f"User '{mm_username}' is excluded. Skipping ensure in Authentik group '{auth_group_name}'.")
             # Add their PK to targeted_auth_pks if they are already a member (this check might be redundant if caller handles it)
             # For now, this function focuses on adding non-excluded users.
             # The responsibility of preserving excluded users if they are already members lies with the caller
@@ -858,15 +744,8 @@ def _ensure_users_in_authentik_group(
         else:
             targeted_auth_pks.add(auth_pk_for_mm_user)
             if auth_pk_for_mm_user not in current_auth_user_pks_in_group:
-                if authentik_client.add_user_to_group(
-                    auth_group_pk, auth_pk_for_mm_user
-                ):
-                    auth_user_result.update(
-                        {
-                            "status": SyncStatus.SUCCESS.value,
-                            "action": AuthentikAction.USER_ADDED_TO_GROUP.value,
-                        }
-                    )
+                if authentik_client.add_user_to_group(auth_group_pk, auth_pk_for_mm_user):
+                    auth_user_result.update({"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_ADDED_TO_GROUP.value})
                 else:
                     auth_user_result.update(
                         {
@@ -875,12 +754,7 @@ def _ensure_users_in_authentik_group(
                         }
                     )
             else:
-                auth_user_result.update(
-                    {
-                        "status": SyncStatus.SUCCESS.value,
-                        "action": AuthentikAction.USER_ALREADY_IN_GROUP.value,
-                    }
-                )
+                auth_user_result.update({"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_ALREADY_IN_GROUP.value})
         results.append(auth_user_result)
 
     return results, targeted_auth_pks
@@ -907,9 +781,7 @@ def _ensure_users_in_nocodb_base(
     targeted_emails_in_base = set()
 
     if not base_id:
-        logging.error(
-            f"No NoCoDB base ID provided to _ensure_users_in_nocodb_base for base title {base_title}."
-        )
+        logging.error(f"No NoCoDB base ID provided to _ensure_users_in_nocodb_base for base title {base_title}.")
         return results, targeted_emails_in_base
 
     for email_lower, mm_user_data in mm_users_for_permission.items():
@@ -922,24 +794,14 @@ def _ensure_users_in_nocodb_base(
             "target_resource_name": base_title,
             "service": "NOCODB",
         }
-        nocodb_result = {
-            **base_user_info,
-            "status": "FAILURE",
-            "action": "NOCODB_USER_UNCHANGED",
-        }
+        nocodb_result = {**base_user_info, "status": "FAILURE", "action": "NOCODB_USER_UNCHANGED"}
 
         if mm_username in config.EXCLUDED_USERS:
-            logging.debug(
-                f"User '{mm_username}' is excluded. Skipping NoCoDB ensure for base '{base_title}'."
-            )
+            logging.debug(f"User '{mm_username}' is excluded. Skipping NoCoDB ensure for base '{base_title}'.")
             continue
 
         targeted_emails_in_base.add(email_lower)
-        target_role = (
-            admin_permission
-            if mm_user_data["is_admin_channel_member"]
-            else default_permission
-        )
+        target_role = admin_permission if mm_user_data["is_admin_channel_member"] else default_permission
         existing_nocodb_user = current_nocodb_users_map.get(email_lower)
 
         if existing_nocodb_user:
@@ -948,10 +810,7 @@ def _ensure_users_in_nocodb_base(
             if current_role != target_role:
                 if nocodb_client.update_base_user(base_id, nocodb_user_id, target_role):
                     nocodb_result.update(
-                        {
-                            "status": SyncStatus.SUCCESS.value,
-                            "action": f"NOCODB_USER_ROLE_UPDATED_TO_{target_role.upper()}",
-                        }
+                        {"status": SyncStatus.SUCCESS.value, "action": f"NOCODB_USER_ROLE_UPDATED_TO_{target_role.upper()}"}
                     )
                 else:
                     nocodb_result.update(
@@ -961,22 +820,13 @@ def _ensure_users_in_nocodb_base(
                         }
                     )
             else:
-                nocodb_result.update(
-                    {
-                        "status": SyncStatus.SUCCESS.value,
-                        "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE",
-                    }
-                )
+                nocodb_result.update({"status": SyncStatus.SUCCESS.value, "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"})
         else:
             action_verb = f"NOCODB_USER_INVITED_AS_{target_role.upper()}"
             if nocodb_client.invite_user_to_base(base_id, email_lower, target_role):
-                nocodb_result.update(
-                    {"status": SyncStatus.SUCCESS.value, "action": action_verb}
-                )
+                nocodb_result.update({"status": SyncStatus.SUCCESS.value, "action": action_verb})
                 if mm_user_data.get("mm_user_id") and config.NOCODB_URL:
-                    nocodb_base_link = (
-                        f"{config.NOCODB_URL.rstrip('/')}/#/nc/{base_id}/dashboard"
-                    )
+                    nocodb_base_link = f"{config.NOCODB_URL.rstrip('/')}/#/nc/{base_id}/dashboard"
                     dm_text = (
                         f"Bonjour @{mm_username}, vous avez été invité(e) à la base NoCoDb "
                         f"**{base_title}** (rôle: {target_role}).\n"
@@ -993,10 +843,7 @@ def _ensure_users_in_nocodb_base(
                     nocodb_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
             else:
                 nocodb_result.update(
-                    {
-                        "action": "FAILED_TO_INVITE_NOCODB_USER",
-                        "error_message": "API call to invite user failed.",
-                    }
+                    {"action": "FAILED_TO_INVITE_NOCODB_USER", "error_message": "API call to invite user failed."}
                 )
 
         results.append(nocodb_result)
@@ -1028,14 +875,12 @@ def _ensure_users_invited_to_vaultwarden_collection(
         return results
 
     if not access_token:
-        logging.error(
-            f"No Vaultwarden access token provided for collection '{collection_name}'. Cannot invite users."
-        )
+        logging.error(f"No Vaultwarden access token provided for collection '{collection_name}'. Cannot invite users.")
         results.append(
             {
                 "service": "VAULTWARDEN",
                 "target_resource_name": collection_name,
-                "status": SyncStatus.FAILURE.value,
+                    "status": SyncStatus.FAILURE.value,
                 "action": "VW_ENSURE_FAILED_NO_TOKEN",
                 "error_message": "Missing Vaultwarden access token.",
             }
@@ -1052,11 +897,7 @@ def _ensure_users_invited_to_vaultwarden_collection(
             "target_resource_name": collection_name,
             "service": "VAULTWARDEN",
         }
-        invite_result = {
-            **base_user_info,
-            "status": "FAILURE",
-            "action": "VAULTWARDEN_USER_INVITE_UNCHANGED",
-        }
+        invite_result = {**base_user_info, "status": "FAILURE", "action": "VAULTWARDEN_USER_INVITE_UNCHANGED"}
 
         if mm_username in config.EXCLUDED_USERS:
             logging.debug(
@@ -1068,12 +909,7 @@ def _ensure_users_invited_to_vaultwarden_collection(
             logging.warning(
                 f"Skipping user with no email for Vaultwarden invite: {mm_username} to collection {collection_name}"
             )
-            invite_result.update(
-                {
-                    "status": SyncStatus.SKIPPED.value,
-                    "action": "SKIPPED_NO_EMAIL_FOR_VW_INVITE",
-                }
-            )
+            invite_result.update({"status": SyncStatus.SKIPPED.value, "action": "SKIPPED_NO_EMAIL_FOR_VW_INVITE"})
             results.append(invite_result)
             continue
 
@@ -1089,9 +925,7 @@ def _ensure_users_invited_to_vaultwarden_collection(
 
         action_verb = VaultwardenAction.USER_INVITED_TO_COLLECTION.value
         if success:
-            invite_result.update(
-                {"status": SyncStatus.SUCCESS.value, "action": action_verb}
-            )
+            invite_result.update({"status": SyncStatus.SUCCESS.value, "action": action_verb})
             if mm_user_data.get("mm_user_id"):
                 if config.VAULTWARDEN_SERVER_URL:
                     dm_text = (
@@ -1100,24 +934,16 @@ def _ensure_users_invited_to_vaultwarden_collection(
                         f"Vous pouvez accéder à Vaultwarden ici : {config.VAULTWARDEN_SERVER_URL.rstrip('/')}"
                     )
                     if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
-                        invite_result["action"] = (
-                            VaultwardenAction.USER_INVITED_TO_COLLECTION_AND_DM_SENT.value
-                        )
+                        invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_AND_DM_SENT.value
                     else:
-                        invite_result["action"] = (
-                            VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_FAILED.value
-                        )
+                        invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_FAILED.value
                 else:
                     logging.warning(
                         f"VAULTWARDEN_SERVER_URL not configured. Cannot send DM for Vaultwarden invite to {mm_username} for collection {collection_name}."
                     )
-                    invite_result["action"] = (
-                        VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_URL.value
-                    )
+                    invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_URL.value
             else:
-                invite_result["action"] = (
-                    VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_MM_USER_ID.value
-                )
+                invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_MM_USER_ID.value
         else:
             invite_result.update(
                 {
@@ -1157,9 +983,7 @@ def _sync_single_authentik_group(
         ]
 
     current_auth_user_pks_in_group = set(auth_group_obj.get("users", []))
-    auth_pk_to_auth_user_obj_map = {
-        user.get("pk"): user for user in auth_group_obj.get("users_obj", [])
-    }
+    auth_pk_to_auth_user_obj_map = {user.get("pk"): user for user in auth_group_obj.get("users_obj", [])}
 
     # Initialize target_auth_pks_for_this_group with PKs of excluded users already in the group
     target_auth_pks_for_this_group = set()
@@ -1186,37 +1010,23 @@ def _sync_single_authentik_group(
         current_auth_user_pks_in_group,  # Pass current members for accurate reporting in _ensure_users
     )
     results.extend(add_results)
-    target_auth_pks_for_this_group.update(
-        mm_targeted_pks
-    )  # Add all users who should be in the group based on MM
+    target_auth_pks_for_this_group.update(mm_targeted_pks)  # Add all users who should be in the group based on MM
 
     # Removal logic: Only if perform_deletions is True
     if perform_deletions:
-        for auth_pk_in_group_obj in list(
-            current_auth_user_pks_in_group
-        ):  # Iterate over a copy for safe removal
+        for auth_pk_in_group_obj in list(current_auth_user_pks_in_group):  # Iterate over a copy for safe removal
             auth_user_details = auth_pk_to_auth_user_obj_map.get(auth_pk_in_group_obj)
-            auth_username_for_check = (
-                auth_user_details.get("username") if auth_user_details else None
-            )
+            auth_username_for_check = auth_user_details.get("username") if auth_user_details else None
 
             # Skip removal for excluded users, they are managed manually or by other means
-            if (
-                auth_username_for_check
-                and auth_username_for_check in config.EXCLUDED_USERS
-            ):
+            if auth_username_for_check and auth_username_for_check in config.EXCLUDED_USERS:
                 continue
 
             if auth_pk_in_group_obj not in target_auth_pks_for_this_group:
                 # This Authentik user was in the group but is no longer in the target set from Mattermost
                 removal_base_info = {
-                    "mm_username": auth_username_for_check
-                    or f"AuthUserPK_{auth_pk_in_group_obj}",
-                    "mm_user_email": (
-                        auth_user_details.get("email", "N/A")
-                        if auth_user_details
-                        else "N/A"
-                    ),
+                    "mm_username": auth_username_for_check or f"AuthUserPK_{auth_pk_in_group_obj}",
+                    "mm_user_email": auth_user_details.get("email", "N/A") if auth_user_details else "N/A",
                     "mm_channel_display_name": mm_channel_display_name_for_log,
                     "target_resource_name": auth_group_name,
                 }
@@ -1226,19 +1036,10 @@ def _sync_single_authentik_group(
                     "status": SyncStatus.FAILURE.value,
                     "action": "FAILED_TO_REMOVE_FROM_AUTHENTIK_GROUP",
                 }
-                if authentik_client.remove_user_from_group(
-                    auth_group_pk, auth_pk_in_group_obj
-                ):
-                    removal_result.update(
-                        {
-                            "status": SyncStatus.SUCCESS.value,
-                            "action": AuthentikAction.USER_REMOVED_FROM_GROUP.value,
-                        }
-                    )
+                if authentik_client.remove_user_from_group(auth_group_pk, auth_pk_in_group_obj):
+                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_REMOVED_FROM_GROUP.value})
                 else:
-                    removal_result["error_message"] = (
-                        "API call to remove user from Authentik group failed."
-                    )
+                    removal_result["error_message"] = "API call to remove user from Authentik group failed."
                 results.append(removal_result)
     return results
 
@@ -1278,11 +1079,7 @@ def _ensure_users_in_outline_collection(
             "target_resource_name": collection_name,
             "service": "OUTLINE",
         }
-        outline_result = {
-            **base_user_info,
-            "status": "FAILURE",
-            "action": "OUTLINE_COLLECTION_UNCHANGED",
-        }
+        outline_result = {**base_user_info, "status": "FAILURE", "action": "OUTLINE_COLLECTION_UNCHANGED"}
 
         if mm_username in config.EXCLUDED_USERS:
             logging.debug(
@@ -1308,11 +1105,7 @@ def _ensure_users_in_outline_collection(
         outline_user_id = outline_user_api.get("id")
         targeted_outline_user_ids.add(outline_user_id)
 
-        permission_to_set = (
-            admin_permission
-            if mm_user_data["is_admin_channel_member"]
-            else default_permission
-        )
+        permission_to_set = admin_permission if mm_user_data["is_admin_channel_member"] else default_permission
         is_already_member = outline_user_id in current_outline_member_ids
 
         action_verb_prefix = (
@@ -1321,9 +1114,7 @@ def _ensure_users_in_outline_collection(
             else f"USER_ADDED_TO_OUTLINE_COLLECTION_WITH_{permission_to_set.upper()}_ACCESS"
         )
 
-        if outline_client.add_user_to_collection(
-            collection_id, outline_user_id, permission=permission_to_set
-        ):
+        if outline_client.add_user_to_collection(collection_id, outline_user_id, permission=permission_to_set):
             current_action = action_verb_prefix
             outline_result.update({"status": SyncStatus.SUCCESS.value})
 
@@ -1345,9 +1136,7 @@ def _ensure_users_in_outline_collection(
                             f"Bonjour @{mm_username}, vous avez été ajouté(e) à la collection Outline "
                             f"**{coll_name_for_dm}**.\nVous pouvez y accéder ici : {coll_url}"
                         )
-                        if mattermost_client.send_dm(
-                            mm_user_data["mm_user_id"], dm_text
-                        ):
+                        if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
                             current_action = f"{action_verb_prefix}_AND_DM_SENT"
                         else:
                             current_action = f"{action_verb_prefix}_DM_FAILED"
@@ -1362,28 +1151,16 @@ def _ensure_users_in_outline_collection(
                     )
                     if not config.OUTLINE_URL:
                         current_action = f"{action_verb_prefix}_DM_SKIPPED_NO_URL"
-                    elif not (
-                        coll_details
-                        and coll_details.get("name")
-                        and coll_details.get("urlId")
-                    ):
-                        current_action = (
-                            f"{action_verb_prefix}_DM_SKIPPED_INCOMPLETE_COLL_DETAILS"
-                        )
+                    elif not (coll_details and coll_details.get("name") and coll_details.get("urlId")):
+                        current_action = f"{action_verb_prefix}_DM_SKIPPED_INCOMPLETE_COLL_DETAILS"
                     else:
-                        current_action = (
-                            f"{action_verb_prefix}_DM_SKIPPED_UNKNOWN_REASON"
-                        )
+                        current_action = f"{action_verb_prefix}_DM_SKIPPED_UNKNOWN_REASON"
             outline_result["action"] = current_action
         else:
             verb_failed = (
-                "FAILED_TO_UPDATE_OUTLINE_PERMISSION"
-                if is_already_member
-                else "FAILED_TO_ADD_TO_OUTLINE_COLLECTION"
+                "FAILED_TO_UPDATE_OUTLINE_PERMISSION" if is_already_member else "FAILED_TO_ADD_TO_OUTLINE_COLLECTION"
             )
-            outline_result.update(
-                {"action": verb_failed, "error_message": "API call to Outline failed."}
-            )
+            outline_result.update({"action": verb_failed, "error_message": "API call to Outline failed."})
 
         results.append(outline_result)
 
@@ -1405,14 +1182,10 @@ def _sync_single_outline_collection(
     # Assuming outline_client.create_group ensures the collection exists and returns its object, or None on failure.
     # The name `create_group` is a bit generic if it's also used for getting; `ensure_collection_exists` might be clearer.
     # For now, using `create_group` as per existing code in `_create_resources_for_entity`.
-    outline_collection_obj = outline_client.create_group(
-        collection_name
-    )  # Renamed from get_collection_by_name
+    outline_collection_obj = outline_client.create_group(collection_name)  # Renamed from get_collection_by_name
 
     if not outline_collection_obj or not outline_collection_obj.get("id"):
-        logging.error(
-            f"Failed to get or create Outline collection '{collection_name}'. Cannot sync this collection."
-        )
+        logging.error(f"Failed to get or create Outline collection '{collection_name}'. Cannot sync this collection.")
         return [
             {
                 "service": "OUTLINE",
@@ -1425,9 +1198,7 @@ def _sync_single_outline_collection(
 
     outline_collection_id = outline_collection_obj.get("id")
     # get_collection_members should be called after we know the collection exists.
-    current_outline_member_ids = set(
-        outline_client.get_collection_members(outline_collection_id) or []
-    )
+    current_outline_member_ids = set(outline_client.get_collection_members(outline_collection_id) or [])
     target_outline_ids_for_collection = set()
     # Map Outline user ID to their MM details (username, mm_user_id, email) for logging during removal
     outline_id_to_mm_user_map = (
@@ -1450,10 +1221,7 @@ def _sync_single_outline_collection(
     for email_l, mm_user_d in mm_users_for_permission.items():
         if mm_user_d.get("username") in config.EXCLUDED_USERS:
             excluded_outline_user = outline_client.get_user_by_email(email_l)
-            if (
-                excluded_outline_user
-                and excluded_outline_user.get("id") in current_outline_member_ids
-            ):
+            if excluded_outline_user and excluded_outline_user.get("id") in current_outline_member_ids:
                 target_outline_ids_for_collection.add(excluded_outline_user.get("id"))
                 logging.info(
                     f"User '{mm_user_d.get('username')}' is excluded and already in Outline collection '{collection_name}'. Will be preserved."
@@ -1476,18 +1244,13 @@ def _sync_single_outline_collection(
 
     # Removal logic: Only if perform_deletions is True
     if perform_deletions:
-        for outline_member_id in list(
-            current_outline_member_ids
-        ):  # Iterate over a copy
-            mm_user_details_for_this_outline_member = outline_id_to_mm_user_map.get(
-                outline_member_id
-            )
+        for outline_member_id in list(current_outline_member_ids):  # Iterate over a copy
+            mm_user_details_for_this_outline_member = outline_id_to_mm_user_map.get(outline_member_id)
 
             is_excluded_member = False
             if (
                 mm_user_details_for_this_outline_member  # Check if we have MM details for this Outline ID
-                and mm_user_details_for_this_outline_member.get("username")
-                in config.EXCLUDED_USERS
+                and mm_user_details_for_this_outline_member.get("username") in config.EXCLUDED_USERS
             ):
                 is_excluded_member = True
             # If mm_user_details_for_this_outline_member is None, it means this Outline user
@@ -1507,19 +1270,11 @@ def _sync_single_outline_collection(
             if outline_member_id not in target_outline_ids_for_collection:
                 # This Outline user was a member but is no longer in the target set from Mattermost users
                 # AND is not an excluded user who should remain.
-                username_for_log = (
-                    f"OutlineUser_{outline_member_id}"  # Default if no MM mapping
-                )
+                username_for_log = f"OutlineUser_{outline_member_id}"  # Default if no MM mapping
                 user_email_for_log = "N/A"  # Default
-                if (
-                    mm_user_details_for_this_outline_member
-                ):  # We have MM details for this user
-                    username_for_log = mm_user_details_for_this_outline_member.get(
-                        "username", username_for_log
-                    )
-                    user_email_for_log = mm_user_details_for_this_outline_member.get(
-                        "email", "N/A"
-                    )
+                if mm_user_details_for_this_outline_member:  # We have MM details for this user
+                    username_for_log = mm_user_details_for_this_outline_member.get("username", username_for_log)
+                    user_email_for_log = mm_user_details_for_this_outline_member.get("email", "N/A")
                 else:  # No MM details, try to get email from Outline directly for logging
                     outline_user_obj = outline_client.get_user_by_id(
                         outline_member_id
@@ -1542,19 +1297,10 @@ def _sync_single_outline_collection(
                     "status": SyncStatus.FAILURE.value,
                     "action": "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION",
                 }
-                if outline_client.remove_user_from_collection(
-                    outline_collection_id, outline_member_id
-                ):
-                    removal_result.update(
-                        {
-                            "status": SyncStatus.SUCCESS.value,
-                            "action": OutlineAction.USER_REMOVED_FROM_COLLECTION.value,
-                        }
-                    )
+                if outline_client.remove_user_from_collection(outline_collection_id, outline_member_id):
+                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": OutlineAction.USER_REMOVED_FROM_COLLECTION.value})
                 else:
-                    removal_result["error_message"] = (
-                        "API call to remove user from Outline collection failed."
-                    )
+                    removal_result["error_message"] = "API call to remove user from Outline collection failed."
                 results.append(removal_result)
     return results
 
@@ -1578,9 +1324,7 @@ def _ensure_contacts_in_brevo_list(
     targeted_emails = set()
 
     if not list_id:
-        logging.error(
-            f"No Brevo list ID provided to _ensure_contacts_in_brevo_list for list name {list_name}."
-        )
+        logging.error(f"No Brevo list ID provided to _ensure_contacts_in_brevo_list for list name {list_name}.")
         return results, targeted_emails
 
     for mm_user in mm_users_to_ensure:
@@ -1596,9 +1340,7 @@ def _ensure_contacts_in_brevo_list(
         }
 
         if mm_username in config.EXCLUDED_USERS:
-            logging.debug(
-                f"User '{mm_username}' is excluded. Skipping Brevo ensure for list '{list_name}'."
-            )
+            logging.debug(f"User '{mm_username}' is excluded. Skipping Brevo ensure for list '{list_name}'.")
             continue
 
         if not mm_user_email:
@@ -1665,9 +1407,7 @@ def _sync_single_brevo_list(
     if not brevo_list_obj:
         brevo_list_obj = brevo_client.create_list(brevo_list_name)
         if not brevo_list_obj:
-            logging.error(
-                f"Failed to create or retrieve Brevo list '{brevo_list_name}'. Skipping sync for this list."
-            )
+            logging.error(f"Failed to create or retrieve Brevo list '{brevo_list_name}'. Skipping sync for this list.")
             results.append(
                 {
                     "service": "BREVO",
@@ -1680,9 +1420,7 @@ def _sync_single_brevo_list(
             return results
 
     brevo_list_id = brevo_list_obj["id"]
-    logging.info(
-        f"Ensured Brevo list '{brevo_list_name}' (ID: {brevo_list_id}) exists."
-    )
+    logging.info(f"Ensured Brevo list '{brevo_list_name}' (ID: {brevo_list_id}) exists.")
 
     # 2. Process Mattermost users for adding to the list
     # target_emails_in_list will be populated by _ensure_contacts_in_brevo_list
@@ -1704,16 +1442,12 @@ def _sync_single_brevo_list(
 
     # 3. Handle removals if perform_deletions is True
     if perform_deletions:
-        logging.info(
-            f"Performing deletions for Brevo list '{brevo_list_name}' (ID: {brevo_list_id})."
-        )
+        logging.info(f"Performing deletions for Brevo list '{brevo_list_name}' (ID: {brevo_list_id}).")
         current_contacts_in_brevo_list = []
         offset = 0
         limit = 50
         while True:
-            page_contacts = brevo_client.get_contacts_from_list(
-                brevo_list_id, limit=limit, offset=offset
-            )
+            page_contacts = brevo_client.get_contacts_from_list(brevo_list_id, limit=limit, offset=offset)
             if page_contacts:
                 current_contacts_in_brevo_list.extend(page_contacts)
                 if len(page_contacts) < limit:
@@ -1726,9 +1460,7 @@ def _sync_single_brevo_list(
                 break
 
         current_emails_in_brevo_list = {
-            contact.get("email", "").lower()
-            for contact in current_contacts_in_brevo_list
-            if contact.get("email")
+            contact.get("email", "").lower() for contact in current_contacts_in_brevo_list if contact.get("email")
         }
         emails_to_remove = current_emails_in_brevo_list - target_emails_in_list
 
@@ -1741,9 +1473,7 @@ def _sync_single_brevo_list(
                 "target_resource_name": brevo_list_name,
                 "service": "BREVO",
             }
-            if brevo_client.remove_contact_from_list(
-                email=email_to_remove, list_id=brevo_list_id
-            ):
+            if brevo_client.remove_contact_from_list(email=email_to_remove, list_id=brevo_list_id):
                 results.append(
                     {
                         **base_removal_info,
@@ -1761,9 +1491,7 @@ def _sync_single_brevo_list(
                     }
                 )
 
-    logging.info(
-        f"Finished Brevo list sync for '{brevo_list_name}'. Total results: {len(results)}"
-    )
+    logging.info(f"Finished Brevo list sync for '{brevo_list_name}'. Total results: {len(results)}")
     return results
 
 
@@ -1792,9 +1520,7 @@ async def orchestrate_group_synchronization(
     detailed_results = []
 
     if sync_mode not in ["MM_TO_TOOLS", "TOOLS_TO_MM", "FULL_SYNC"]:
-        logging.error(
-            f"Invalid sync_mode: {sync_mode}. Must be one of MM_TO_TOOLS, TOOLS_TO_MM, FULL_SYNC."
-        )
+        logging.error(f"Invalid sync_mode: {sync_mode}. Must be one of MM_TO_TOOLS, TOOLS_TO_MM, FULL_SYNC.")
         return False, [
             {
                 "service": "ORCHESTRATOR",
@@ -1807,41 +1533,25 @@ async def orchestrate_group_synchronization(
 
     # Client checks
     if not authentik_client:
-        logging.error(
-            "Authentik client not provided to orchestrator. Authentik sync will be skipped."
-        )
+        logging.error("Authentik client not provided to orchestrator. Authentik sync will be skipped.")
     if not mattermost_client:
-        logging.error(
-            "Mattermost client not provided to orchestrator. Cannot proceed with core logic."
-        )
+        logging.error("Mattermost client not provided to orchestrator. Cannot proceed with core logic.")
         return False, detailed_results
     if not mm_team_id:
-        logging.error(
-            "Mattermost Team ID not provided to orchestrator. Cannot proceed."
-        )
+        logging.error("Mattermost Team ID not provided to orchestrator. Cannot proceed.")
         return False, detailed_results
 
     if not outline_client:
-        logging.info(
-            "Outline client not provided. Outline synchronization will be skipped."
-        )
+        logging.info("Outline client not provided. Outline synchronization will be skipped.")
     if not brevo_client:
-        logging.info(
-            "Brevo client not provided. Brevo synchronization will be skipped."
-        )
+        logging.info("Brevo client not provided. Brevo synchronization will be skipped.")
     if not nocodb_client:
-        logging.info(
-            "NocoDB client not provided. NocoDB synchronization will be skipped."
-        )
+        logging.info("NocoDB client not provided. NocoDB synchronization will be skipped.")
     if not vaultwarden_client:
-        logging.info(
-            "Vaultwarden client not provided. Vaultwarden synchronization will be skipped."
-        )
+        logging.info("Vaultwarden client not provided. Vaultwarden synchronization will be skipped.")
 
     _, email_to_auth_pk_map = get_all_authentik_groups_and_user_map(authentik_client)
-    if (
-        not email_to_auth_pk_map and authentik_client
-    ):  # Only warn if client was available
+    if not email_to_auth_pk_map and authentik_client:  # Only warn if client was available
         logging.warning(
             "Authentik email-to-user-PK map is empty. Authentik sync operations might not find users effectively."
         )
@@ -1850,47 +1560,35 @@ async def orchestrate_group_synchronization(
     entities_to_process = {}
 
     if sync_mode == "FULL_SYNC":
-        logging.info(
-            "Sync Mode: FULL_SYNC. Discovering entities from Authentik groups..."
-        )
+        logging.info("Sync Mode: FULL_SYNC. Discovering entities from Authentik groups...")
         all_auth_groups_list = []
         if authentik_client:
             all_auth_groups_list, _ = authentik_client.get_groups_with_users()
             if not all_auth_groups_list:
-                logging.info(
-                    "No Authentik groups found or an error occurred during fetching for discovery."
-                )
+                logging.info("No Authentik groups found or an error occurred during fetching for discovery.")
             all_auth_groups_by_name = {g["name"]: g for g in all_auth_groups_list}
         else:
             logging.warning("Authentik client not available for FULL_SYNC discovery.")
             all_auth_groups_by_name = {}
 
         if not all_auth_groups_list and authentik_client:
-            logging.info(
-                "No Authentik groups found to process for FULL_SYNC. Synchronization might be limited."
-            )
+            logging.info("No Authentik groups found to process for FULL_SYNC. Synchronization might be limited.")
 
         for auth_group_name_iter in all_auth_groups_by_name.keys():
-            found_entity_key_auth, current_base_name_auth = (
-                _map_auth_group_to_entity_and_base_name(
-                    auth_group_name_iter, config.PERMISSIONS_MATRIX
-                )
+            found_entity_key_auth, current_base_name_auth = _map_auth_group_to_entity_and_base_name(
+                auth_group_name_iter, config.PERMISSIONS_MATRIX
             )
             if found_entity_key_auth and current_base_name_auth:
                 entity_tuple = (found_entity_key_auth, current_base_name_auth)
                 if entity_tuple not in entities_to_process:
-                    entities_to_process[entity_tuple] = config.PERMISSIONS_MATRIX[
-                        found_entity_key_auth
-                    ]
+                    entities_to_process[entity_tuple] = config.PERMISSIONS_MATRIX[found_entity_key_auth]
             else:
                 logging.debug(
                     f"Authentik group '{auth_group_name_iter}' did not map to a known entity pattern for FULL_SYNC."
                 )
 
     elif sync_mode == "MM_TO_TOOLS":
-        logging.info(
-            "Sync Mode: MM_TO_TOOLS. Discovering entities based on Mattermost channels..."
-        )
+        logging.info("Sync Mode: MM_TO_TOOLS. Discovering entities based on Mattermost channels...")
         mm_channels = mattermost_client.get_channels_for_team(mm_team_id)
         if not mm_channels:
             logging.warning(
@@ -1901,17 +1599,13 @@ async def orchestrate_group_synchronization(
         for channel in mm_channels:
             channel_name = channel.get("name")
             channel_display_name = channel.get("display_name")
-            found_entity_key_mm, current_base_name_mm = (
-                _map_mm_channel_to_entity_and_base_name(
-                    channel_name, channel_display_name, config.PERMISSIONS_MATRIX
-                )
+            found_entity_key_mm, current_base_name_mm = _map_mm_channel_to_entity_and_base_name(
+                channel_name, channel_display_name, config.PERMISSIONS_MATRIX
             )
             if found_entity_key_mm and current_base_name_mm:
                 entity_tuple = (found_entity_key_mm, current_base_name_mm)
                 if entity_tuple not in entities_to_process:
-                    entities_to_process[entity_tuple] = config.PERMISSIONS_MATRIX[
-                        found_entity_key_mm
-                    ]
+                    entities_to_process[entity_tuple] = config.PERMISSIONS_MATRIX[found_entity_key_mm]
                     logging.info(
                         f"Discovered entity '{current_base_name_mm}' (type: {found_entity_key_mm}) from MM channel '{channel_display_name}' for MM_TO_TOOLS sync."
                     )
@@ -1943,23 +1637,16 @@ async def orchestrate_group_synchronization(
                     service_name=service_name,
                     mattermost_client=mattermost_client,
                     mm_team_id=mm_team_id,
-                    email_to_authentik_user_pk_map=(
-                        email_to_auth_pk_map if service_name == "AUTHENTIK" else None
-                    ),
+                    email_to_authentik_user_pk_map=email_to_auth_pk_map if service_name == "AUTHENTIK" else None,
                     perform_deletions=perform_deletions,
                     permissions_matrix=config.PERMISSIONS_MATRIX,
                     skip_services=skip_services,
                 )
                 detailed_results.extend(service_results)
             else:
-                logging.info(
-                    f"Service client for {service_name} not configured, skipping for TOOLS_TO_MM sync."
-                )
+                logging.info(f"Service client for {service_name} not configured, skipping for TOOLS_TO_MM sync.")
     else:  # For FULL_SYNC and MM_TO_TOOLS
-        for (
-            entity_key,
-            base_name,
-        ), entity_config_to_use in entities_to_process.items():
+        for (entity_key, base_name), entity_config_to_use in entities_to_process.items():
             logging.info(
                 f"Orchestrating sync for entity: {entity_key}, base_name: {base_name}, "
                 f"sync_mode: {sync_mode}, perform_deletions: {perform_deletions}"
@@ -2010,9 +1697,7 @@ async def _sync_entity_permissions_tools_to_mm(
     logging.info(f"Starting TOOLS_TO_MM sync for service: {service_name}")
 
     if service_name.lower() in (skip_services or []):
-        logging.info(
-            f"Skipping {service_name} sync for TOOLS_TO_MM as per skip_services."
-        )
+        logging.info(f"Skipping {service_name} sync for TOOLS_TO_MM as per skip_services.")
         return results
 
     if service_name == "AUTHENTIK":
@@ -2023,9 +1708,7 @@ async def _sync_entity_permissions_tools_to_mm(
             return results
 
         for group in all_auth_groups:
-            entity_key, base_name = _map_auth_group_to_entity_and_base_name(
-                group.get("name"), permissions_matrix
-            )
+            entity_key, base_name = _map_auth_group_to_entity_and_base_name(group.get("name"), permissions_matrix)
             if not entity_key or not base_name:
                 logging.debug(
                     f"TOOLS_TO_MM: Authentik group '{group.get('name')}' did not map to an entity. Skipping."
@@ -2041,9 +1724,7 @@ async def _sync_entity_permissions_tools_to_mm(
             # This heuristic is simple and relies on naming convention. A more robust way would be to check against both patterns.
             admin_cfg = entity_config.get("admin", {})
             is_admin_group = False
-            if admin_cfg and _extract_base_name(
-                group.get("name"), admin_cfg.get("authentik_group_name_pattern", "")
-            ):
+            if admin_cfg and _extract_base_name(group.get("name"), admin_cfg.get("authentik_group_name_pattern", "")):
                 is_admin_group = True
 
             _, std_mm_users, adm_mm_users = _get_mm_users_for_entity(
@@ -2052,11 +1733,7 @@ async def _sync_entity_permissions_tools_to_mm(
 
             mm_users_for_this_group = adm_mm_users if is_admin_group else std_mm_users
 
-            mm_user_emails = {
-                user["email"].lower()
-                for user in mm_users_for_this_group
-                if "email" in user
-            }
+            mm_user_emails = {user["email"].lower() for user in mm_users_for_this_group if "email" in user}
 
             auth_users = group.get("users_obj", [])
             for user in auth_users:
@@ -2084,9 +1761,7 @@ async def _sync_entity_permissions_tools_to_mm(
                 logging.warning("TOOLS_TO_MM: No Outline collections found to sync.")
                 return results
         except (AttributeError, NotImplementedError):
-            logging.error(
-                "`outline_client.list_collections()` method not implemented. Skipping Outline sync."
-            )
+            logging.error("`outline_client.list_collections()` method not implemented. Skipping Outline sync.")
             return results
 
         for collection in all_collections:
@@ -2132,9 +1807,7 @@ async def _sync_entity_permissions_tools_to_mm(
         for base in all_bases["list"]:
             base_title = base.get("title")
             base_id = base.get("id")
-            entity_key, base_name = _map_nocodb_base_to_entity_and_base_name(
-                base_title, permissions_matrix
-            )
+            entity_key, base_name = _map_nocodb_base_to_entity_and_base_name(base_title, permissions_matrix)
 
             if not entity_key or not base_name:
                 continue
@@ -2177,13 +1850,9 @@ async def _sync_entity_permissions_tools_to_mm(
 
             collection_name = None
             if rc_list == 0:
-                collection_name = vaultwarden_client.get_name_from_collections(
-                    collection_id, sout_list
-                )
+                collection_name = vaultwarden_client.get_name_from_collections(collection_id, sout_list)
             else:
-                logging.error(
-                    f"Failed to list collections using 'bw list collections': {err_list.strip()}"
-                )
+                logging.error(f"Failed to list collections using 'bw list collections': {err_list.strip()}")
             entity_key, base_name = _map_vaultwarden_collection_to_entity_and_base_name(
                 collection_name, permissions_matrix
             )
@@ -2204,13 +1873,9 @@ async def _sync_entity_permissions_tools_to_mm(
 
                 user_email = None
                 if rc_user_list == 0:
-                    user_email = vaultwarden_client.get_email_from_members(
-                        user_id, sout_user_list
-                    )
+                    user_email = vaultwarden_client.get_email_from_members(user_id, sout_user_list)
                 else:
-                    logging.error(
-                        f"Failed to list collections using 'bw list collections': {err_user_list.strip()}"
-                    )
+                    logging.error(f"Failed to list collections using 'bw list collections': {err_user_list.strip()}")
 
                 if user_email and user_email in mm_user_emails:
                     users_to_keep.append(user)
@@ -2254,9 +1919,7 @@ def _map_auth_group_to_entity_and_base_name(
     # Check admin patterns first to give them precedence in ambiguity
     for entity_key, entity_cfg in permissions_matrix.items():
         if entity_cfg.get("admin"):
-            adm_pattern = entity_cfg.get("admin", {}).get(
-                "authentik_group_name_pattern"
-            )
+            adm_pattern = entity_cfg.get("admin", {}).get("authentik_group_name_pattern")
             if adm_pattern:
                 base_name = _extract_base_name(auth_group_name, adm_pattern)
                 if base_name is not None:
@@ -2354,16 +2017,12 @@ def _map_mm_channel_to_entity_and_base_name(
     # Try matching with channel display name first, as it's often more descriptive
     for entity_key, entity_cfg in permissions_matrix.items():
         if entity_cfg.get("admin"):
-            mm_adm_pattern = entity_cfg.get("admin", {}).get(
-                "mattermost_channel_name_pattern"
-            )
+            mm_adm_pattern = entity_cfg.get("admin", {}).get("mattermost_channel_name_pattern")
             if mm_adm_pattern:
                 base_name = _extract_base_name(mm_channel_display_name, mm_adm_pattern)
                 if base_name is not None:
                     return entity_key, base_name
-        std_pattern = entity_cfg.get("standard", {}).get(
-            "mattermost_channel_name_pattern"
-        )
+        std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
         if std_pattern:
             base_name = _extract_base_name(mm_channel_display_name, std_pattern)
             if base_name is not None:
@@ -2373,9 +2032,7 @@ def _map_mm_channel_to_entity_and_base_name(
     # (Patterns are usually based on display name conventions, but slug might work for simple cases)
     for entity_key, entity_cfg in permissions_matrix.items():
         if entity_cfg.get("admin"):
-            mm_adm_pattern = entity_cfg.get("admin", {}).get(
-                "mattermost_channel_name_pattern"
-            )
+            mm_adm_pattern = entity_cfg.get("admin", {}).get("mattermost_channel_name_pattern")
             # Slugifying the pattern to compare with slug might be needed if patterns are complex
             # For simple "{base_name}" or "prefix_{base_name}" it might work directly if base_name is slug-compatible
             if (
@@ -2388,13 +2045,10 @@ def _map_mm_channel_to_entity_and_base_name(
                 )  # Compare with lowercased pattern
                 if base_name is not None:
                     return entity_key, base_name
-        std_pattern = entity_cfg.get("standard", {}).get(
-            "mattermost_channel_name_pattern"
-        )
+        std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
         if (
             std_pattern
-            and slugify(std_pattern.format(base_name="test-slug"))
-            == std_pattern.format(base_name="test-slug").lower()
+            and slugify(std_pattern.format(base_name="test-slug")) == std_pattern.format(base_name="test-slug").lower()
         ):
             base_name = _extract_base_name(mm_channel_slug, std_pattern.lower())
             if base_name is not None:
@@ -2403,9 +2057,7 @@ def _map_mm_channel_to_entity_and_base_name(
     return None, None
 
 
-def _extract_base_name(
-    actual_name: str, pattern_with_placeholder: str
-) -> Optional[str]:
+def _extract_base_name(actual_name: str, pattern_with_placeholder: str) -> Optional[str]:
     """
     Extracts the base_name from an actual_name given a pattern string like "prefix_{base_name}_suffix".
     Returns the extracted base_name (can be an empty string), or None if the actual_name doesn't match
@@ -2449,9 +2101,7 @@ def _sync_single_vaultwarden_collection_members(
     )
 
     if not vaultwarden_client.api_username or not vaultwarden_client.api_password:
-        logging.warning(
-            f"Vaultwarden API credentials not configured. Skipping member sync for '{collection_name}'."
-        )
+        logging.warning(f"Vaultwarden API credentials not configured. Skipping member sync for '{collection_name}'.")
         return [
             {
                 "service": "VAULTWARDEN",
@@ -2479,9 +2129,7 @@ def _sync_single_vaultwarden_collection_members(
 
     access_token = vaultwarden_client._get_api_token()
     if not access_token:
-        logging.error(
-            f"Failed to obtain Vaultwarden API token for collection '{collection_name}'."
-        )
+        logging.error(f"Failed to obtain Vaultwarden API token for collection '{collection_name}'.")
         return [
             {
                 "service": "VAULTWARDEN",
@@ -2505,9 +2153,7 @@ def _sync_single_vaultwarden_collection_members(
     results.extend(invite_results)
 
     # Vaultwarden sync is additive only, no removal logic based on MM channel membership.
-    logging.info(
-        f"Finished Vaultwarden collection member sync for '{collection_name}'. Total results: {len(results)}"
-    )
+    logging.info(f"Finished Vaultwarden collection member sync for '{collection_name}'. Total results: {len(results)}")
     return results
 
 
@@ -2532,9 +2178,7 @@ def _remove_user_from_outline_collection(
         result["status"] = SyncStatus.SUCCESS.value
         result["action"] = OutlineAction.USER_REMOVED_FROM_COLLECTION.value
     else:
-        result["error_message"] = (
-            "API call to remove user from Outline collection failed."
-        )
+        result["error_message"] = "API call to remove user from Outline collection failed."
     return result
 
 

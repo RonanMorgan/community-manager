@@ -8,16 +8,12 @@ load_dotenv()
 # Initialize basic logging for config loading phase
 # This allows seeing messages about config files being loaded/not found
 # It might be overridden by the bot's main logging setup later.
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - CONFIG - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - CONFIG - %(message)s")
 
 
 MATTERMOST_URL = os.getenv("MATTERMOST_URL")
 # MATTERMOST_TOKEN = os.getenv("MATTERMOST_TOKEN") # Admin/API token for operations like channel creation - REMOVED
-BOT_TOKEN = os.getenv(
-    "BOT_TOKEN"
-)  # Bot's own token for WebSocket/posting messages as bot
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Bot's own token for WebSocket/posting messages as bot
 BOT_NAME = os.getenv("BOT_NAME")
 MATTERMOST_TEAM_ID = os.getenv("MATTERMOST_TEAM_ID")  # Team ID for channel creation
 
@@ -52,9 +48,7 @@ VAULTWARDEN_API_PASSWORD = os.getenv("VAULTWARDEN_API_PASSWORD")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # User Exclusion Configuration
-EXCLUDED_USERS_FILE_PATH = os.getenv(
-    "EXCLUDED_USERS_FILE_PATH", "config/excluded_users.txt"
-)
+EXCLUDED_USERS_FILE_PATH = os.getenv("EXCLUDED_USERS_FILE_PATH", "config/excluded_users.txt")
 EXCLUDED_USERS: set[str] = set()
 
 if EXCLUDED_USERS_FILE_PATH:  # Only try to load if path is provided
@@ -67,25 +61,17 @@ if EXCLUDED_USERS_FILE_PATH:  # Only try to load if path is provided
                     f"Successfully loaded {len(EXCLUDED_USERS)} excluded users from {EXCLUDED_USERS_FILE_PATH}."
                 )
             else:
-                logging.info(
-                    f"Excluded users file found at {EXCLUDED_USERS_FILE_PATH}, but it is empty."
-                )
+                logging.info(f"Excluded users file found at {EXCLUDED_USERS_FILE_PATH}, but it is empty.")
         except IOError as e:
-            logging.warning(
-                f"Error reading excluded users file at {EXCLUDED_USERS_FILE_PATH}: {e}."
-            )
+            logging.warning(f"Error reading excluded users file at {EXCLUDED_USERS_FILE_PATH}: {e}.")
     else:
         logging.warning(f"Excluded users file not found at {EXCLUDED_USERS_FILE_PATH}.")
 else:
-    logging.info(
-        "EXCLUDED_USERS_FILE_PATH not set. No users will be explicitly excluded."
-    )
+    logging.info("EXCLUDED_USERS_FILE_PATH not set. No users will be explicitly excluded.")
 
 
 # Permissions Matrix Configuration
-PERMISSIONS_MATRIX_FILE_PATH = os.getenv(
-    "PERMISSIONS_MATRIX_FILE_PATH", "config/permissions_matrix.yml"
-)
+PERMISSIONS_MATRIX_FILE_PATH = os.getenv("PERMISSIONS_MATRIX_FILE_PATH", "config/permissions_matrix.yml")
 PERMISSIONS_MATRIX: dict = {}
 
 if PERMISSIONS_MATRIX_FILE_PATH:
@@ -108,21 +94,13 @@ if PERMISSIONS_MATRIX_FILE_PATH:
                         f"Permissions matrix file {PERMISSIONS_MATRIX_FILE_PATH} is empty or not structured correctly (missing 'permissions' key or not a dictionary)."  # noqa: E501
                     )
         except yaml.YAMLError as e:
-            logging.error(
-                f"Error parsing YAML from permissions matrix file at {PERMISSIONS_MATRIX_FILE_PATH}: {e}."
-            )
+            logging.error(f"Error parsing YAML from permissions matrix file at {PERMISSIONS_MATRIX_FILE_PATH}: {e}.")
         except IOError as e:
-            logging.error(
-                f"Error reading permissions matrix file at {PERMISSIONS_MATRIX_FILE_PATH}: {e}."
-            )
+            logging.error(f"Error reading permissions matrix file at {PERMISSIONS_MATRIX_FILE_PATH}: {e}.")
     else:
-        logging.warning(
-            f"Permissions matrix file not found at {PERMISSIONS_MATRIX_FILE_PATH}."
-        )
+        logging.warning(f"Permissions matrix file not found at {PERMISSIONS_MATRIX_FILE_PATH}.")
 else:
-    logging.info(
-        "PERMISSIONS_MATRIX_FILE_PATH not set. Permissions matrix features will be disabled."
-    )
+    logging.info("PERMISSIONS_MATRIX_FILE_PATH not set. Permissions matrix features will be disabled.")
 
 # Example of how to access a specific permission setting:
 # projet_mattermost_type = PERMISSIONS_MATRIX.get("PROJET", {}).get("mattermost", {}).get("channel_type")

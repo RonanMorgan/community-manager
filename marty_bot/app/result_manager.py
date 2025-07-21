@@ -21,12 +21,7 @@ class ResultManager:
         """Helper function to format and send detailed synchronization results."""
         if not detailed_results:
             final_summary_message = f":information_source: Processus de {command_name} terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
-            await asyncio.to_thread(
-                self.bot.envoyer_message,
-                channel_id,
-                final_summary_message,
-                thread_id=initial_post_id,
-            )
+            await asyncio.to_thread(self.bot.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
             return
 
         total_success_ops = 0
@@ -48,10 +43,7 @@ class ResultManager:
                 icon = ":warning:"
 
             user_line = f"{icon} **Utilisateur :** `{user_mm_name}`"
-            if (
-                result.get("mm_user_email")
-                and result.get("mm_user_email") != "NoEmailProvided"
-            ):
+            if result.get("mm_user_email") and result.get("mm_user_email") != "NoEmailProvided":
                 user_line += f" ({result.get('mm_user_email')})"
 
             service_line = f"**Service :** `{service_name}`"
@@ -71,9 +63,7 @@ class ResultManager:
                     OutlineAction.USER_ADDED_TO_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT.value,
                     OutlineAction.USER_ADDED_TO_COLLECTION_WITH_READ_WRITE_ACCESS_AND_DM_SENT.value,
                 ]:
-                    permission = (
-                        "lecture" if "READ_ACCESS" in action else "lecture/écriture"
-                    )
+                    permission = "lecture" if "READ_ACCESS" in action else "lecture/écriture"
                     message_parts.append(
                         f"Ajouté à la collection Outline (permission {permission}) et MP envoyé."
                     )
@@ -81,87 +71,52 @@ class ResultManager:
                     OutlineAction.USER_ADDED_TO_COLLECTION_WITH_READ_ACCESS_DM_FAILED.value,
                     OutlineAction.USER_ADDED_TO_COLLECTION_WITH_READ_WRITE_ACCESS_DM_FAILED.value,
                 ]:
-                    permission = (
-                        "lecture" if "READ_ACCESS" in action else "lecture/écriture"
-                    )
+                    permission = "lecture" if "READ_ACCESS" in action else "lecture/écriture"
                     message_parts.append(
                         f"Ajouté à la collection Outline (permission {permission}), mais échec de l'envoi du MP."
                     )
-                elif (
-                    action
-                    == OutlineAction.USER_ALREADY_IN_COLLECTION_PERMISSION_ENSURED.value
-                ):
-                    message_parts.append(
-                        "Déjà membre de la collection Outline, permission assurée."
-                    )
+                elif action == OutlineAction.USER_ALREADY_IN_COLLECTION_PERMISSION_ENSURED.value:
+                    message_parts.append("Déjà membre de la collection Outline, permission assurée.")
                 elif action == OutlineAction.USER_REMOVED_FROM_COLLECTION.value:
-                    message_parts.append(
-                        "Supprimé avec succès de la collection Outline."
-                    )
+                    message_parts.append("Supprimé avec succès de la collection Outline.")
                 elif action == NocoDBAction.USER_REMOVED_FROM_BASE.value:
                     message_parts.append("Supprimé avec succès de la base NoCoDB.")
-                elif action in [
-                    a.value for a in NocoDBAction if "UPDATED_TO" in a.name
-                ]:
+                elif action in [a.value for a in NocoDBAction if "UPDATED_TO" in a.name]:
                     role = action.split("_UPDATED_TO_")[1]
-                    message_parts.append(
-                        f"Rôle mis à jour avec succès à '{role.lower()}' dans la base NoCoDB."
-                    )
-                elif (
-                    action == NocoDBAction.USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE.value
-                ):
-                    message_parts.append(
-                        "Déjà membre de la base NoCoDB avec le bon rôle."
-                    )
+                    message_parts.append(f"Rôle mis à jour avec succès à '{role.lower()}' dans la base NoCoDB.")
+                elif action == NocoDBAction.USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE.value:
+                    message_parts.append("Déjà membre de la base NoCoDB avec le bon rôle.")
                 elif "INVITED_AS" in action and "DM_SENT" in action:
                     role = action.split("_INVITED_AS_")[1].split("_AND_DM_SENT")[0]
-                    message_parts.append(
-                        f"Invité avec succès à la base NoCoDB (rôle: {role.lower()}) et MP envoyé."
-                    )
+                    message_parts.append(f"Invité avec succès à la base NoCoDB (rôle: {role.lower()}) et MP envoyé.")
                 elif "INVITED_AS" in action and "DM_FAILED" in action:
                     role = action.split("_INVITED_AS_")[1].split("_DM_FAILED")[0]
-                    message_parts.append(
-                        f"Invité à la base NoCoDB (rôle: {role.lower()}), mais échec de l'envoi du MP."
-                    )
+                    message_parts.append(f"Invité à la base NoCoDB (rôle: {role.lower()}), mais échec de l'envoi du MP.")
                 elif "INVITED_AS" in action:
                     role = action.split("_INVITED_AS_")[1]
-                    message_parts.append(
-                        f"Invité avec succès à la base NoCoDB (rôle: {role.lower()})."
-                    )
+                    message_parts.append(f"Invité avec succès à la base NoCoDB (rôle: {role.lower()}).")
                 elif action == BrevoAction.CONTACT_ADDED.value:
                     message_parts.append("Contact ajouté/assuré dans la liste Brevo.")
                 elif action == BrevoAction.CONTACT_REMOVED.value:
                     message_parts.append("Contact supprimé de la liste Brevo.")
-                elif (
-                    action
-                    == VaultwardenAction.USER_INVITED_TO_COLLECTION_AND_DM_SENT.value
-                ):
-                    message_parts.append(
-                        "Invité à la collection Vaultwarden et MP envoyé."
-                    )
+                elif action == VaultwardenAction.USER_INVITED_TO_COLLECTION_AND_DM_SENT.value:
+                    message_parts.append("Invité à la collection Vaultwarden et MP envoyé.")
                 elif action == VaultwardenAction.USER_INVITED_TO_COLLECTION.value:
                     message_parts.append("Invité à la collection Vaultwarden.")
                 elif action == VaultwardenAction.USER_REMOVED_FROM_COLLECTION.value:
                     message_parts.append("Supprimé de la collection Vaultwarden.")
 
             elif status == SyncStatus.SKIPPED.value:
-                message_parts.append(
-                    f"Ignoré. Raison : {error_msg if error_msg else 'Non spécifiée'}"
-                )
+                message_parts.append(f"Ignoré. Raison : {error_msg if error_msg else 'Non spécifiée'}")
                 if action != "SKIPPED_NO_MM_EMAIL":
                     total_problem_ops += 1
             else:
                 total_problem_ops += 1
-                message_parts.append(
-                    f"ÉCHEC. Raison : {error_msg if error_msg else 'Non spécifiée'}"
-                )
+                message_parts.append(f"ÉCHEC. Raison : {error_msg if error_msg else 'Non spécifiée'}")
 
             full_user_report_message = "\n".join(message_parts)
             await asyncio.to_thread(
-                self.bot.envoyer_message,
-                channel_id,
-                full_user_report_message,
-                thread_id=initial_post_id,
+                self.bot.envoyer_message, channel_id, full_user_report_message, thread_id=initial_post_id
             )
 
         summary_lines = [f"### :checkered_flag: Résumé de {command_name} des droits :"]
@@ -174,18 +129,11 @@ class ResultManager:
             summary_lines.append(f"- `{act}` : {count} fois")
 
         if total_problem_ops > 0 and total_success_ops > 0:
-            summary_lines.insert(
-                1, f":warning: {command_name.capitalize()} partiellement terminée."
-            )
+            summary_lines.insert(1, f":warning: {command_name.capitalize()} partiellement terminée.")
         elif total_problem_ops > 0:
-            summary_lines.insert(
-                1,
-                f":x: {command_name.capitalize()} terminée avec des problèmes/omissions.",
-            )
+            summary_lines.insert(1, f":x: {command_name.capitalize()} terminée avec des problèmes/omissions.")
         elif total_success_ops > 0:
-            summary_lines.insert(
-                1, f":rocket: {command_name.capitalize()} terminée avec succès."
-            )
+            summary_lines.insert(1, f":rocket: {command_name.capitalize()} terminée avec succès.")
         else:
             summary_lines.insert(
                 1,
@@ -194,9 +142,4 @@ class ResultManager:
 
         final_summary_message = "\n".join(summary_lines)
         if final_summary_message:
-            await asyncio.to_thread(
-                self.bot.envoyer_message,
-                channel_id,
-                final_summary_message,
-                thread_id=initial_post_id,
-            )
+            await asyncio.to_thread(self.bot.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)

@@ -1,20 +1,20 @@
 import unittest
-from unittest.mock import MagicMock, patch
-
-import requests
-from clients.brevo_client import (
-    BrevoClient,
-)
+from unittest.mock import patch, MagicMock
 
 # Ensure clients are importable by adding the project root to sys.path if necessary
 # This might be needed if tests are run from a different directory context.
 # However, with `python -m pytest`, this is often handled.
 # import sys
 # sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-# Direct import assuming PYTHONPATH is correct or tests are run with pytest
+
+from clients.brevo_client import (
+    BrevoClient,
+)  # Direct import assuming PYTHONPATH is correct or tests are run with pytest
+
 # Load environment variables for testing if not already set (e.g., by a CI/CD pipeline)
 # from dotenv import load_dotenv
 # load_dotenv()
+
 # Mocked API responses
 FAKE_API_URL = "https://api.brevo.example.com/v3"
 FAKE_API_KEY = "fakeapikey123"
@@ -25,20 +25,18 @@ def mock_brevo_response(status_code, json_data=None, text_data=None, content=Non
     mock_resp = MagicMock()
     mock_resp.status_code = status_code
     mock_resp.json.return_value = json_data
-    mock_resp.text = (
-        text_data if text_data is not None else (str(json_data) if json_data else "")
-    )
-    mock_resp.content = (
-        content if content is not None else bytes(mock_resp.text, "utf-8")
-    )
+    mock_resp.text = text_data if text_data is not None else (str(json_data) if json_data else "")
+    mock_resp.content = content if content is not None else bytes(mock_resp.text, "utf-8")
 
     if status_code >= 400:
-        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            response=mock_resp
-        )
+        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_resp)
     else:
         mock_resp.raise_for_status.return_value = None  # No error for success codes
     return mock_resp
+
+
+# Need to import requests for requests.exceptions.HTTPError if not already imported above
+import requests
 
 
 class TestBrevoClient(unittest.TestCase):
@@ -69,9 +67,7 @@ class TestBrevoClient(unittest.TestCase):
         list_name = "Existing List"
         list_id = 123
         mock_response_data = {"lists": [{"id": list_id, "name": list_name}]}
-        mock_request.return_value = mock_brevo_response(
-            200, json_data=mock_response_data
-        )
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
         result = self.client.get_lists(name=list_name)
         self.assertIsNotNone(result)
@@ -91,9 +87,7 @@ class TestBrevoClient(unittest.TestCase):
         list_name = "Non Existing List"
         # Simulate pagination where the list is not on the first page
         mock_request.side_effect = [
-            mock_brevo_response(
-                200, json_data={"lists": [{"id": 1, "name": "Another List"}] * 50}
-            ),
+            mock_brevo_response(200, json_data={"lists": [{"id": 1, "name": "Another List"}] * 50}),
             mock_brevo_response(200, json_data={"lists": []}),  # End of lists
         ]
 
@@ -104,9 +98,7 @@ class TestBrevoClient(unittest.TestCase):
     @patch("requests.request")
     def test_get_lists_by_name_api_error(self, mock_request):
         """Test retrieving lists when API returns an error."""
-        mock_request.return_value = mock_brevo_response(
-            500, json_data={"error": "Server Error"}
-        )
+        mock_request.return_value = mock_brevo_response(500, json_data={"error": "Server Error"})
         result = self.client.get_lists(name="Any List")
         self.assertIsNone(result)
 
@@ -121,8 +113,7 @@ class TestBrevoClient(unittest.TestCase):
         mock_post_response = mock_brevo_response(201, json_data={"id": created_list_id})
         # Mock the GET request that follows in create_list to fetch the full list object
         mock_get_response = mock_brevo_response(
-            200,
-            json_data={"id": created_list_id, "name": list_name, "folderId": folder_id},
+            200, json_data={"id": created_list_id, "name": list_name, "folderId": folder_id}
         )
 
         mock_request.side_effect = [mock_post_response, mock_get_response]
@@ -160,8 +151,7 @@ class TestBrevoClient(unittest.TestCase):
 
         # Mock POST response for duplicate
         mock_post_duplicate_response = mock_brevo_response(
-            400,
-            json_data={"code": "duplicate_parameter", "message": "List already exists"},
+            400, json_data={"code": "duplicate_parameter", "message": "List already exists"}
         )
         # Mock GET response for fetching the existing list by name
         mock_get_existing_response = mock_brevo_response(
@@ -173,10 +163,7 @@ class TestBrevoClient(unittest.TestCase):
         # Let's refine create_list to return the object from get_lists directly if found.
         # Current implementation of create_list calls self.get_lists, which should be fine.
 
-        mock_request.side_effect = [
-            mock_post_duplicate_response,
-            mock_get_existing_response,
-        ]
+        mock_request.side_effect = [mock_post_duplicate_response, mock_get_existing_response]
 
         result = self.client.create_list(list_name)
         self.assertIsNotNone(result)
@@ -194,11 +181,7 @@ class TestBrevoClient(unittest.TestCase):
         )
         # This call is from get_list_by_name
         mock_request.assert_any_call(
-            "GET",
-            url,
-            headers=self.client.headers,
-            json=None,
-            params={"limit": 50, "offset": 0},
+            "GET", url, headers=self.client.headers, json=None, params={"limit": 50, "offset": 0}
         )
 
     @patch("requests.request")
@@ -207,19 +190,13 @@ class TestBrevoClient(unittest.TestCase):
         list_id = 303
         list_name = "Specific List"
         mock_response_data = {"id": list_id, "name": list_name}
-        mock_request.return_value = mock_brevo_response(
-            200, json_data=mock_response_data
-        )
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
         result = self.client.get_list_by_id(list_id)
         self.assertIsNotNone(result)
         self.assertEqual(result["id"], list_id)
         mock_request.assert_called_once_with(
-            "GET",
-            f"{FAKE_API_URL}/contacts/lists/{list_id}",
-            headers=self.client.headers,
-            json=None,
-            params=None,
+            "GET", f"{FAKE_API_URL}/contacts/lists/{list_id}", headers=self.client.headers, json=None, params=None
         )
 
     @patch("requests.request")
@@ -233,11 +210,7 @@ class TestBrevoClient(unittest.TestCase):
         self.assertTrue(success)
         expected_payload = {"email": email, "listIds": [list_id], "updateEnabled": True}
         mock_request.assert_called_once_with(
-            "POST",
-            f"{FAKE_API_URL}/contacts",
-            headers=self.client.headers,
-            json=expected_payload,
-            params=None,
+            "POST", f"{FAKE_API_URL}/contacts", headers=self.client.headers, json=expected_payload, params=None
         )
 
     @patch("requests.request")
@@ -247,9 +220,7 @@ class TestBrevoClient(unittest.TestCase):
         list_id = 405
         mock_request.return_value = mock_brevo_response(204)  # 204 Contact updated
 
-        success = self.client.add_contact_to_list(
-            email, list_id, attributes={"FIRSTNAME": "Test"}
-        )
+        success = self.client.add_contact_to_list(email, list_id, attributes={"FIRSTNAME": "Test"})
         self.assertTrue(success)
         expected_payload = {
             "email": email,
@@ -258,11 +229,7 @@ class TestBrevoClient(unittest.TestCase):
             "attributes": {"FIRSTNAME": "Test"},
         }
         mock_request.assert_called_once_with(
-            "POST",
-            f"{FAKE_API_URL}/contacts",
-            headers=self.client.headers,
-            json=expected_payload,
-            params=None,
+            "POST", f"{FAKE_API_URL}/contacts", headers=self.client.headers, json=expected_payload, params=None
         )
 
     @patch("requests.request")
@@ -283,9 +250,7 @@ class TestBrevoClient(unittest.TestCase):
         email = "remove.contact@example.com"
         list_id = 505
         encoded_email = requests.utils.quote(email)
-        mock_request.return_value = mock_brevo_response(
-            204
-        )  # Successfully updated (unlinked)
+        mock_request.return_value = mock_brevo_response(204)  # Successfully updated (unlinked)
 
         success = self.client.remove_contact_from_list(email, list_id)
         self.assertTrue(success)
@@ -304,14 +269,10 @@ class TestBrevoClient(unittest.TestCase):
         email = "notfound.contact@example.com"
         list_id = 506
         # encoded_email = requests.utils.quote(email) # Removed as unused
-        mock_request.return_value = mock_brevo_response(
-            404, json_data={"code": "document_not_found"}
-        )
+        mock_request.return_value = mock_brevo_response(404, json_data={"code": "document_not_found"})
 
         success = self.client.remove_contact_from_list(email, list_id)
-        self.assertFalse(
-            success
-        )  # Or True depending on desired outcome for "not found"
+        self.assertFalse(success)  # Or True depending on desired outcome for "not found"
 
     @patch("requests.request")
     def test_get_contacts_from_list_success(self, mock_request):
@@ -319,9 +280,7 @@ class TestBrevoClient(unittest.TestCase):
         list_id = 606
         contacts_data = [{"email": "user1@example.com"}, {"email": "user2@example.com"}]
         mock_response_data = {"contacts": contacts_data, "count": len(contacts_data)}
-        mock_request.return_value = mock_brevo_response(
-            200, json_data=mock_response_data
-        )
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
         # The method now returns list of emails and handles all pagination internally
         result_emails = self.client.get_contacts_from_list(list_id)
@@ -343,9 +302,7 @@ class TestBrevoClient(unittest.TestCase):
         """Test retrieving contacts from an empty list."""
         list_id = 607
         mock_response_data = {"contacts": [], "count": 0}
-        mock_request.return_value = mock_brevo_response(
-            200, json_data=mock_response_data
-        )
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
         result = self.client.get_contacts_from_list(list_id)
         self.assertIsNotNone(result)
@@ -360,20 +317,14 @@ class TestBrevoClient(unittest.TestCase):
         success = self.client.delete_list(list_id)
         self.assertTrue(success)
         mock_request.assert_called_once_with(
-            "DELETE",
-            f"{FAKE_API_URL}/contacts/lists/{list_id}",
-            headers=self.client.headers,
-            json=None,
-            params=None,
+            "DELETE", f"{FAKE_API_URL}/contacts/lists/{list_id}", headers=self.client.headers, json=None, params=None
         )
 
     @patch("requests.request")
     def test_delete_list_failure(self, mock_request):
         """Test failing to delete a list (e.g., not found or API error)."""
         list_id = 708
-        mock_request.return_value = mock_brevo_response(
-            404, json_data={"code": "document_not_found"}
-        )
+        mock_request.return_value = mock_brevo_response(404, json_data={"code": "document_not_found"})
 
         success = self.client.delete_list(list_id)
         self.assertFalse(success)
@@ -385,24 +336,14 @@ class TestBrevoClient(unittest.TestCase):
         text_content = "Hello, this is a test email."
         sender_email = "sender@example.com"
         sender_name = "Test Sender"
-        to_contacts = [
-            {"email": "recipient1@example.com"},
-            {"email": "recipient2@example.com"},
-        ]
+        to_contacts = [{"email": "recipient1@example.com"}, {"email": "recipient2@example.com"}]
 
         mock_response_data = {"messageId": "some-message-id-123"}
-        mock_request.return_value = mock_brevo_response(
-            201, json_data=mock_response_data
-        )
+        mock_request.return_value = mock_brevo_response(201, json_data=mock_response_data)
 
         html_content_example = "<p>Hello, this is a test email.</p>"
         success = self.client.send_transactional_email(
-            subject,
-            text_content,
-            sender_email,
-            sender_name,
-            to_contacts,
-            html_content=html_content_example,
+            subject, text_content, sender_email, sender_name, to_contacts, html_content=html_content_example
         )
         self.assertTrue(success)
 
@@ -414,11 +355,7 @@ class TestBrevoClient(unittest.TestCase):
             "htmlContent": html_content_example,
         }
         mock_request.assert_called_once_with(
-            "POST",
-            f"{FAKE_API_URL}/smtp/email",
-            headers=self.client.headers,
-            json=expected_payload,
-            params=None,
+            "POST", f"{FAKE_API_URL}/smtp/email", headers=self.client.headers, json=expected_payload, params=None
         )
 
     @patch("requests.request")
@@ -436,12 +373,7 @@ class TestBrevoClient(unittest.TestCase):
         )  # Changed to 201 for explicit success handling in client
 
         success = self.client.send_transactional_email(
-            subject,
-            text_content,
-            sender_email,
-            sender_name,
-            to_contacts,
-            html_content=None,
+            subject, text_content, sender_email, sender_name, to_contacts, html_content=None
         )  # Explicitly None
         self.assertTrue(success)
 
@@ -453,19 +385,13 @@ class TestBrevoClient(unittest.TestCase):
             # No htmlContent key
         }
         mock_request.assert_called_once_with(
-            "POST",
-            f"{FAKE_API_URL}/smtp/email",
-            headers=self.client.headers,
-            json=expected_payload,
-            params=None,
+            "POST", f"{FAKE_API_URL}/smtp/email", headers=self.client.headers, json=expected_payload, params=None
         )
 
     @patch("requests.request")
     def test_send_transactional_email_failure_api_error(self, mock_request):
         """Test failure when sending a transactional email due to API error."""
-        mock_request.return_value = mock_brevo_response(
-            400, json_data={"code": "api_error", "message": "Bad request"}
-        )
+        mock_request.return_value = mock_brevo_response(400, json_data={"code": "api_error", "message": "Bad request"})
 
         success = self.client.send_transactional_email(
             "Subject", "Content", "s@e.com", "Sender", [{"email": "r@e.com"}]
@@ -476,25 +402,15 @@ class TestBrevoClient(unittest.TestCase):
     def test_send_transactional_email_missing_params(self, mock_request):
         """Test that sending fails if essential parameters are missing."""
         self.assertFalse(
-            self.client.send_transactional_email(
-                "", "Content", "s@e.com", "Sender", [{"email": "r@e.com"}]
-            )
+            self.client.send_transactional_email("", "Content", "s@e.com", "Sender", [{"email": "r@e.com"}])
         )
         self.assertFalse(
-            self.client.send_transactional_email(
-                "Subject", "", "s@e.com", "Sender", [{"email": "r@e.com"}]
-            )
+            self.client.send_transactional_email("Subject", "", "s@e.com", "Sender", [{"email": "r@e.com"}])
         )
         self.assertFalse(
-            self.client.send_transactional_email(
-                "Subject", "Content", "", "Sender", [{"email": "r@e.com"}]
-            )
+            self.client.send_transactional_email("Subject", "Content", "", "Sender", [{"email": "r@e.com"}])
         )
-        self.assertFalse(
-            self.client.send_transactional_email(
-                "Subject", "Content", "s@e.com", "Sender", []
-            )
-        )
+        self.assertFalse(self.client.send_transactional_email("Subject", "Content", "s@e.com", "Sender", []))
         mock_request.assert_not_called()
 
     @patch("requests.request")
@@ -502,13 +418,8 @@ class TestBrevoClient(unittest.TestCase):
         """Test retrieving a folder ID by name when it exists."""
         folder_name = "My Test Folder"
         folder_id = 123
-        mock_response_data = {
-            "folders": [{"id": folder_id, "name": folder_name}],
-            "count": 1,
-        }
-        mock_request.return_value = mock_brevo_response(
-            200, json_data=mock_response_data
-        )
+        mock_response_data = {"folders": [{"id": folder_id, "name": folder_name}], "count": 1}
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
         result = self.client.get_folder_id_by_name(folder_name)
         self.assertEqual(result, folder_id)
@@ -524,13 +435,8 @@ class TestBrevoClient(unittest.TestCase):
     def test_get_folder_id_by_name_not_found(self, mock_request):
         """Test retrieving a folder ID by name when it does not exist."""
         folder_name = "Non Existent Folder"
-        mock_response_data = {
-            "folders": [{"id": 1, "name": "Another Folder"}],
-            "count": 1,
-        }
-        mock_request.return_value = mock_brevo_response(
-            200, json_data=mock_response_data
-        )
+        mock_response_data = {"folders": [{"id": 1, "name": "Another Folder"}], "count": 1}
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
         result = self.client.get_folder_id_by_name(folder_name)
         self.assertIsNone(result)
@@ -546,10 +452,7 @@ class TestBrevoClient(unittest.TestCase):
             "folders": [{"id": i, "name": f"Folder {i}"} for i in range(1, 51)],
             "count": 51,  # Total count indicates more pages
         }
-        mock_response_page2_data = {
-            "folders": [{"id": folder_id, "name": folder_name}],
-            "count": 51,
-        }
+        mock_response_page2_data = {"folders": [{"id": folder_id, "name": folder_name}], "count": 51}
 
         mock_request.side_effect = [
             mock_brevo_response(200, json_data=mock_response_page1_data),
@@ -571,19 +474,13 @@ class TestBrevoClient(unittest.TestCase):
             f"{FAKE_API_URL}/contacts/folders",
             headers=self.client.headers,
             json=None,
-            params={
-                "limit": 50,
-                "offset": 50,
-                "sort": "desc",
-            },  # Offset for second page
+            params={"limit": 50, "offset": 50, "sort": "desc"},  # Offset for second page
         )
 
     @patch("requests.request")
     def test_get_folder_id_by_name_api_error(self, mock_request):
         """Test retrieving folder ID when API returns an error."""
-        mock_request.return_value = mock_brevo_response(
-            500, json_data={"error": "Server Error"}
-        )
+        mock_request.return_value = mock_brevo_response(500, json_data={"error": "Server Error"})
         result = self.client.get_folder_id_by_name("Any Folder")
         self.assertIsNone(result)
 
@@ -596,10 +493,7 @@ class TestBrevoClient(unittest.TestCase):
 
         # Page 1: 'internal_limit' contacts
         mock_response_page1_data = {
-            "contacts": [
-                {"email": f"user{i}@example.com", "id": i}
-                for i in range(internal_limit)
-            ],
+            "contacts": [{"email": f"user{i}@example.com", "id": i} for i in range(internal_limit)],
         }
         # Page 2: 1 contact, this will be less than internal_limit, so stop after this.
         mock_response_page2_data = {
@@ -613,19 +507,13 @@ class TestBrevoClient(unittest.TestCase):
         # If page 2 *was* full, then page 3 (empty) would be fetched.
 
         mock_request_global.side_effect = [
-            mock_brevo_response(
-                200, json_data=mock_response_page1_data
-            ),  # Page 1 (full)
-            mock_brevo_response(
-                200, json_data=mock_response_page2_data
-            ),  # Page 2 (partial, last data page)
+            mock_brevo_response(200, json_data=mock_response_page1_data),  # Page 1 (full)
+            mock_brevo_response(200, json_data=mock_response_page2_data),  # Page 2 (partial, last data page)
             # mock_brevo_response(200, json_data={"contacts": []}), # This would be the 3rd call if page 2 was full
         ]
 
         # Expected: all emails from page 1 and page 2
-        expected_emails = [f"user{i}@example.com" for i in range(internal_limit)] + [
-            "finaluser@example.com"
-        ]
+        expected_emails = [f"user{i}@example.com" for i in range(internal_limit)] + ["finaluser@example.com"]
 
         # Use self.client which is already set up
         result_emails = self.client.get_contacts_from_list(list_id)
@@ -659,12 +547,8 @@ class TestBrevoClient(unittest.TestCase):
         """Test retrieving contacts when total is less than one page limit."""
         list_id = 701
         contacts_data = [{"email": "alpha@example.com"}, {"email": "beta@example.com"}]
-        mock_response_data = {
-            "contacts": contacts_data
-        }  # No 'count' or pagination needed
-        mock_request.return_value = mock_brevo_response(
-            200, json_data=mock_response_data
-        )
+        mock_response_data = {"contacts": contacts_data}  # No 'count' or pagination needed
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
         result_emails = self.client.get_contacts_from_list(list_id)
         self.assertIsNotNone(result_emails)
@@ -683,9 +567,7 @@ class TestBrevoClient(unittest.TestCase):
         """Test retrieving contacts from an initially empty list."""
         list_id = 702
         mock_response_data = {"contacts": []}  # Empty list
-        mock_request.return_value = mock_brevo_response(
-            200, json_data=mock_response_data
-        )
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
         result_emails = self.client.get_contacts_from_list(list_id)
         self.assertIsNotNone(result_emails)
@@ -696,14 +578,10 @@ class TestBrevoClient(unittest.TestCase):
     def test_get_contacts_from_list_api_error_during_pagination(self, mock_request):
         """Test API error during pagination when retrieving contacts."""
         list_id = 703
-        mock_response_page1_data = {
-            "contacts": [{"email": "user1@example.com"} for _ in range(500)]
-        }  # Full page
+        mock_response_page1_data = {"contacts": [{"email": "user1@example.com"} for _ in range(500)]}  # Full page
         mock_request.side_effect = [
             mock_brevo_response(200, json_data=mock_response_page1_data),
-            mock_brevo_response(
-                500, json_data={"error": "Server Error"}
-            ),  # Error on second page
+            mock_brevo_response(500, json_data={"error": "Server Error"}),  # Error on second page
         ]
 
         result_emails = self.client.get_contacts_from_list(list_id)
@@ -720,9 +598,7 @@ class TestBrevoClient(unittest.TestCase):
             {"id": 3, "email": "user3@example.com"},
         ]
         mock_response_data = {"contacts": contacts_data}
-        mock_request.return_value = mock_brevo_response(
-            200, json_data=mock_response_data
-        )
+        mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
         result_emails = self.client.get_contacts_from_list(list_id)
         self.assertIsNotNone(result_emails)

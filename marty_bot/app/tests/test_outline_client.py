@@ -22,25 +22,18 @@ class TestOutlineClient(unittest.TestCase):
     def test_constructor_value_error(self):
         with self.assertRaises(ValueError) as cm:
             OutlineClient(base_url=None, token="fake")
-        self.assertEqual(
-            str(cm.exception), "Outline base_url and token must be provided."
-        )
+        self.assertEqual(str(cm.exception), "Outline base_url and token must be provided.")
 
         with self.assertRaises(ValueError) as cm:
             OutlineClient(base_url="fake", token=None)
-        self.assertEqual(
-            str(cm.exception), "Outline base_url and token must be provided."
-        )
+        self.assertEqual(str(cm.exception), "Outline base_url and token must be provided.")
 
     @patch("requests.post")
     def test_create_group_success_collection_does_not_exist(self, mock_post_request):
         # Mock for list_collections (first call)
         mock_list_response = Mock()
         mock_list_response.status_code = 200
-        mock_list_response.json.return_value = {
-            "data": [],
-            "pagination": {"offset": 0, "limit": 100, "total": 0},
-        }
+        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 100, "total": 0}}
 
         # Mock for collections.create (second call)
         project_name = "new_project"
@@ -60,9 +53,7 @@ class TestOutlineClient(unittest.TestCase):
         self.assertEqual(list_call_args[0][0], f"{self.mock_url}/api/collections.list")
 
         create_call_args = mock_post_request.call_args_list[1]
-        self.assertEqual(
-            create_call_args[0][0], f"{self.mock_url}/api/collections.create"
-        )
+        self.assertEqual(create_call_args[0][0], f"{self.mock_url}/api/collections.create")
         self.assertEqual(create_call_args[1]["json"], {"name": project_name})
 
     @patch("requests.post")
@@ -99,10 +90,7 @@ class TestOutlineClient(unittest.TestCase):
     def test_create_group_failure_during_actual_creation(self, mock_post_request):
         mock_list_response = Mock()
         mock_list_response.status_code = 200
-        mock_list_response.json.return_value = {
-            "data": [],
-            "pagination": {"offset": 0, "limit": 100, "total": 0},
-        }
+        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 100, "total": 0}}
 
         mock_create_response = Mock()
         mock_create_response.status_code = 403
@@ -119,21 +107,14 @@ class TestOutlineClient(unittest.TestCase):
         self.assertEqual(mock_post_request.call_count, 2)
 
     @patch("requests.post")
-    def test_create_group_failure_unexpected_response_data_in_create(
-        self, mock_post_request
-    ):
+    def test_create_group_failure_unexpected_response_data_in_create(self, mock_post_request):
         mock_list_response = Mock()
         mock_list_response.status_code = 200
-        mock_list_response.json.return_value = {
-            "data": [],
-            "pagination": {"offset": 0, "limit": 100, "total": 0},
-        }
+        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 100, "total": 0}}
 
         mock_create_response = Mock()
         mock_create_response.status_code = 200
-        mock_create_response.json.return_value = {
-            "data": None
-        }  # Malformed: 'data' is None, not a dict with 'id'
+        mock_create_response.json.return_value = {"data": None}  # Malformed: 'data' is None, not a dict with 'id'
 
         mock_post_request.side_effect = [mock_list_response, mock_create_response]
 
@@ -164,10 +145,7 @@ class TestOutlineClient(unittest.TestCase):
             Mock(
                 status_code=200,
                 json=lambda: {
-                    "data": [
-                        {"id": "coll-1", "name": "First"},
-                        {"id": "coll-2", "name": "Second"},
-                    ],
+                    "data": [{"id": "coll-1", "name": "First"}, {"id": "coll-2", "name": "Second"}],
                     "pagination": {"limit": 2, "offset": 0, "total": 3},
                 },
             ),
@@ -188,38 +166,26 @@ class TestOutlineClient(unittest.TestCase):
     @patch("requests.post")
     def test_list_collections_not_found(self, mock_post):
         mock_post.return_value = Mock(
-            status_code=200,
-            json=lambda: {
-                "data": [],
-                "pagination": {"limit": 25, "offset": 0, "total": 0},
-            },
+            status_code=200, json=lambda: {"data": [], "pagination": {"limit": 25, "offset": 0, "total": 0}}
         )
         collection = self.client.list_collections(name="Non-Existent Collection")
         self.assertEqual(collection, [])
 
     @patch("requests.post")
     def test_list_collections_http_error(self, mock_post):
-        mock_post.side_effect = requests.exceptions.HTTPError(
-            response=Mock(status_code=500, text="Server Error")
-        )
+        mock_post.side_effect = requests.exceptions.HTTPError(response=Mock(status_code=500, text="Server Error"))
         collection = self.client.list_collections(name="Any Collection")
         self.assertIsNone(collection)
 
     def test_constructor_url_trailing_slash(self):
-        client_with_slash = OutlineClient(
-            base_url="http://fake-outline-url.com/", token=self.mock_token
-        )
+        client_with_slash = OutlineClient(base_url="http://fake-outline-url.com/", token=self.mock_token)
         self.assertEqual(client_with_slash.base_url, "http://fake-outline-url.com")
 
     @patch("requests.post")
     def test_get_collection_details_success(self, mock_post_request):
         mock_response = Mock()
         mock_response.status_code = 200
-        expected_details = {
-            "id": "coll_id_1",
-            "name": "Test Collection",
-            "urlId": "test-coll",
-        }
+        expected_details = {"id": "coll_id_1", "name": "Test Collection", "urlId": "test-coll"}
         mock_response.json.return_value = {"data": expected_details}
         mock_post_request.return_value = mock_response
 
@@ -229,9 +195,7 @@ class TestOutlineClient(unittest.TestCase):
         self.assertEqual(details, expected_details)
         expected_api_url = f"{self.mock_url}/api/collections.info"
         expected_payload = {"id": collection_id}
-        mock_post_request.assert_called_once_with(
-            expected_api_url, headers=self.client.headers, json=expected_payload
-        )
+        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
 
     # Tests for remove_user_from_collection
     @patch("requests.post")
@@ -244,9 +208,7 @@ class TestOutlineClient(unittest.TestCase):
         self.assertTrue(result)
         expected_url = f"{self.mock_url}/api/collections.remove_user"
         expected_payload = {"id": "coll_id_1", "userId": "user_id_1"}
-        mock_post.assert_called_once_with(
-            expected_url, headers=self.client.headers, json=expected_payload
-        )
+        mock_post.assert_called_once_with(expected_url, headers=self.client.headers, json=expected_payload)
 
     @patch("requests.post")
     def test_remove_user_from_collection_success_204_no_content(self, mock_post):
@@ -257,9 +219,7 @@ class TestOutlineClient(unittest.TestCase):
         self.assertTrue(result)
         expected_url = f"{self.mock_url}/api/collections.remove_user"
         expected_payload = {"id": "coll_id_1", "userId": "user_id_1"}
-        mock_post.assert_called_once_with(
-            expected_url, headers=self.client.headers, json=expected_payload
-        )
+        mock_post.assert_called_once_with(expected_url, headers=self.client.headers, json=expected_payload)
 
     @patch("requests.post")
     def test_remove_user_from_collection_failure_false(self, mock_post):
@@ -274,9 +234,7 @@ class TestOutlineClient(unittest.TestCase):
     def test_remove_user_from_collection_failure_http_error(self, mock_post):
         mock_err_response = Mock(status_code=403)
         mock_err_response.text = "Forbidden action"
-        mock_err_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            response=mock_err_response
-        )
+        mock_err_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_err_response)
         mock_post.return_value = mock_err_response
 
         result = self.client.remove_user_from_collection("coll_id_1", "user_id_1")

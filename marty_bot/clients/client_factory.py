@@ -7,7 +7,6 @@ from clients.nocodb_client import NocoDBClient
 from clients.vaultwarden_client import VaultwardenClient
 from clients.brevo_client import BrevoClient
 
-
 def create_clients() -> dict:
     """
     Initializes and returns a dictionary of API clients.
@@ -23,16 +22,12 @@ def create_clients() -> dict:
 
     if config.AUTHENTIK_URL and config.AUTHENTIK_TOKEN:
         try:
-            clients["authentik"] = AuthentikClient(
-                config.AUTHENTIK_URL, config.AUTHENTIK_TOKEN
-            )
+            clients["authentik"] = AuthentikClient(config.AUTHENTIK_URL, config.AUTHENTIK_TOKEN)
             logging.info("AuthentikClient initialized successfully.")
         except ValueError as e:
             logging.warning(f"Failed to initialize AuthentikClient: {e}")
     else:
-        logging.warning(
-            "Authentik URL or Token not configured. Authentik features will be disabled."
-        )
+        logging.warning("Authentik URL or Token not configured. Authentik features will be disabled.")
 
     if config.OUTLINE_URL and config.OUTLINE_TOKEN:
         try:
@@ -41,9 +36,7 @@ def create_clients() -> dict:
         except ValueError as e:
             logging.warning(f"Failed to initialize OutlineClient: {e}")
     else:
-        logging.warning(
-            "Outline URL or Token not configured. Outline features will be disabled."
-        )
+        logging.warning("Outline URL or Token not configured. Outline features will be disabled.")
 
     if config.MATTERMOST_URL and config.BOT_TOKEN and config.MATTERMOST_TEAM_ID:
         try:
@@ -54,9 +47,7 @@ def create_clients() -> dict:
         except ValueError as e:
             logging.warning(f"Failed to initialize MattermostClient: {e}")
     else:
-        logging.warning(
-            "Mattermost URL, Bot Token, or Team ID not fully configured. Mattermost API operations may fail or be disabled."
-        )
+        logging.warning("Mattermost URL, Bot Token, or Team ID not fully configured. Mattermost API operations may fail or be disabled.")
 
     if config.BREVO_API_URL and config.BREVO_API_KEY:
         try:
@@ -65,9 +56,7 @@ def create_clients() -> dict:
         except ValueError as e:
             logging.warning(f"Failed to initialize BrevoClient: {e}")
     else:
-        logging.warning(
-            "Brevo API URL or Key not configured. Brevo features will be disabled."
-        )
+        logging.warning("Brevo API URL or Key not configured. Brevo features will be disabled.")
 
     if config.NOCODB_URL and config.NOCODB_TOKEN:
         try:
@@ -76,16 +65,9 @@ def create_clients() -> dict:
         except ValueError as e:
             logging.warning(f"Failed to initialize NocoDBClient: {e}")
     else:
-        logging.warning(
-            "NocoDB URL or Token not configured. NocoDB features will be disabled."
-        )
+        logging.warning("NocoDB URL or Token not configured. NocoDB features will be disabled.")
 
-    if (
-        config.VAULTWARDEN_ORGANIZATION_ID
-        and config.VAULTWARDEN_SERVER_URL
-        and config.VAULTWARDEN_API_USERNAME
-        and config.VAULTWARDEN_API_PASSWORD
-    ):
+    if config.VAULTWARDEN_ORGANIZATION_ID and config.VAULTWARDEN_SERVER_URL and config.VAULTWARDEN_API_USERNAME and config.VAULTWARDEN_API_PASSWORD:
         try:
             clients["vaultwarden"] = VaultwardenClient(
                 organization_id=config.VAULTWARDEN_ORGANIZATION_ID,
@@ -97,13 +79,8 @@ def create_clients() -> dict:
         except ValueError as e:
             logging.warning(f"Failed to initialize VaultwardenClient: {e}")
         except Exception as e:
-            logging.error(
-                f"An unexpected error occurred during VaultwardenClient initialization: {e}",
-                exc_info=True,
-            )
+            logging.error(f"An unexpected error occurred during VaultwardenClient initialization: {e}", exc_info=True)
     else:
-        logging.warning(
-            "Vaultwarden Organization ID not configured. Vaultwarden features will be disabled."
-        )
+        logging.warning("Vaultwarden Organization ID not configured. Vaultwarden features will be disabled.")
 
     return clients

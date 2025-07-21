@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 
-
 async def create_resources_for_entity(
     base_name: str,
     entity_key: str,
@@ -31,12 +30,8 @@ async def create_resources_for_entity(
     # Standard resources
     standard_config = entity_config.get("standard")
     if standard_config:
-        std_auth_pattern = standard_config.get(
-            "authentik_group_name_pattern", "{base_name}"
-        )
-        std_mm_chan_pattern = standard_config.get(
-            "mattermost_channel_name_pattern", "{base_name}"
-        )
+        std_auth_pattern = standard_config.get("authentik_group_name_pattern", "{base_name}")
+        std_mm_chan_pattern = standard_config.get("mattermost_channel_name_pattern", "{base_name}")
         std_mm_chan_type = standard_config.get("mattermost_channel_type", "O")
 
         std_auth_name = std_auth_pattern.format(base_name=base_name)
@@ -58,19 +53,15 @@ async def create_resources_for_entity(
         item_results_log.append(auth_msg_std)
 
         # Mattermost Channel (Standard)
-        mm_msg_std = (
-            f"    - Mattermost Canal `{std_mm_chan_name}` (type: {std_mm_chan_type}): "
-        )
+        mm_msg_std = f"    - Mattermost Canal `{std_mm_chan_name}` (type: {std_mm_chan_type}): "
         if clients.get("mattermost"):
             try:
-                ch_std = clients.get("mattermost").create_channel(
-                    std_mm_chan_name, channel_type=std_mm_chan_type
-                )
+                ch_std = clients.get("mattermost").create_channel(std_mm_chan_name, channel_type=std_mm_chan_type)
                 if ch_std and ch_std.get("id"):
                     mm_msg_std += f":white_check_mark: Créé (ID: {ch_std['id']})."
-                    if requesting_user_id and clients.get(
-                        "mattermost"
-                    ).add_user_to_channel(ch_std["id"], requesting_user_id):
+                    if requesting_user_id and clients.get("mattermost").add_user_to_channel(
+                        ch_std["id"], requesting_user_id
+                    ):
                         mm_msg_std += " Demandeur ajouté."
                     elif requesting_user_id:
                         mm_msg_std += " Échec ajout demandeur."
@@ -85,12 +76,8 @@ async def create_resources_for_entity(
     # Admin resources (if configured)
     admin_config = entity_config.get("admin")
     if admin_config:
-        adm_auth_pattern = admin_config.get(
-            "authentik_group_name_pattern", "{base_name} Admin"
-        )
-        adm_mm_chan_pattern = admin_config.get(
-            "mattermost_channel_name_pattern", "{base_name} Admin"
-        )
+        adm_auth_pattern = admin_config.get("authentik_group_name_pattern", "{base_name} Admin")
+        adm_mm_chan_pattern = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin")
         adm_mm_chan_type = admin_config.get("mattermost_channel_type", "P")
 
         adm_auth_name = adm_auth_pattern.format(base_name=base_name)
@@ -112,19 +99,15 @@ async def create_resources_for_entity(
         item_results_log.append(auth_msg_adm)
 
         # Mattermost Channel (Admin)
-        mm_msg_adm = (
-            f"    - Mattermost Canal `{adm_mm_chan_name}` (type: {adm_mm_chan_type}): "
-        )
+        mm_msg_adm = f"    - Mattermost Canal `{adm_mm_chan_name}` (type: {adm_mm_chan_type}): "
         if clients.get("mattermost"):
             try:
-                ch_adm = clients.get("mattermost").create_channel(
-                    adm_mm_chan_name, channel_type=adm_mm_chan_type
-                )
+                ch_adm = clients.get("mattermost").create_channel(adm_mm_chan_name, channel_type=adm_mm_chan_type)
                 if ch_adm and ch_adm.get("id"):
                     mm_msg_adm += f":white_check_mark: Créé (ID: {ch_adm['id']})."
-                    if requesting_user_id and clients.get(
-                        "mattermost"
-                    ).add_user_to_channel(ch_adm["id"], requesting_user_id):
+                    if requesting_user_id and clients.get("mattermost").add_user_to_channel(
+                        ch_adm["id"], requesting_user_id
+                    ):
                         mm_msg_adm += " Demandeur ajouté."
                     elif requesting_user_id:
                         mm_msg_adm += " Échec ajout demandeur."
@@ -147,9 +130,7 @@ async def create_resources_for_entity(
             try:
                 collection_obj = clients.get("outline").create_group(outline_coll_name)
                 if collection_obj and collection_obj.get("id"):
-                    outline_msg += (
-                        ":white_check_mark: Collection assurée (créée ou existante)."
-                    )
+                    outline_msg += ":white_check_mark: Collection assurée (créée ou existante)."
                 else:
                     outline_msg += ":warning: Échec création/vérification."
             except Exception as e:
@@ -185,9 +166,7 @@ async def create_resources_for_entity(
                     )
             except Exception as e:
                 brevo_msg += f" (Erreur recherche dossier '{folder_name_from_matrix}', utilise défaut ID: {target_folder_id}): {e}"
-                logging.error(
-                    f"Error fetching Brevo folder ID for '{folder_name_from_matrix}': {e}"
-                )
+                logging.error(f"Error fetching Brevo folder ID for '{folder_name_from_matrix}': {e}")
         elif clients.get("brevo"):
             brevo_msg += f" (Dossier par défaut ID: {target_folder_id})"
 
@@ -195,9 +174,7 @@ async def create_resources_for_entity(
 
         if clients.get("brevo"):
             try:
-                existing_list = await asyncio.to_thread(
-                    clients.get("brevo").get_list_by_name, brevo_list_name
-                )
+                existing_list = await asyncio.to_thread(clients.get("brevo").get_list_by_name, brevo_list_name)
                 if existing_list:
                     current_folder_id = existing_list.get("folderId")
                     if current_folder_id == target_folder_id:
@@ -209,14 +186,10 @@ async def create_resources_for_entity(
                         )
                 else:
                     created_list = await asyncio.to_thread(
-                        clients.get("brevo").create_list,
-                        brevo_list_name,
-                        folder_id=int(target_folder_id),
+                        clients.get("brevo").create_list, brevo_list_name, folder_id=int(target_folder_id)
                     )
                     if created_list and created_list.get("id"):
-                        brevo_msg += (
-                            f":white_check_mark: Créée (ID: {created_list['id']})."
-                        )
+                        brevo_msg += f":white_check_mark: Créée (ID: {created_list['id']})."
                     else:
                         brevo_msg += ":warning: Échec création/vérification."
             except Exception as e:
@@ -228,29 +201,19 @@ async def create_resources_for_entity(
     # NoCoDB Base (for ANTENNE and POLES)
     nocodb_config = entity_config.get("nocodb")
     if nocodb_config and entity_key in ["ANTENNE", "POLES"]:
-        base_title_pattern = nocodb_config.get(
-            "base_title_pattern", "nocodb_{base_name}"
-        )
+        base_title_pattern = nocodb_config.get("base_title_pattern", "nocodb_{base_name}")
         nocodb_base_title = base_title_pattern.format(base_name=base_name)
         nocodb_msg = f"  - NoCoDB Base `{nocodb_base_title}`: "
 
         if clients.get("nocodb"):
             try:
-                existing_base = await asyncio.to_thread(
-                    clients.get("nocodb").get_base_by_title, nocodb_base_title
-                )
+                existing_base = await asyncio.to_thread(clients.get("nocodb").get_base_by_title, nocodb_base_title)
                 if existing_base:
-                    nocodb_msg += (
-                        f":white_check_mark: Existe déjà (ID: {existing_base['id']})."
-                    )
+                    nocodb_msg += f":white_check_mark: Existe déjà (ID: {existing_base['id']})."
                 else:
-                    created_base = await asyncio.to_thread(
-                        clients.get("nocodb").create_base, nocodb_base_title
-                    )
+                    created_base = await asyncio.to_thread(clients.get("nocodb").create_base, nocodb_base_title)
                     if created_base and created_base.get("id"):
-                        nocodb_msg += (
-                            f":white_check_mark: Créée (ID: {created_base['id']})."
-                        )
+                        nocodb_msg += f":white_check_mark: Créée (ID: {created_base['id']})."
                     else:
                         nocodb_msg += ":warning: Échec création."
             except Exception as e:
@@ -270,9 +233,7 @@ async def create_resources_for_entity(
         vw_msg = f"  - Vaultwarden Collection `{vw_coll_name}`: "
         if clients.get("vaultwarden"):
             if not os.getenv("BW_PASSWORD"):
-                vw_msg += (
-                    ":warning: Échec - BW_PASSWORD non défini dans l'environnement."
-                )
+                vw_msg += ":warning: Échec - BW_PASSWORD non défini dans l'environnement."
                 logging.warning(
                     f"Vaultwarden: BW_PASSWORD not set in environment. Cannot create collection '{vw_coll_name}'."
                 )
@@ -288,15 +249,10 @@ async def create_resources_for_entity(
                 except FileNotFoundError:
                     error_message = "CLI 'bw' non trouvée."
                     vw_msg += f":x: Erreur ({error_message})."
-                    logging.error(
-                        f"Vaultwarden client error for collection '{vw_coll_name}': {error_message}"
-                    )
+                    logging.error(f"Vaultwarden client error for collection '{vw_coll_name}': {error_message}")
                 except Exception as e:
                     vw_msg += f":x: Erreur ({e})."
-                    logging.error(
-                        f"Error creating Vaultwarden collection '{vw_coll_name}': {e}",
-                        exc_info=True,
-                    )
+                    logging.error(f"Error creating Vaultwarden collection '{vw_coll_name}': {e}", exc_info=True)
         else:
             vw_msg += ":information_source: Client non configuré."
         item_results_log.append(vw_msg)

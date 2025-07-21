@@ -34,18 +34,9 @@ class TestAuthentikBrevoSync(unittest.TestCase):
         # Simulate Authentik returning user data including attributes
         mock_auth_instance.get_all_users_data.return_value = [
             {"email": "user1@example.com", "attributes": {"attributes.ville": "Paris"}},
-            {
-                "email": "user2@example.com",
-                "attributes": {"attributes.activity": "Dev"},
-            },
-            {
-                "email": "shared@example.com",
-                "attributes": {"attributes.metier": "Engineer"},
-            },
-            {
-                "email": "user_no_attrs@example.com",
-                "attributes": {},
-            },  # User with no specific attributes
+            {"email": "user2@example.com", "attributes": {"attributes.activity": "Dev"}},
+            {"email": "shared@example.com", "attributes": {"attributes.metier": "Engineer"}},
+            {"email": "user_no_attrs@example.com", "attributes": {}},  # User with no specific attributes
         ]
 
         # Mock BrevoClient instance and its methods
@@ -62,21 +53,15 @@ class TestAuthentikBrevoSync(unittest.TestCase):
 
         # --- Assertions ---
         # AuthentikClient initialized correctly
-        MockAuthentikClient.assert_called_once_with(
-            base_url=FAKE_AUTHENTIK_URL, token=FAKE_AUTHENTIK_TOKEN
-        )
+        MockAuthentikClient.assert_called_once_with(base_url=FAKE_AUTHENTIK_URL, token=FAKE_AUTHENTIK_TOKEN)
         # BrevoClient initialized correctly
-        MockBrevoClient.assert_called_once_with(
-            api_url=FAKE_BREVO_API_URL, api_key=FAKE_BREVO_API_KEY
-        )
+        MockBrevoClient.assert_called_once_with(api_url=FAKE_BREVO_API_URL, api_key=FAKE_BREVO_API_KEY)
 
         # Methods called on AuthentikClient
         mock_auth_instance.get_all_users_data.assert_called_once()  # Changed from get_all_users_emails
 
         # Methods called on BrevoClient
-        mock_brevo_instance.get_contacts_from_list.assert_called_once_with(
-            int(FAKE_BREVO_LIST_ID)
-        )
+        mock_brevo_instance.get_contacts_from_list.assert_called_once_with(int(FAKE_BREVO_LIST_ID))
 
         # Expected users to be added to Brevo with mapped attributes:
         # user2@example.com with DOMAIN:Dev
@@ -107,19 +92,12 @@ class TestAuthentikBrevoSync(unittest.TestCase):
     @patch("libraries.authentik_brevo_sync.BrevoClient")
     def test_sync_no_new_users_to_add(self, MockBrevoClient, MockAuthentikClient):
         mock_auth_instance = MockAuthentikClient.return_value
-        mock_auth_instance.get_all_users_data.return_value = (
-            [  # Now returns list of dicts
-                {
-                    "email": "user1@example.com",
-                    "attributes": {"attributes.ville": "Lyon"},
-                }
-            ]
-        )
+        mock_auth_instance.get_all_users_data.return_value = [  # Now returns list of dicts
+            {"email": "user1@example.com", "attributes": {"attributes.ville": "Lyon"}}
+        ]
 
         mock_brevo_instance = MockBrevoClient.return_value
-        mock_brevo_instance.get_contacts_from_list.return_value = [
-            "user1@example.com"
-        ]  # Brevo list has the email
+        mock_brevo_instance.get_contacts_from_list.return_value = ["user1@example.com"]  # Brevo list has the email
 
         sync_authentik_users_to_brevo_list()
 
@@ -127,41 +105,29 @@ class TestAuthentikBrevoSync(unittest.TestCase):
 
     @patch("libraries.authentik_brevo_sync.AuthentikClient")
     @patch("libraries.authentik_brevo_sync.BrevoClient")
-    @patch(
-        "libraries.authentik_brevo_sync.logging"
-    )  # Mock logging to check error messages
-    def test_sync_authentik_fetch_fails(
-        self, mock_logging, MockBrevoClient, MockAuthentikClient
-    ):
+    @patch("libraries.authentik_brevo_sync.logging")  # Mock logging to check error messages
+    def test_sync_authentik_fetch_fails(self, mock_logging, MockBrevoClient, MockAuthentikClient):
         mock_auth_instance = MockAuthentikClient.return_value
         # Simulate failure by returning None
         mock_auth_instance.get_all_users_data.return_value = None
 
         sync_authentik_users_to_brevo_list()
 
-        mock_logging.error.assert_any_call(
-            "Failed to fetch users data from Authentik. Aborting sync."
-        )
+        mock_logging.error.assert_any_call("Failed to fetch users data from Authentik. Aborting sync.")
         MockBrevoClient.return_value.get_contacts_from_list.assert_not_called()
         MockBrevoClient.return_value.add_contact_to_list.assert_not_called()
 
     @patch("libraries.authentik_brevo_sync.AuthentikClient")
     @patch("libraries.authentik_brevo_sync.BrevoClient")
     @patch("libraries.authentik_brevo_sync.logging")
-    def test_sync_brevo_fetch_fails(
-        self, mock_logging, MockBrevoClient, MockAuthentikClient
-    ):
+    def test_sync_brevo_fetch_fails(self, mock_logging, MockBrevoClient, MockAuthentikClient):
         mock_auth_instance = MockAuthentikClient.return_value
-        mock_auth_instance.get_all_users_data.return_value = (
-            [  # Now returns list of dicts
-                {"email": "user1@example.com", "attributes": {}}
-            ]
-        )
+        mock_auth_instance.get_all_users_data.return_value = [  # Now returns list of dicts
+            {"email": "user1@example.com", "attributes": {}}
+        ]
 
         mock_brevo_instance = MockBrevoClient.return_value
-        mock_brevo_instance.get_contacts_from_list.return_value = (
-            None  # Simulate failure
-        )
+        mock_brevo_instance.get_contacts_from_list.return_value = None  # Simulate failure
 
         sync_authentik_users_to_brevo_list()
 
@@ -173,37 +139,24 @@ class TestAuthentikBrevoSync(unittest.TestCase):
     @patch("libraries.authentik_brevo_sync.AuthentikClient")
     @patch("libraries.authentik_brevo_sync.BrevoClient")
     @patch("libraries.authentik_brevo_sync.logging")
-    def test_sync_add_user_fails_in_brevo(
-        self, mock_logging, MockBrevoClient, MockAuthentikClient
-    ):
+    def test_sync_add_user_fails_in_brevo(self, mock_logging, MockBrevoClient, MockAuthentikClient):
         mock_auth_instance = MockAuthentikClient.return_value
-        mock_auth_instance.get_all_users_data.return_value = (
-            [  # Now returns list of dicts
-                {
-                    "email": "newuser@example.com",
-                    "attributes": {"attributes.ville": "Nice"},
-                }
-            ]
-        )
+        mock_auth_instance.get_all_users_data.return_value = [  # Now returns list of dicts
+            {"email": "newuser@example.com", "attributes": {"attributes.ville": "Nice"}}
+        ]
 
         mock_brevo_instance = MockBrevoClient.return_value
         mock_brevo_instance.get_contacts_from_list.return_value = []
-        mock_brevo_instance.add_contact_to_list.return_value = (
-            False  # Simulate failure to add
-        )
+        mock_brevo_instance.add_contact_to_list.return_value = False  # Simulate failure to add
 
         sync_authentik_users_to_brevo_list()
 
         expected_brevo_attrs = {"CITY": "Nice"}  # Mapped attributes
         mock_brevo_instance.add_contact_to_list.assert_called_once_with(
-            email="newuser@example.com",
-            list_id=int(FAKE_BREVO_LIST_ID),
-            attributes=expected_brevo_attrs,
+            email="newuser@example.com", list_id=int(FAKE_BREVO_LIST_ID), attributes=expected_brevo_attrs
         )
         # Check the summary log
-        mock_logging.info.assert_any_call(
-            "Finished adding users to Brevo. Added: 0, Failed: 1."
-        )
+        mock_logging.info.assert_any_call("Finished adding users to Brevo. Added: 0, Failed: 1.")
 
     @patch.dict(os.environ, {"BREVO_AUTHENTIK_USERS_LIST_ID": "not-an-int"})
     @patch("libraries.authentik_brevo_sync.logging")
