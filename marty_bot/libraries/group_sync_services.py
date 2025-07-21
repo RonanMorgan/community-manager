@@ -10,7 +10,7 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-import config
+import marty_bot.config as config
 from app.enums import SyncStatus
 from clients.vaultwarden_client import VaultwardenAction
 from libraries.services.outline import (
@@ -26,18 +26,12 @@ from libraries.services.nocodb import (
 from libraries.services.vaultwarden import (
     _map_vaultwarden_collection_to_entity_and_base_name,
     _sync_vaultwarden_for_entity,
-    _sync_single_vaultwarden_collection_members,
 )
 from libraries.services.brevo import (
     _sync_brevo_for_entity,
-    _sync_single_brevo_list,
-)
-from libraries.services.nocodb import (
-    _sync_single_nocodb_base,
 )
 from libraries.services.authentik import (
     get_all_authentik_groups_and_user_map,
-    _sync_single_authentik_group,
     remove_user_from_authentik_group,
     _map_auth_group_to_entity_and_base_name,
     _sync_authentik_for_entity,

@@ -7,7 +7,7 @@ import threading  # For logging current thread name in start()
 import requests
 
 
-import config
+import marty_bot.config as config
 from app.websocket_handler import WebsocketHandler
 
 # Configure basic logging based on DEBUG status
