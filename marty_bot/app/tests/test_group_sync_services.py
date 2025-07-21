@@ -173,10 +173,15 @@ class TestGroupSyncServices(unittest.TestCase):
             ("PROJET", "my-cool-project"),
         )
 
+    @patch("services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_user_exclusion(self, mock_config_module_in_service):
+    def test_sync_single_group_user_exclusion(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = {"excluded_user", "marty"}
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_config_module_in_outline_service.EXCLUDED_USERS = {"excluded_user", "marty"}
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
 
         base_name = "MyTestProject"
         entity_key = "PROJET"
@@ -427,10 +432,15 @@ permissions:
             self.assertEqual(app_config.PERMISSIONS_MATRIX["PROJET"]["outline"]["default_access"], "read")
         self.assertEqual(app_config.EXCLUDED_USERS, set())
 
+    @patch("services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_outline_dm_on_new_add(self, mock_config_module_in_service):
+    def test_sync_single_group_outline_dm_on_new_add(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = set()
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_config_module_in_outline_service.EXCLUDED_USERS = set()
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
         # Brevo config not strictly needed for this Outline-focused test unless it affects shared logic
         base_name = "DMTestProject"
         entity_key = "PROJET"
@@ -519,10 +529,15 @@ permissions:
             expected_collection_id, "outline_user_id_dm", permission="read"
         )
 
+    @patch("services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_outline_dm_fails(self, mock_config_module_in_service):
+    def test_sync_single_group_outline_dm_fails(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = set()
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_config_module_in_outline_service.EXCLUDED_USERS = set()
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
         base_name = "DMFailProject"
         entity_key = "PROJET"
         mock_entity_config = {
@@ -724,10 +739,15 @@ permissions:
         )
         self.mock_mattermost_client.send_dm.assert_not_called()
 
+    @patch("services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_outline_dm_skipped_incomplete_details(self, mock_config_module_in_service):
+    def test_sync_outline_dm_skipped_incomplete_details(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = set()
         mock_config_module_in_service.OUTLINE_URL = "http://test-outline.com"  # URL is set
+        mock_config_module_in_outline_service.EXCLUDED_USERS = set()
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://test-outline.com"
         base_name = "DMIncompleteProject"
         entity_key = "PROJET"
         mock_entity_config = {
@@ -1014,11 +1034,16 @@ permissions:
             self.assertEqual(kept_action["mm_username"], "keepme_outline")
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
+    @patch("services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_outline_excluded_user_not_removed(self, mock_config_module_in_service):
+    def test_sync_single_group_outline_excluded_user_not_removed(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         excluded_mm_username = "excluded_outline_user"
         mock_config_module_in_service.EXCLUDED_USERS = {excluded_mm_username}
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_config_module_in_outline_service.EXCLUDED_USERS = {excluded_mm_username}
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
         outline_id_excluded = "outline_id_excl"
 
         base_name_for_test = "OutlineExcludedTest"
@@ -1083,10 +1108,15 @@ permissions:
         )
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
+    @patch("services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_outline_permissions(self, mock_config_module_in_service):
+    def test_sync_single_group_outline_permissions(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = set()
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_config_module_in_outline_service.EXCLUDED_USERS = set()
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
 
         test_cases = [
             ("projet_test", "O", "read"),
