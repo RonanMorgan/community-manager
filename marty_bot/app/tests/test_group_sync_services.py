@@ -5,13 +5,16 @@ from unittest.mock import patch, MagicMock, mock_open
 from libraries.group_sync_services import (
     sync_entity_permissions,
     orchestrate_group_synchronization,
-    _map_auth_group_to_entity_and_base_name,
+)
+from libraries.services.mattermost import (
     _map_mm_channel_to_entity_and_base_name,
     _extract_base_name,
 )
+from libraries.services.authentik import _map_auth_group_to_entity_and_base_name
+from libraries.services.mattermost import slugify
 from app import config as app_config
 import asyncio  # Needed for async_test
-from clients.mattermost_client import MattermostClient, slugify
+from clients.mattermost_client import MattermostClient
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.brevo_client import BrevoClient
@@ -47,7 +50,6 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mock_vaultwarden_client.api_username = "vw_api_user"  # Mock api_username
         self.mock_vaultwarden_client.api_password = "vw_api_pass"  # Mock api_password
         self.mm_team_id = "test_team_id"
-        app_config.OUTLINE_URL = "http://fake-outline.com"
 
         self.email_to_authentik_user_pk_map_fixture = {
             "user1@example.com": "auth_user_pk_1",
@@ -174,10 +176,17 @@ class TestGroupSyncServices(unittest.TestCase):
             ("PROJET", "my-cool-project"),
         )
 
+    @patch("libraries.services.authentik.config")
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_user_exclusion(self, mock_config_module_in_service):
+    def test_sync_single_group_user_exclusion(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service, mock_service_config_authentik
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = {"excluded_user", "marty"}
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_config_module_in_outline_service.EXCLUDED_USERS = {"excluded_user", "marty"}
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_service_config_authentik.EXCLUDED_USERS = {"excluded_user", "marty"}
 
         base_name = "MyTestProject"
         entity_key = "PROJET"
@@ -267,13 +276,16 @@ class TestGroupSyncServices(unittest.TestCase):
         )
         self.mock_mattermost_client.send_dm.return_value = True
 
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         results = sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -281,7 +293,7 @@ class TestGroupSyncServices(unittest.TestCase):
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
             email_to_authentik_user_pk_map=self.email_to_authentik_user_pk_map_fixture,
             perform_deletions=True,
-            skip_services=None,  # Default case
+            skip_services=None,
         )
 
         user1_pk = self.email_to_authentik_user_pk_map_fixture["user1@example.com"]
@@ -428,10 +440,15 @@ permissions:
             self.assertEqual(app_config.PERMISSIONS_MATRIX["PROJET"]["outline"]["default_access"], "read")
         self.assertEqual(app_config.EXCLUDED_USERS, set())
 
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_outline_dm_on_new_add(self, mock_config_module_in_service):
+    def test_sync_single_group_outline_dm_on_new_add(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = set()
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_config_module_in_outline_service.EXCLUDED_USERS = set()
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
         # Brevo config not strictly needed for this Outline-focused test unless it affects shared logic
         base_name = "DMTestProject"
         entity_key = "PROJET"
@@ -481,13 +498,16 @@ permissions:
         }
         self.mock_mattermost_client.send_dm.return_value = True
 
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         results = sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -520,10 +540,15 @@ permissions:
             expected_collection_id, "outline_user_id_dm", permission="read"
         )
 
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_outline_dm_fails(self, mock_config_module_in_service):
+    def test_sync_single_group_outline_dm_fails(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = set()
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_config_module_in_outline_service.EXCLUDED_USERS = set()
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
         base_name = "DMFailProject"
         entity_key = "PROJET"
         mock_entity_config = {
@@ -571,13 +596,16 @@ permissions:
             "urlId": mock_url_id_fail,  # Add urlId to mock
         }
         self.mock_mattermost_client.send_dm.return_value = False
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         results = sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -638,13 +666,16 @@ permissions:
         self.mock_outline_client.get_user_by_email.return_value = outline_user_data
         self.mock_outline_client.get_collection_members.return_value = [outline_user_data["id"]]
         self.mock_outline_client.add_user_to_collection.return_value = True
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         results = sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -662,10 +693,15 @@ permissions:
         self.mock_mattermost_client.send_dm.assert_not_called()
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_outline_dm_skipped_no_outline_url(self, mock_config_module_in_service):
+    def test_sync_outline_dm_skipped_no_outline_url(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = set()
-        mock_config_module_in_service.OUTLINE_URL = None  # Simulate OUTLINE_URL not set
+        mock_config_module_in_service.OUTLINE_URL = None
+        mock_config_module_in_outline_service.EXCLUDED_USERS = set()
+        mock_config_module_in_outline_service.OUTLINE_URL = None
         base_name = "DMNoUrlProject"
         entity_key = "PROJET"
         mock_entity_config = {
@@ -704,13 +740,16 @@ permissions:
             "urlId": "some-url-id",
         }
 
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         results = sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -725,10 +764,15 @@ permissions:
         )
         self.mock_mattermost_client.send_dm.assert_not_called()
 
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_outline_dm_skipped_incomplete_details(self, mock_config_module_in_service):
+    def test_sync_outline_dm_skipped_incomplete_details(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = set()
         mock_config_module_in_service.OUTLINE_URL = "http://test-outline.com"  # URL is set
+        mock_config_module_in_outline_service.EXCLUDED_USERS = set()
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://test-outline.com"
         base_name = "DMIncompleteProject"
         entity_key = "PROJET"
         mock_entity_config = {
@@ -770,13 +814,16 @@ permissions:
             "urlId": None,
         }
 
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         results = sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
@@ -828,13 +875,16 @@ permissions:
         }
         all_auth_groups_fixture = {current_auth_group_name: authentik_group_with_users}
 
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": None,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         results = sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=None,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key="PROJET",
             base_name="",
@@ -864,10 +914,12 @@ permissions:
         )
         self.assertTrue(kept_action_found, "USER_ALREADY_IN_AUTHENTIK_GROUP action not found for 'keepme_user'")
 
+    @patch("libraries.services.authentik.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_authentik_excluded_user_not_removed_if_not_in_mm(self, mock_config_module_in_service):
+    def test_sync_single_group_authentik_excluded_user_not_removed_if_not_in_mm(self, mock_config_module_in_service, mock_service_config_authentik):
         excluded_auth_username = "excluded_from_removal"
         mock_config_module_in_service.EXCLUDED_USERS = {excluded_auth_username}
+        mock_service_config_authentik.EXCLUDED_USERS = {excluded_auth_username}
         auth_user_pk_excluded = "auth_pk_excluded_removal"
         auth_user_obj_excluded = {
             "pk": auth_user_pk_excluded,
@@ -896,13 +948,16 @@ permissions:
         }
         all_auth_groups_fixture = {current_auth_group_name: authentik_group_with_excluded_user}
 
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": None,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         results = sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=None,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key="PROJET",
             base_name="",
@@ -978,13 +1033,16 @@ permissions:
                 "admin_access": "read_write",
             },
         }
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         results = sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key_for_test,
             base_name=base_name_for_test,
@@ -1015,11 +1073,16 @@ permissions:
             self.assertEqual(kept_action["mm_username"], "keepme_outline")
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_outline_excluded_user_not_removed(self, mock_config_module_in_service):
+    def test_sync_single_group_outline_excluded_user_not_removed(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         excluded_mm_username = "excluded_outline_user"
         mock_config_module_in_service.EXCLUDED_USERS = {excluded_mm_username}
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_config_module_in_outline_service.EXCLUDED_USERS = {excluded_mm_username}
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
         outline_id_excluded = "outline_id_excl"
 
         base_name_for_test = "OutlineExcludedTest"
@@ -1058,13 +1121,16 @@ permissions:
             },
         }
 
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         results = sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key_for_test,
             base_name=base_name_for_test,
@@ -1084,10 +1150,15 @@ permissions:
         )
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
+    @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_outline_permissions(self, mock_config_module_in_service):
+    def test_sync_single_group_outline_permissions(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = set()
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_config_module_in_outline_service.EXCLUDED_USERS = set()
+        mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
 
         test_cases = [
             ("projet_test", "O", "read"),
@@ -1209,13 +1280,16 @@ permissions:
                 }
                 self.mock_mattermost_client.send_dm.return_value = True
 
+                clients = {
+                    "authentik": self.mock_authentik_client,
+                    "mattermost": self.mock_mattermost_client,
+                    "outline": self.mock_outline_client,
+                    "brevo": self.mock_brevo_client,
+                    "nocodb": self.mock_nocodb_client,
+                    "vaultwarden": self.mock_vaultwarden_client,
+                }
                 results = sync_entity_permissions(
-                    authentik_client=self.mock_authentik_client,
-                    mattermost_client=self.mock_mattermost_client,
-                    outline_client=self.mock_outline_client,
-                    brevo_client=self.mock_brevo_client,
-                    nocodb_client=self.mock_nocodb_client,
-                    vaultwarden_client=self.mock_vaultwarden_client,
+                    clients=clients,
                     mm_team_id=self.mm_team_id,
                     entity_key=entity_key_for_test,
                     base_name=base_name_from_case,
@@ -1298,13 +1372,16 @@ permissions:
         )
         # mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_UPSERT"}] # Not called if no channels
 
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         success, detailed_results = await orchestrate_group_synchronization(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=mock_team_id,
             sync_mode="MM_TO_TOOLS",
         )
@@ -1367,13 +1444,16 @@ permissions:
         }
         mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_FULL_SYNC"}]
 
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         success, detailed_results = await orchestrate_group_synchronization(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=mock_team_id,
             sync_mode="FULL_SYNC",
         )
@@ -1385,13 +1465,16 @@ permissions:
         self.mock_mattermost_client.get_channels_for_team.assert_not_called()
 
         expected_all_auth_groups_by_name = {g["name"]: g for g in mock_all_auth_groups_list}
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         mock_sync_entity_permissions_call.assert_any_call(
-            self.mock_authentik_client,
-            self.mock_mattermost_client,
-            self.mock_outline_client,
-            self.mock_brevo_client,
-            self.mock_nocodb_client,
-            self.mock_vaultwarden_client,  # Added vaultwarden_client
+            clients,
             mock_team_id,
             "Gamma",
             "PROJET",
@@ -1399,15 +1482,10 @@ permissions:
             expected_all_auth_groups_by_name,
             mock_email_pk_map,
             True,
-            skip_services=[],  # Added expected default
+            skip_services=[],
         )
         mock_sync_entity_permissions_call.assert_any_call(
-            self.mock_authentik_client,
-            self.mock_mattermost_client,
-            self.mock_outline_client,
-            self.mock_brevo_client,
-            self.mock_nocodb_client,
-            self.mock_vaultwarden_client,  # Added vaultwarden_client
+            clients,
             mock_team_id,
             "Delta",
             "ANTENNE",
@@ -1415,7 +1493,7 @@ permissions:
             expected_all_auth_groups_by_name,
             mock_email_pk_map,
             True,
-            skip_services=[],  # Added expected default
+            skip_services=[],
         )
 
     # --- Tests for Brevo list synchronization ---
@@ -1496,10 +1574,12 @@ permissions:
         self.assertEqual(removed_action["mm_user_email"], "remove@example.com")
         self.assertEqual(ensured_action["mm_user_email"], "stay@example.com")
 
+    @patch("libraries.services.brevo.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_brevo_list_excluded_user_not_added_or_removed(self, mock_lib_config_brevo):
+    def test_sync_brevo_list_excluded_user_not_added_or_removed(self, mock_lib_config_brevo, mock_service_config_brevo):
         excluded_username = "excluded_brevo_user"
         mock_lib_config_brevo.EXCLUDED_USERS = {excluded_username}
+        mock_service_config_brevo.EXCLUDED_USERS = {excluded_username}
         brevo_list_name = "TestBrevoListExcluded"
         existing_list_obj = {"id": "brevo_list_id_789", "name": brevo_list_name}
         self.mock_brevo_client.get_lists.return_value = [existing_list_obj]
@@ -1558,11 +1638,14 @@ permissions:
         )
 
     # --- Tests for NocoDB base synchronization ---
+    @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")  # To mock EXCLUDED_USERS and NOCODB_URL
-    def test_sync_nocodb_base_creation_and_user_invite_with_dm(self, mock_lib_config_nocodb):
+    def test_sync_nocodb_base_creation_and_user_invite_with_dm(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
         mock_lib_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"  # Mock NOCODB_URL for DM link
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        mock_service_config_nocodb.EXCLUDED_USERS = set()
+        mock_service_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         base_title_pattern = "test_nocodb_{base_name}"
         entity_base_name = "MyNocoAntenne"
@@ -1656,11 +1739,14 @@ permissions:
             elif res["mm_user_email"] == "admin@nocodb.com":
                 self.assertEqual(res["action"], f"NOCODB_USER_INVITED_AS_{admin_perm.upper()}_AND_DM_SENT")
 
+    @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_nocodb_base_invite_dm_fails(self, mock_lib_config_nocodb):
+    def test_sync_nocodb_base_invite_dm_fails(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
         mock_lib_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        mock_service_config_nocodb.EXCLUDED_USERS = set()
+        mock_service_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         base_title_pattern = "dm_fail_nocodb_{base_name}"
         entity_base_name = "NocoDMFail"
@@ -1690,11 +1776,14 @@ permissions:
         self.assertEqual(results[0]["action"], "NOCODB_USER_INVITED_AS_VIEWER_DM_FAILED")
         self.mock_mattermost_client.send_dm.assert_called_once()
 
+    @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_nocodb_base_invite_dm_skipped_no_url(self, mock_lib_config_nocodb):
+    def test_sync_nocodb_base_invite_dm_skipped_no_url(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
         mock_lib_config_nocodb.NOCODB_URL = None  # Simulate NOCODB_URL not being set
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        mock_service_config_nocodb.EXCLUDED_USERS = set()
+        mock_service_config_nocodb.NOCODB_URL = None
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         base_title_pattern = "dm_skip_nocodb_{base_name}"
         entity_base_name = "NocoDMSkip"
@@ -1723,13 +1812,16 @@ permissions:
         self.assertEqual(results[0]["action"], "NOCODB_USER_INVITED_AS_VIEWER_DM_SKIPPED_NO_URL")
         self.mock_mattermost_client.send_dm.assert_not_called()
 
+    @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_nocodb_base_user_update_and_removal(self, mock_lib_config_nocodb):
+    def test_sync_nocodb_base_user_update_and_removal(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
         mock_lib_config_nocodb.NOCODB_URL = (
             "https://test-nocodb.example.com"  # For consistency, though not strictly needed for removal/update tests
         )
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        mock_service_config_nocodb.EXCLUDED_USERS = set()
+        mock_service_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         base_title_pattern = "upd_rem_nocodb_{base_name}"
         entity_base_name = "NocoAntenneTwo"
@@ -1793,11 +1885,13 @@ permissions:
         self.assertIn("NOCODB_USER_INVITED_AS_OWNER_AND_DM_SENT", actions)
         self.assertIn("NOCODB_USER_REMOVED_FROM_BASE", actions)
 
+    @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_nocodb_base_excluded_user_handling(self, mock_lib_config_nocodb):
+    def test_sync_nocodb_base_excluded_user_handling(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         excluded_username = "excluded_nc_user"
         mock_lib_config_nocodb.EXCLUDED_USERS = {excluded_username}
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        mock_service_config_nocodb.EXCLUDED_USERS = {excluded_username}
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         base_title_pattern = "excl_nocodb_{base_name}"
         entity_base_name = "NocoAntenneExcl"
@@ -1914,21 +2008,24 @@ permissions:
         }
         self.mock_brevo_client.get_lists.return_value = [{"id": "brevo_list_skip_id", "name": "brevo_list_skip"}]
 
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
         sync_entity_permissions(
-            authentik_client=self.mock_authentik_client,
-            mattermost_client=self.mock_mattermost_client,
-            outline_client=self.mock_outline_client,
-            brevo_client=self.mock_brevo_client,
-            nocodb_client=self.mock_nocodb_client,
-            vaultwarden_client=self.mock_vaultwarden_client,
+            clients=clients,
             mm_team_id=self.mm_team_id,
             entity_key=entity_key,
             base_name=base_name,
             entity_config=mock_entity_config,
-            all_authentik_groups_by_name={},  # Minimal
-            email_to_authentik_user_pk_map={},  # Minimal
+            all_authentik_groups_by_name={},
+            email_to_authentik_user_pk_map={},
             perform_deletions=True,
-            skip_services=["nocodb"],  # Crucial part of this test
+            skip_services=["nocodb"],
         )
         # Assert that NoCoDB client methods were NOT called
         self.mock_nocodb_client.get_base_by_title.assert_not_called()
@@ -1938,11 +2035,14 @@ permissions:
         # For this test, focus is on NoCoDB not being called.
 
     # --- Tests for Vaultwarden collection member synchronization ---
+    @patch("libraries.services.vaultwarden.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_vaultwarden_collection_invite_with_dm(self, mock_lib_config_vw):
+    def test_sync_vaultwarden_collection_invite_with_dm(self, mock_lib_config_vw, mock_service_config_vw):
         mock_lib_config_vw.EXCLUDED_USERS = set()
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+        mock_service_config_vw.EXCLUDED_USERS = set()
+        mock_service_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
+        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
 
         collection_name = "TestVWCollection"
         mm_user_data = {"username": "vw_user1", "mm_user_id": "mm_vw_u1", "is_admin_channel_member": False}
@@ -1981,11 +2081,14 @@ permissions:
         self.assertEqual(results[0]["status"], "SUCCESS")
         self.assertEqual(results[0]["action"], "USER_INVITED_TO_VW_COLLECTION_AND_DM_SENT")
 
+    @patch("libraries.services.vaultwarden.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_vaultwarden_invite_dm_fails(self, mock_lib_config_vw):
+    def test_sync_vaultwarden_invite_dm_fails(self, mock_lib_config_vw, mock_service_config_vw):
         mock_lib_config_vw.EXCLUDED_USERS = set()
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+        mock_service_config_vw.EXCLUDED_USERS = set()
+        mock_service_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
+        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
 
         collection_name = "VWCollectionDMFail"
         mm_users_for_services = {"vw.dm.fail@example.com": {"username": "vw_dm_fail", "mm_user_id": "mm_vw_dm_fail"}}
@@ -2006,11 +2109,14 @@ permissions:
         self.assertEqual(results[0]["status"], "SUCCESS")
         self.assertEqual(results[0]["action"], "USER_INVITED_TO_VW_COLLECTION_DM_FAILED")
 
+    @patch("libraries.services.vaultwarden.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_vaultwarden_invite_dm_skipped_no_url(self, mock_lib_config_vw):
+    def test_sync_vaultwarden_invite_dm_skipped_no_url(self, mock_lib_config_vw, mock_service_config_vw):
         mock_lib_config_vw.EXCLUDED_USERS = set()
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = None  # Simulate URL not set
-        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+        mock_service_config_vw.EXCLUDED_USERS = set()
+        mock_service_config_vw.VAULTWARDEN_SERVER_URL = None
+        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
 
         collection_name = "VWCollectionDMSkip"
         mm_users_for_services = {"vw.dm.skip@example.com": {"username": "vw_dm_skip", "mm_user_id": "mm_vw_dm_skip"}}

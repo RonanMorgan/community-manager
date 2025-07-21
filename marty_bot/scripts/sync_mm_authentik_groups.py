@@ -125,17 +125,20 @@ async def main_sync_logic():  # Changed to async
         "Clients initialized by script. Calling group synchronization function from library (FULL_SYNC mode)..."
     )
 
-    success, detailed_results = await orchestrate_group_synchronization(  # Changed to await
-        authentik_client=authentik_client,
-        mattermost_client=mattermost_client,
-        outline_client=outline_client,
-        brevo_client=brevo_client,
-        nocodb_client=nocodb_client,
-        vaultwarden_client=vaultwarden_client,
+    clients = {
+        "authentik": authentik_client,
+        "mattermost": mattermost_client,
+        "outline": outline_client,
+        "brevo": brevo_client,
+        "nocodb": nocodb_client,
+        "vaultwarden": vaultwarden_client,
+    }
+    success, detailed_results = await orchestrate_group_synchronization(
+        clients=clients,
         mm_team_id=config.MATTERMOST_TEAM_ID,
-        perform_deletions=True,  # FULL_SYNC typically implies deletions
-        sync_mode="FULL_SYNC",  # Explicitly set sync_mode
-        skip_services=None,  # Can be configured via script arguments in future if needed
+        perform_deletions=True,
+        sync_mode="FULL_SYNC",
+        skip_services=None,
     )
 
     if success:

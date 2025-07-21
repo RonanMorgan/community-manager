@@ -1,7 +1,6 @@
-# marty_bot/libraries/outline.py
-# This module will contain core business logic for Outline services.
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+from .mattermost import _extract_base_name
 
 from app import config
 from app.enums import SyncStatus
@@ -47,11 +46,7 @@ def _ensure_users_in_outline_collection(
             "target_resource_name": collection_name,
             "service": "OUTLINE",
         }
-        outline_result = {
-            **base_user_info,
-            "status": "FAILURE",
-            "action": "OUTLINE_COLLECTION_UNCHANGED",
-        }
+        outline_result = {**base_user_info, "status": "FAILURE", "action": "OUTLINE_COLLECTION_UNCHANGED"}
 
         if mm_username in config.EXCLUDED_USERS:
             logging.debug(
@@ -77,11 +72,7 @@ def _ensure_users_in_outline_collection(
         outline_user_id = outline_user_api.get("id")
         targeted_outline_user_ids.add(outline_user_id)
 
-        permission_to_set = (
-            admin_permission
-            if mm_user_data["is_admin_channel_member"]
-            else default_permission
-        )
+        permission_to_set = admin_permission if mm_user_data["is_admin_channel_member"] else default_permission
         is_already_member = outline_user_id in current_outline_member_ids
 
         action_verb_prefix = (
@@ -90,9 +81,7 @@ def _ensure_users_in_outline_collection(
             else f"USER_ADDED_TO_OUTLINE_COLLECTION_WITH_{permission_to_set.upper()}_ACCESS"
         )
 
-        if outline_client.add_user_to_collection(
-            collection_id, outline_user_id, permission=permission_to_set
-        ):
+        if outline_client.add_user_to_collection(collection_id, outline_user_id, permission=permission_to_set):
             current_action = action_verb_prefix
             outline_result.update({"status": SyncStatus.SUCCESS.value})
 
@@ -114,9 +103,7 @@ def _ensure_users_in_outline_collection(
                             f"Bonjour @{mm_username}, vous avez été ajouté(e) à la collection Outline "
                             f"**{coll_name_for_dm}**.\nVous pouvez y accéder ici : {coll_url}"
                         )
-                        if mattermost_client.send_dm(
-                            mm_user_data["mm_user_id"], dm_text
-                        ):
+                        if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
                             current_action = f"{action_verb_prefix}_AND_DM_SENT"
                         else:
                             current_action = f"{action_verb_prefix}_DM_FAILED"
@@ -129,33 +116,25 @@ def _ensure_users_in_outline_collection(
                     logging.warning(
                         f"Could not send DM for Outline collection (ID: {collection_id}) to user '{mm_username}' due to missing details."
                     )
-                    if not coll_details or not coll_details.get("name") or not coll_details.get("urlId"):
-                        current_action = (
-                            f"{action_verb_prefix}_DM_SKIPPED_INCOMPLETE_COLL_DETAILS"
-                        )
-                    elif not config.OUTLINE_URL:
+                    if not config.OUTLINE_URL:
                         current_action = f"{action_verb_prefix}_DM_SKIPPED_NO_URL"
+                    elif not (coll_details and coll_details.get("name") and coll_details.get("urlId")):
+                        current_action = f"{action_verb_prefix}_DM_SKIPPED_INCOMPLETE_COLL_DETAILS"
                     else:
-                        current_action = (
-                            f"{action_verb_prefix}_DM_SKIPPED_UNKNOWN_REASON"
-                        )
+                        current_action = f"{action_verb_prefix}_DM_SKIPPED_UNKNOWN_REASON"
             outline_result["action"] = current_action
         else:
             verb_failed = (
-                "FAILED_TO_UPDATE_OUTLINE_PERMISSION"
-                if is_already_member
-                else "FAILED_TO_ADD_TO_OUTLINE_COLLECTION"
+                "FAILED_TO_UPDATE_OUTLINE_PERMISSION" if is_already_member else "FAILED_TO_ADD_TO_OUTLINE_COLLECTION"
             )
-            outline_result.update(
-                {"action": verb_failed, "error_message": "API call to Outline failed."}
-            )
+            outline_result.update({"action": verb_failed, "error_message": "API call to Outline failed."})
 
         results.append(outline_result)
 
     return results, targeted_outline_user_ids
 
 
-def sync_single_outline_collection(
+def _sync_single_outline_collection(
     outline_client: "OutlineClient",
     mattermost_client: "MattermostClient",
     collection_name: str,
@@ -170,14 +149,10 @@ def sync_single_outline_collection(
     # Assuming outline_client.create_group ensures the collection exists and returns its object, or None on failure.
     # The name `create_group` is a bit generic if it's also used for getting; `ensure_collection_exists` might be clearer.
     # For now, using `create_group` as per existing code in `_create_resources_for_entity`.
-    outline_collection_obj = outline_client.create_group(
-        collection_name
-    )  # Renamed from get_collection_by_name
+    outline_collection_obj = outline_client.create_group(collection_name)  # Renamed from get_collection_by_name
 
     if not outline_collection_obj or not outline_collection_obj.get("id"):
-        logging.error(
-            f"Failed to get or create Outline collection '{collection_name}'. Cannot sync this collection."
-        )
+        logging.error(f"Failed to get or create Outline collection '{collection_name}'. Cannot sync this collection.")
         return [
             {
                 "service": "OUTLINE",
@@ -190,9 +165,7 @@ def sync_single_outline_collection(
 
     outline_collection_id = outline_collection_obj.get("id")
     # get_collection_members should be called after we know the collection exists.
-    current_outline_member_ids = set(
-        outline_client.get_collection_members(outline_collection_id) or []
-    )
+    current_outline_member_ids = set(outline_client.get_collection_members(outline_collection_id) or [])
     target_outline_ids_for_collection = set()
     # Map Outline user ID to their MM details (username, mm_user_id, email) for logging during removal
     outline_id_to_mm_user_map = (
@@ -215,10 +188,7 @@ def sync_single_outline_collection(
     for email_l, mm_user_d in mm_users_for_permission.items():
         if mm_user_d.get("username") in config.EXCLUDED_USERS:
             excluded_outline_user = outline_client.get_user_by_email(email_l)
-            if (
-                excluded_outline_user
-                and excluded_outline_user.get("id") in current_outline_member_ids
-            ):
+            if excluded_outline_user and excluded_outline_user.get("id") in current_outline_member_ids:
                 target_outline_ids_for_collection.add(excluded_outline_user.get("id"))
                 logging.info(
                     f"User '{mm_user_d.get('username')}' is excluded and already in Outline collection '{collection_name}'. Will be preserved."
@@ -241,18 +211,13 @@ def sync_single_outline_collection(
 
     # Removal logic: Only if perform_deletions is True
     if perform_deletions:
-        for outline_member_id in list(
-            current_outline_member_ids
-        ):  # Iterate over a copy
-            mm_user_details_for_this_outline_member = outline_id_to_mm_user_map.get(
-                outline_member_id
-            )
+        for outline_member_id in list(current_outline_member_ids):  # Iterate over a copy
+            mm_user_details_for_this_outline_member = outline_id_to_mm_user_map.get(outline_member_id)
 
             is_excluded_member = False
             if (
                 mm_user_details_for_this_outline_member  # Check if we have MM details for this Outline ID
-                and mm_user_details_for_this_outline_member.get("username")
-                in config.EXCLUDED_USERS
+                and mm_user_details_for_this_outline_member.get("username") in config.EXCLUDED_USERS
             ):
                 is_excluded_member = True
             # If mm_user_details_for_this_outline_member is None, it means this Outline user
@@ -272,19 +237,11 @@ def sync_single_outline_collection(
             if outline_member_id not in target_outline_ids_for_collection:
                 # This Outline user was a member but is no longer in the target set from Mattermost users
                 # AND is not an excluded user who should remain.
-                username_for_log = (
-                    f"OutlineUser_{outline_member_id}"  # Default if no MM mapping
-                )
+                username_for_log = f"OutlineUser_{outline_member_id}"  # Default if no MM mapping
                 user_email_for_log = "N/A"  # Default
-                if (
-                    mm_user_details_for_this_outline_member
-                ):  # We have MM details for this user
-                    username_for_log = mm_user_details_for_this_outline_member.get(
-                        "username", username_for_log
-                    )
-                    user_email_for_log = mm_user_details_for_this_outline_member.get(
-                        "email", "N/A"
-                    )
+                if mm_user_details_for_this_outline_member:  # We have MM details for this user
+                    username_for_log = mm_user_details_for_this_outline_member.get("username", username_for_log)
+                    user_email_for_log = mm_user_details_for_this_outline_member.get("email", "N/A")
                 else:  # No MM details, try to get email from Outline directly for logging
                     outline_user_obj = outline_client.get_user_by_id(
                         outline_member_id
@@ -307,18 +264,51 @@ def sync_single_outline_collection(
                     "status": SyncStatus.FAILURE.value,
                     "action": "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION",
                 }
-                if outline_client.remove_user_from_collection(
-                    outline_collection_id, outline_member_id
-                ):
-                    removal_result.update(
-                        {
-                            "status": SyncStatus.SUCCESS.value,
-                            "action": OutlineAction.USER_REMOVED_FROM_COLLECTION.value,
-                        }
-                    )
+                if outline_client.remove_user_from_collection(outline_collection_id, outline_member_id):
+                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": OutlineAction.USER_REMOVED_FROM_COLLECTION.value})
                 else:
-                    removal_result["error_message"] = (
-                        "API call to remove user from Outline collection failed."
-                    )
+                    removal_result["error_message"] = "API call to remove user from Outline collection failed."
                 results.append(removal_result)
     return results
+
+
+def _remove_user_from_outline_collection(
+    outline_client: "OutlineClient",
+    collection_id: str,
+    collection_name: str,
+    user_id: str,
+    user_email: str,
+    mm_channel_context_name: str,
+) -> dict:
+    """Removes a user from an Outline collection and returns a result dictionary."""
+    result = {
+        "service": "OUTLINE",
+        "target_resource_name": collection_name,
+        "mm_user_email": user_email,
+        "mm_channel_display_name": mm_channel_context_name,
+        "status": SyncStatus.FAILURE.value,
+        "action": "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION",
+    }
+    if outline_client.remove_user_from_collection(collection_id, user_id):
+        result["status"] = SyncStatus.SUCCESS.value
+        result["action"] = OutlineAction.USER_REMOVED_FROM_COLLECTION.value
+    else:
+        result["error_message"] = "API call to remove user from Outline collection failed."
+    return result
+
+
+def _map_outline_collection_to_entity_and_base_name(
+    collection_name: str, permissions_matrix: dict
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Attempts to map an Outline collection name to an entity key and base_name from the PERMISSIONS_MATRIX.
+    """
+    for entity_key, entity_cfg in permissions_matrix.items():
+        outline_cfg = entity_cfg.get("outline")
+        if outline_cfg:
+            pattern = outline_cfg.get("collection_name_pattern")
+            if pattern:
+                base_name = _extract_base_name(collection_name, pattern)
+                if base_name is not None:
+                    return entity_key, base_name
+    return None, None

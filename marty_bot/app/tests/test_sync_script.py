@@ -187,28 +187,34 @@ class TestSyncLogic(unittest.TestCase):
             {"service": "PROJET_ALPHA_SYNC", "status": "SUCCESS"},
             {"service": "ANTENNE_BETA_SYNC", "status": "SUCCESS"},
         ]
-        success, detailed_results = await orchestrate_group_synchronization(  # Added await
-            authentik_client=mock_auth_client,
-            mattermost_client=mock_mm_client,
-            outline_client=mock_outline_client,
-            brevo_client=self.mock_brevo_client_instance,
-            nocodb_client=MagicMock(spec=NocoDBClient),
-            vaultwarden_client=MagicMock(spec=VaultwardenClient),
+        clients = {
+            "authentik": mock_auth_client,
+            "mattermost": mock_mm_client,
+            "outline": mock_outline_client,
+            "brevo": self.mock_brevo_client_instance,
+            "nocodb": MagicMock(spec=NocoDBClient),
+            "vaultwarden": MagicMock(spec=VaultwardenClient),
+        }
+        success, detailed_results = await orchestrate_group_synchronization(
+            clients=clients,
             mm_team_id=mock_team_id,
             perform_deletions=True,
-            sync_mode="FULL_SYNC",  # Assuming default test was for full sync (fetch_remote_members=True)
+            sync_mode="FULL_SYNC",
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, expected_detailed_results)
         mock_get_groups_map.assert_called_once_with(mock_auth_client)
         self.assertEqual(mock_sync_entity_permissions.call_count, 2)
+        clients = {
+            "authentik": mock_auth_client,
+            "mattermost": mock_mm_client,
+            "outline": mock_outline_client,
+            "brevo": self.mock_brevo_client_instance,
+            "nocodb": unittest.mock.ANY,
+            "vaultwarden": unittest.mock.ANY,
+        }
         mock_sync_entity_permissions.assert_any_call(
-            mock_auth_client,
-            mock_mm_client,
-            mock_outline_client,
-            self.mock_brevo_client_instance,
-            unittest.mock.ANY,  # nocodb_client
-            unittest.mock.ANY,  # vaultwarden_client
+            clients,
             mock_team_id,
             "alpha",
             "PROJET",
@@ -216,15 +222,10 @@ class TestSyncLogic(unittest.TestCase):
             unittest.mock.ANY,
             mock_email_pk_map,
             True,
-            skip_services=[],  # Added expected default
+            skip_services=[],
         )
         mock_sync_entity_permissions.assert_any_call(
-            mock_auth_client,
-            mock_mm_client,
-            mock_outline_client,
-            self.mock_brevo_client_instance,
-            unittest.mock.ANY,  # nocodb_client
-            unittest.mock.ANY,  # vaultwarden_client
+            clients,
             mock_team_id,
             "beta",
             "ANTENNE",
@@ -232,7 +233,7 @@ class TestSyncLogic(unittest.TestCase):
             unittest.mock.ANY,
             mock_email_pk_map,
             True,
-            skip_services=[],  # Corrected: ensure only one skip_services
+            skip_services=[],
         )
 
     @patch("libraries.group_sync_services.sync_entity_permissions")
@@ -259,26 +260,32 @@ class TestSyncLogic(unittest.TestCase):
         }
         mock_sync_entity_permissions.return_value = [{"service": "AUTHENTIK_ONLY", "status": "SUCCESS"}]
         expected_detailed_results = [{"service": "AUTHENTIK_ONLY", "status": "SUCCESS"}]
-        success, detailed_results = await orchestrate_group_synchronization(  # Added await
-            authentik_client=mock_auth_client,
-            mattermost_client=mock_mm_client,
-            outline_client=mock_outline_client_none,
-            brevo_client=self.mock_brevo_client_instance,
-            nocodb_client=MagicMock(spec=NocoDBClient),
-            vaultwarden_client=MagicMock(spec=VaultwardenClient),
+        clients = {
+            "authentik": mock_auth_client,
+            "mattermost": mock_mm_client,
+            "outline": mock_outline_client_none,
+            "brevo": self.mock_brevo_client_instance,
+            "nocodb": MagicMock(spec=NocoDBClient),
+            "vaultwarden": MagicMock(spec=VaultwardenClient),
+        }
+        success, detailed_results = await orchestrate_group_synchronization(
+            clients=clients,
             mm_team_id=mock_team_id,
             perform_deletions=True,
-            sync_mode="FULL_SYNC",  # Assuming default test was for full sync
+            sync_mode="FULL_SYNC",
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, expected_detailed_results)
+        clients = {
+            "authentik": mock_auth_client,
+            "mattermost": mock_mm_client,
+            "outline": mock_outline_client_none,
+            "brevo": self.mock_brevo_client_instance,
+            "nocodb": unittest.mock.ANY,
+            "vaultwarden": unittest.mock.ANY,
+        }
         mock_sync_entity_permissions.assert_called_once_with(
-            mock_auth_client,
-            mock_mm_client,
-            mock_outline_client_none,
-            self.mock_brevo_client_instance,
-            unittest.mock.ANY,  # nocodb_client
-            unittest.mock.ANY,  # vaultwarden_client
+            clients,
             mock_team_id,
             "gamma",
             "PROJET",
@@ -286,7 +293,7 @@ class TestSyncLogic(unittest.TestCase):
             unittest.mock.ANY,
             mock_email_pk_map,
             True,
-            skip_services=[],  # Added expected default
+            skip_services=[],
         )
 
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
@@ -300,16 +307,19 @@ class TestSyncLogic(unittest.TestCase):
         mock_get_groups_map.return_value = ([], {})  # For email map part
         mock_auth_client.get_groups_with_users.return_value = ([], {})  # For group discovery part
 
-        success, detailed_results = await orchestrate_group_synchronization(  # Added await
-            authentik_client=mock_auth_client,
-            mattermost_client=mock_mm_client,
-            outline_client=mock_outline_client,
-            brevo_client=self.mock_brevo_client_instance,
-            nocodb_client=MagicMock(spec=NocoDBClient),
-            vaultwarden_client=MagicMock(spec=VaultwardenClient),
+        clients = {
+            "authentik": mock_auth_client,
+            "mattermost": mock_mm_client,
+            "outline": mock_outline_client,
+            "brevo": self.mock_brevo_client_instance,
+            "nocodb": MagicMock(spec=NocoDBClient),
+            "vaultwarden": MagicMock(spec=VaultwardenClient),
+        }
+        success, detailed_results = await orchestrate_group_synchronization(
+            clients=clients,
             mm_team_id=mock_team_id,
             perform_deletions=True,
-            sync_mode="FULL_SYNC",  # Assuming default test was for full sync
+            sync_mode="FULL_SYNC",
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, [])
@@ -323,13 +333,16 @@ class TestSyncLogic(unittest.TestCase):
         mock_outline_client = MagicMock(spec=OutlineClient)
 
         # Test with Authentik client missing
+        clients = {
+            "authentik": None,
+            "mattermost": MagicMock(spec=MattermostClient),
+            "outline": mock_outline_client,
+            "brevo": self.mock_brevo_client_instance,
+            "nocodb": MagicMock(spec=NocoDBClient),
+            "vaultwarden": MagicMock(spec=VaultwardenClient),
+        }
         success_auth, results_auth = await orchestrate_group_synchronization(
-            authentik_client=None,
-            mattermost_client=MagicMock(spec=MattermostClient),
-            outline_client=mock_outline_client,
-            brevo_client=self.mock_brevo_client_instance,
-            nocodb_client=MagicMock(spec=NocoDBClient),
-            vaultwarden_client=MagicMock(spec=VaultwardenClient),
+            clients=clients,
             mm_team_id="team_id",
             perform_deletions=True,
             sync_mode="FULL_SYNC",
@@ -338,13 +351,16 @@ class TestSyncLogic(unittest.TestCase):
         self.assertEqual(results_auth, [])
 
         # Test with Mattermost client missing (critical)
+        clients_mm = {
+            "authentik": MagicMock(spec=AuthentikClient),
+            "mattermost": None,
+            "outline": mock_outline_client,
+            "brevo": self.mock_brevo_client_instance,
+            "nocodb": MagicMock(spec=NocoDBClient),
+            "vaultwarden": MagicMock(spec=VaultwardenClient),
+        }
         success_mm, results_mm = await orchestrate_group_synchronization(
-            authentik_client=MagicMock(spec=AuthentikClient),
-            mattermost_client=None,
-            outline_client=mock_outline_client,
-            brevo_client=self.mock_brevo_client_instance,
-            nocodb_client=MagicMock(spec=NocoDBClient),
-            vaultwarden_client=MagicMock(spec=VaultwardenClient),
+            clients=clients_mm,
             mm_team_id="team_id",
             perform_deletions=True,
             sync_mode="FULL_SYNC",
@@ -353,13 +369,16 @@ class TestSyncLogic(unittest.TestCase):
         self.assertEqual(results_mm, [])
 
         # Test with Mattermost team_id missing (critical)
+        clients_team = {
+            "authentik": MagicMock(spec=AuthentikClient),
+            "mattermost": MagicMock(spec=MattermostClient),
+            "outline": mock_outline_client,
+            "brevo": self.mock_brevo_client_instance,
+            "nocodb": MagicMock(spec=NocoDBClient),
+            "vaultwarden": MagicMock(spec=VaultwardenClient),
+        }
         success_team, results_team = await orchestrate_group_synchronization(
-            authentik_client=MagicMock(spec=AuthentikClient),
-            mattermost_client=MagicMock(spec=MattermostClient),
-            outline_client=mock_outline_client,
-            brevo_client=self.mock_brevo_client_instance,
-            nocodb_client=MagicMock(spec=NocoDBClient),
-            vaultwarden_client=MagicMock(spec=VaultwardenClient),
+            clients=clients_team,
             mm_team_id=None,
             perform_deletions=True,
             sync_mode="FULL_SYNC",
@@ -396,17 +415,28 @@ class TestSyncLogic(unittest.TestCase):
         await script_module.main_sync_logic()  # Added await
 
         mock_script_init_clients.assert_called_once()
+        clients = {
+            "authentik": mock_auth_instance,
+            "mattermost": mock_mm_instance,
+            "outline": None,
+            "brevo": None,
+            "nocodb": None,
+            "vaultwarden": None,
+        }
+        clients = {
+            "authentik": mock_auth_instance,
+            "mattermost": mock_mm_instance,
+            "outline": None,
+            "brevo": None,
+            "nocodb": None,
+            "vaultwarden": None,
+        }
         mock_orchestrate_lib.assert_called_once_with(
-            authentik_client=mock_auth_instance,
-            mattermost_client=mock_mm_instance,
-            outline_client=None,
-            brevo_client=None,
-            nocodb_client=None,
-            vaultwarden_client=None,
+            clients=clients,
             mm_team_id="script_team_id",
-            perform_deletions=True,  # Default from script
-            sync_mode="FULL_SYNC",  # Default from script
-            skip_services=None,  # Default from script
+            perform_deletions=True,
+            sync_mode="FULL_SYNC",
+            skip_services=None,
         )
 
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
@@ -487,14 +517,17 @@ class TestVaultwardenSync(unittest.TestCase):
         mock_vw_client.update_collection.return_value = True
 
         # Act
+        clients = {
+            "authentik": mock_auth_instance,
+            "mattermost": mock_mm_client,
+            "outline": None,
+            "brevo": None,
+            "nocodb": None,
+            "vaultwarden": mock_vw_client,
+        }
         success, results = asyncio.run(
             orchestrate_group_synchronization(
-                authentik_client=mock_auth_instance,
-                mattermost_client=mock_mm_client,
-                outline_client=None,
-                brevo_client=None,
-                nocodb_client=None,
-                vaultwarden_client=mock_vw_client,
+                clients=clients,
                 mm_team_id=mm_team_id,
                 perform_deletions=True,
                 sync_mode="TOOLS_TO_MM",
