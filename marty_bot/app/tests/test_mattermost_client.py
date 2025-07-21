@@ -3,8 +3,8 @@ from unittest.mock import patch, Mock
 import requests
 import json  # Added import for json
 
-from clients.mattermost_client import MattermostClient, slugify
-
+from clients.mattermost_client import MattermostClient
+from libraries.services.mattermost import slugify
 
 class TestMattermostClient(unittest.TestCase):
 

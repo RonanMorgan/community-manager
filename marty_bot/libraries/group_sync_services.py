@@ -32,10 +32,6 @@ from libraries.services.brevo import _map_brevo_list_to_entity_and_base_name
 from libraries.services.nocodb import _map_nocodb_base_to_entity_and_base_name
 from libraries.services.mattermost import _map_mm_channel_to_entity_and_base_name
 
-# Import client-specific utilities and classes for type hinting
-# from clients.mattermost_client import slugify # Removed to avoid potential circular dependency if this slugify is widely used
-# Copied slugify directly into this file for now.
-# Consider moving slugify to a common utils module.
 
 if TYPE_CHECKING:
     from clients.authentik_client import AuthentikClient

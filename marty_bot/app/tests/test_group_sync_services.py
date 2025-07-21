@@ -11,9 +11,10 @@ from libraries.services.mattermost import (
     _extract_base_name,
 )
 from libraries.services.authentik import _map_auth_group_to_entity_and_base_name
+from libraries.services.mattermost import slugify
 from app import config as app_config
 import asyncio  # Needed for async_test
-from clients.mattermost_client import MattermostClient, slugify
+from clients.mattermost_client import MattermostClient
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.brevo_client import BrevoClient

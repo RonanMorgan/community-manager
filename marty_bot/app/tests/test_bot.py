@@ -5,7 +5,7 @@ import asyncio
 import os  # Added import
 
 from app.bot import MartyBot
-from clients.mattermost_client import slugify
+from libraries.services.mattermost import slugify
 
 
 # Helper to run async test methods

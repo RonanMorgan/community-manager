@@ -30,7 +30,7 @@ def slugify(text: str) -> str:
         text = text[:64].strip("-")  # Re-strip if truncation creates leading/trailing hyphen
 
     if not text or text == "-":  # Handle if slug becomes empty or just a hyphen
-        return "default-slug-name"  # Changed default from 'default-channel-name' to be more generic
+        return "default-channel-name"  # Changed default from 'default-channel-name' to be more generic
     return text
 
 
