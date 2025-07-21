@@ -3,6 +3,8 @@ from app.enums import SyncStatus
 from clients.authentik_client import AuthentikAction
 from clients.outline_client import OutlineAction
 from clients.nocodb_client import NocoDBAction
+from clients.brevo_client import BrevoAction
+from clients.vaultwarden_client import VaultwardenAction
 
 
 class ResultManager:

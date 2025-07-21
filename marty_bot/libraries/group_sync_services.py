@@ -15,6 +15,8 @@ from app.enums import SyncStatus
 from clients.authentik_client import AuthentikAction
 from clients.outline_client import OutlineAction
 from clients.nocodb_client import NocoDBAction
+from clients.brevo_client import BrevoAction
+from clients.vaultwarden_client import VaultwardenAction
 
 # Import client-specific utilities and classes for type hinting
 # from clients.mattermost_client import slugify # Removed to avoid potential circular dependency if this slugify is widely used
@@ -920,7 +922,7 @@ def _ensure_users_invited_to_vaultwarden_collection(
             access_token=access_token,
         )
 
-        action_verb = "USER_INVITED_TO_VW_COLLECTION"
+        action_verb = VaultwardenAction.USER_INVITED_TO_COLLECTION.value
         if success:
             invite_result.update({"status": SyncStatus.SUCCESS.value, "action": action_verb})
             if mm_user_data.get("mm_user_id"):
@@ -931,20 +933,20 @@ def _ensure_users_invited_to_vaultwarden_collection(
                         f"Vous pouvez accéder à Vaultwarden ici : {config.VAULTWARDEN_SERVER_URL.rstrip('/')}"
                     )
                     if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
-                        invite_result["action"] = f"{action_verb}_AND_DM_SENT"
+                        invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_AND_DM_SENT.value
                     else:
-                        invite_result["action"] = f"{action_verb}_DM_FAILED"
+                        invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_FAILED.value
                 else:
                     logging.warning(
                         f"VAULTWARDEN_SERVER_URL not configured. Cannot send DM for Vaultwarden invite to {mm_username} for collection {collection_name}."
                     )
-                    invite_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
+                    invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_URL.value
             else:
-                invite_result["action"] = f"{action_verb}_DM_SKIPPED_NO_MM_USER_ID"
+                invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_MM_USER_ID.value
         else:
             invite_result.update(
                 {
-                    "action": "FAILED_TO_INVITE_TO_VW_COLLECTION",
+                    "action": VaultwardenAction.FAILED_TO_INVITE_TO_COLLECTION.value,
                     "error_message": f"API call to invite {email_lower} to VW collection {collection_name} failed or user already member/invited. See client logs.",
                 }
             )
@@ -1358,7 +1360,7 @@ def _ensure_contacts_in_brevo_list(
                 {
                     **base_user_info,
                     "status": SyncStatus.SUCCESS.value,
-                    "action": "USER_ENSURED_IN_BREVO_LIST",
+                    "action": BrevoAction.CONTACT_ADDED.value,
                 }
             )
         else:
@@ -1366,7 +1368,7 @@ def _ensure_contacts_in_brevo_list(
                 {
                     **base_user_info,
                     "status": SyncStatus.FAILURE.value,
-                    "action": "FAILED_TO_ENSURE_IN_BREVO_LIST",
+                    "action": BrevoAction.FAILED_TO_ENSURE_CONTACT.value,
                     "error_message": f"API call to add/ensure contact '{mm_user_email}' in Brevo list '{list_name}' failed.",
                 }
             )
@@ -1475,7 +1477,7 @@ def _sync_single_brevo_list(
                     {
                         **base_removal_info,
                         "status": SyncStatus.SUCCESS.value,
-                        "action": "USER_REMOVED_FROM_BREVO_LIST",
+                        "action": BrevoAction.CONTACT_REMOVED.value,
                     }
                 )
             else:
@@ -1483,7 +1485,7 @@ def _sync_single_brevo_list(
                     {
                         **base_removal_info,
                         "status": SyncStatus.FAILURE.value,
-                        "action": "FAILED_TO_REMOVE_FROM_BREVO_LIST",
+                        "action": BrevoAction.FAILED_TO_REMOVE_CONTACT.value,
                         "error_message": f"API call to remove contact '{email_to_remove}' from Brevo list '{brevo_list_name}' failed.",
                     }
                 )
@@ -1890,7 +1892,7 @@ async def _sync_entity_permissions_tools_to_mm(
                             "service": "VAULTWARDEN",
                             "target_resource_name": collection_name,
                             "status": SyncStatus.SUCCESS.value,
-                            "action": "USER_REMOVED_FROM_VAULTWARDEN_COLLECTION",
+                            "action": VaultwardenAction.USER_REMOVED_FROM_COLLECTION.value,
                         }
                     )
                 else:
@@ -1899,7 +1901,7 @@ async def _sync_entity_permissions_tools_to_mm(
                             "service": "VAULTWARDEN",
                             "target_resource_name": collection_name,
                             "status": SyncStatus.FAILURE.value,
-                            "action": "FAILED_TO_REMOVE_FROM_VAULTWARDEN_COLlection",
+                            "action": VaultwardenAction.FAILED_TO_REMOVE_FROM_COLLECTION.value,
                         }
                     )
     return results

@@ -1,6 +1,14 @@
 import requests
 import logging
 from typing import Optional
+from enum import Enum
+
+
+class BrevoAction(Enum):
+    CONTACT_ADDED = "USER_ENSURED_IN_BREVO_LIST"
+    CONTACT_REMOVED = "USER_REMOVED_FROM_BREVO_LIST"
+    FAILED_TO_ENSURE_CONTACT = "FAILED_TO_ENSURE_IN_BREVO_LIST"
+    FAILED_TO_REMOVE_CONTACT = "FAILED_TO_REMOVE_FROM_BREVO_LIST"
 
 
 class BrevoClient:
