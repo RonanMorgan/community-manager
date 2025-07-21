@@ -1,5 +1,3 @@
-import websockets
-
 print("<<<<<<<<<< SCRIPT EXECUTED >>>>>>>>>>")
 import json
 import re  # Import re for regular expressions
@@ -17,6 +15,7 @@ import markdown2  # For send_email Markdown to HTML conversion
 import threading  # For logging current thread name in start()
 
 from app import config
+from app.websocket_handler import WebsocketHandler
 
 # Configure basic logging based on DEBUG status
 # This initial basicConfig is for any logging before MartyBot instance is created
@@ -74,7 +73,7 @@ class MartyBot:
         self.nocodb_client = clients.get("nocodb")
         self.vaultwarden_client = clients.get("vaultwarden")
 
-        self.websocket = None
+        self.websocket_handler = WebsocketHandler(self)
 
         # For graceful shutdown
         self.shutdown_event = asyncio.Event()
@@ -112,9 +111,7 @@ class MartyBot:
     def _request_shutdown(self):
         logging.info("Shutdown requested. Setting shutdown event.")
         self.shutdown_event.set()
-        if self.websocket and self.websocket.open:
-            logging.info("Requesting WebSocket close from _request_shutdown (scheduling task).")
-            asyncio.create_task(self.websocket.close(code=1000, reason="Bot shutdown"))
+        self.websocket_handler.stop()
 
     def envoyer_message(self, channel_id, message_text, thread_id=None) -> str | None:
         """
@@ -202,133 +199,6 @@ class MartyBot:
             message = f"Bonjour ! Vous m'avez mentionné. Essayez `{self.bot_name_mention} help` pour une liste des commandes."
             await asyncio.to_thread(self.envoyer_message, channel_id, message)
 
-    async def on_message(self, ws, message_str):
-        logging.debug(f"WebSocket << Raw incoming message: {message_str}")
-        try:
-            data = json.loads(message_str)
-            logging.debug(
-                f"WebSocket << Event received: Type='{data.get('event')}', Seq='{data.get('seq')}', DataKeys='{list(data.get('data', {}).keys()) if data.get('data') else None}'"
-            )
-            event_type = data.get("event")
-
-            if event_type == "posted":
-                logging.debug(f"WebSocket << 'posted' event 'data' field raw content: {data.get('data')}")
-                await self._handle_message_event(data)
-            elif event_type == "hello":
-                logging.info(f"WebSocket << Received 'hello' event: {data}")
-            elif event_type:
-                logging.debug(f"WebSocket << Received unhandled event type '{event_type}': {data}")
-        except json.JSONDecodeError:
-            logging.error(f"Error decoding JSON message: {message_str}")
-        except Exception as e:
-            logging.error(f"Error in on_message: {e}. Original message: {message_str}", exc_info=True)
-
-    async def on_error(self, ws, error):
-        logging.error(f"WebSocket Error: {error}")
-
-    async def on_close(self, ws, close_status_code, close_msg):
-        logging.info(f"WebSocket closed with code: {close_status_code}, message: {close_msg}")
-
-    async def on_open(self, ws):
-        logging.info("WebSocket connection opened.")
-        if not self.config.BOT_TOKEN:
-            logging.error("BOT_TOKEN not configured for bot instance. Cannot send authentication challenge.")
-            await ws.close()
-            return
-        auth_data = {"seq": 1, "action": "authentication_challenge", "data": {"token": self.config.BOT_TOKEN}}
-        try:
-            await ws.send(json.dumps(auth_data))
-            logging.info(
-                f"Sent authentication challenge for bot token starting with: {str(self.config.BOT_TOKEN)[:4]}..."
-            )
-        except Exception as e:
-            logging.error(f"Error sending authentication challenge: {e}")
-
-    async def _run_websocket_loop(self):
-        if not self.config.MATTERMOST_URL or not self.config.BOT_TOKEN:
-            logging.error("Mattermost URL or Bot Token not configured for bot instance. Cannot start WebSocket.")
-            return
-        if not self.authentik_client and not self.outline_client and not self.mattermost_api_client:
-            logging.warning("One or more API clients are not initialized. Bot may have limited functionality.")
-
-        websocket_url = f"{self.config.MATTERMOST_URL.replace('http', 'ws', 1).rstrip('/')}/api/v4/websocket"
-        reconnect_attempts = 0
-        current_delay = self.INITIAL_RECONNECT_DELAY
-
-        while not self.shutdown_event.is_set():
-            try:
-                logging.info(
-                    f"Attempting to connect to WebSocket: {websocket_url} (Attempt: {reconnect_attempts + 1})"
-                )
-                async with websockets.connect(
-                    websocket_url,
-                    ping_interval=60,
-                    ping_timeout=30,
-                ) as self.websocket:
-                    logging.info(f"Successfully connected to WebSocket: {websocket_url}")
-                    await self.on_open(self.websocket)
-                    reconnect_attempts = 0
-                    current_delay = self.INITIAL_RECONNECT_DELAY
-                    while not self.shutdown_event.is_set():
-                        try:
-                            message_str = await asyncio.wait_for(self.websocket.recv(), timeout=1.0)
-                            if message_str:
-                                await self.on_message(self.websocket, message_str)
-                        except asyncio.TimeoutError:
-                            if self.shutdown_event.is_set():
-                                logging.debug("Shutdown event set during recv timeout, breaking inner loop.")
-                                break
-                            continue
-                        except websockets.exceptions.ConnectionClosedOK as e:
-                            logging.info(f"WebSocket connection closed normally by server (ClosedOK): {e}")
-                            await self.on_close(self.websocket, e.code, e.reason)
-                            break
-                        except websockets.exceptions.ConnectionClosedError as e:
-                            logging.warning(
-                                f"WebSocket connection closed with error: {e}. Code: {e.code}, Reason: {e.reason}"
-                            )
-                            await self.on_close(self.websocket, e.code, e.reason)
-                            break
-                        except Exception as e:
-                            logging.error(f"Error during WebSocket recv: {e}", exc_info=True)
-                            await self.on_error(self.websocket, e)
-                            break
-                if self.shutdown_event.is_set():
-                    logging.info("Shutdown event set, breaking outer connection loop.")
-                    break
-            except (
-                websockets.exceptions.InvalidURI,
-                websockets.exceptions.InvalidHandshake,
-                ConnectionRefusedError,
-                OSError,
-            ) as e:
-                logging.error(f"Failed to connect to WebSocket: {e}")
-            except Exception as e:
-                logging.error(f"Unexpected error during WebSocket connection attempt: {e}", exc_info=True)
-
-            if not self.shutdown_event.is_set():
-                reconnect_attempts += 1
-                if reconnect_attempts >= self.MAX_RECONNECT_ATTEMPTS:
-                    logging.error(f"Exceeded max reconnect attempts ({self.MAX_RECONNECT_ATTEMPTS}). Stopping bot.")
-                    self.shutdown_event.set()
-                    break
-                logging.info(f"Reconnecting in {current_delay} seconds...")
-                try:
-                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=current_delay)
-                    if self.shutdown_event.is_set():
-                        logging.info("Shutdown initiated during reconnect delay.")
-                        break
-                except asyncio.TimeoutError:
-                    pass
-                current_delay = min(current_delay * 2, self.MAX_RECONNECT_DELAY)
-
-        logging.info("MartyBot WebSocket listener stopped.")
-        if self.websocket and self.websocket.open:
-            logging.info("Closing WebSocket connection finally (if still open)...")
-            try:
-                await self.websocket.close(code=1000, reason="Bot shutting down")
-            except Exception as e:
-                logging.error(f"Error during final WebSocket close: {e}")
 
     def start(self):
         logging.info(f"Initializing Marty Bot instance for dedicated thread: {threading.current_thread().name}")
@@ -340,7 +210,7 @@ class MartyBot:
             logging.info(
                 f"Starting WebSocket listener for MartyBot instance in thread {threading.current_thread().name}..."
             )
-            loop.run_until_complete(self._run_websocket_loop())
+            loop.run_until_complete(self.websocket_handler.run())
         except KeyboardInterrupt:
             logging.info("KeyboardInterrupt caught in start(), requesting shutdown.")
             if not self.shutdown_event.is_set():
