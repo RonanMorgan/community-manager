@@ -607,6 +607,21 @@ class TestBrevoClient(unittest.TestCase):
         self.assertIn("user3@example.com", result_emails)
         self.assertNotIn(None, result_emails)
 
+    @patch("requests.request")
+    def test_get_contacts_from_list_with_limit_and_offset(self, mock_request):
+        mock_response = mock_brevo_response(200, json_data={"contacts": [{"id": 1, "email": "test@example.com"}]})
+        mock_request.return_value = mock_response
+        contacts = self.client.get_contacts_from_list(1)
+        self.assertEqual(len(contacts), 1)
+        self.assertEqual(contacts[0], "test@example.com")
+        mock_request.assert_called_with(
+            "GET",
+            f"{FAKE_API_URL}/contacts/lists/1/contacts",
+            headers=self.client.headers,
+            json=None,
+            params={"limit": 500, "offset": 0, "sort": "desc"},
+        )
+
 
 if __name__ == "__main__":
     # This allows running the tests directly with `python -m unittest path/to/test_brevo_client.py`

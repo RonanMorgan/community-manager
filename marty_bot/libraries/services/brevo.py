@@ -151,12 +151,12 @@ def _sync_single_brevo_list(
         offset = 0
         limit = 50
         while True:
-            page_contacts = brevo_client.get_contacts_from_list(brevo_list_id, limit=limit, offset=offset)
+            page_contacts = brevo_client.get_contacts_from_list(brevo_list_id)
             if page_contacts:
                 current_contacts_in_brevo_list.extend(page_contacts)
-                if len(page_contacts) < limit:
+                if len(page_contacts) < 50:
                     break
-                offset += limit
+                offset += 50
             else:
                 logging.warning(
                     f"Could not fetch contacts from Brevo list '{brevo_list_name}' (ID: {brevo_list_id}) for deletion check, or list is empty."

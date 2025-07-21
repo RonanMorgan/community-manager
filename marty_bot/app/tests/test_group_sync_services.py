@@ -1559,7 +1559,7 @@ permissions:
         )
 
         self.mock_brevo_client.get_contacts_from_list.assert_called_once_with(
-            existing_list_obj["id"], limit=50, offset=0
+            existing_list_obj["id"]
         )
         self.mock_brevo_client.remove_contact_from_list.assert_called_once_with(
             email="remove@example.com", list_id=existing_list_obj["id"]
