@@ -1530,10 +1530,12 @@ permissions:
         self.assertEqual(removed_action["mm_user_email"], "remove@example.com")
         self.assertEqual(ensured_action["mm_user_email"], "stay@example.com")
 
+    @patch("libraries.services.brevo.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_brevo_list_excluded_user_not_added_or_removed(self, mock_lib_config_brevo):
+    def test_sync_brevo_list_excluded_user_not_added_or_removed(self, mock_lib_config_brevo, mock_service_config_brevo):
         excluded_username = "excluded_brevo_user"
         mock_lib_config_brevo.EXCLUDED_USERS = {excluded_username}
+        mock_service_config_brevo.EXCLUDED_USERS = {excluded_username}
         brevo_list_name = "TestBrevoListExcluded"
         existing_list_obj = {"id": "brevo_list_id_789", "name": brevo_list_name}
         self.mock_brevo_client.get_lists.return_value = [existing_list_obj]
