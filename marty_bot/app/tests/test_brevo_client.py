@@ -283,11 +283,10 @@ class TestBrevoClient(unittest.TestCase):
         mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
         # The method now returns list of emails and handles all pagination internally
-        result_emails = self.client.get_contacts_from_list(list_id)
-        self.assertIsNotNone(result_emails)
-        self.assertEqual(len(result_emails), len(contacts_data))
-        # The result is now a list of emails, not dicts
-        self.assertEqual(result_emails[0], contacts_data[0]["email"])
+        result_contacts = self.client.get_contacts_from_list(list_id)
+        self.assertIsNotNone(result_contacts)
+        self.assertEqual(len(result_contacts), len(contacts_data))
+        self.assertEqual(result_contacts[0]["email"], contacts_data[0]["email"])
         mock_request.assert_called_once_with(
             "GET",
             f"{FAKE_API_URL}/contacts/lists/{list_id}/contacts",
@@ -512,16 +511,17 @@ class TestBrevoClient(unittest.TestCase):
             # mock_brevo_response(200, json_data={"contacts": []}), # This would be the 3rd call if page 2 was full
         ]
 
-        # Expected: all emails from page 1 and page 2
-        expected_emails = [f"user{i}@example.com" for i in range(internal_limit)] + ["finaluser@example.com"]
+        # Expected: all contacts from page 1 and page 2
+        expected_contacts = [
+            {"email": f"user{i}@example.com", "id": i} for i in range(internal_limit)
+        ] + [{"email": "finaluser@example.com", "id": internal_limit}]
 
         # Use self.client which is already set up
-        result_emails = self.client.get_contacts_from_list(list_id)
+        result_contacts = self.client.get_contacts_from_list(list_id)
 
-        self.assertIsNotNone(result_emails)
-        self.assertEqual(len(result_emails), internal_limit + 1)
-        # Using set comparison for potentially large lists if order is not guaranteed or important for the test itself
-        self.assertSetEqual(set(result_emails), set(expected_emails))
+        self.assertIsNotNone(result_contacts)
+        self.assertEqual(len(result_contacts), internal_limit + 1)
+        self.assertListEqual(result_contacts, expected_contacts)
 
         # Since page 2 is not full (1 contact < 500 limit), the loop terminates after processing page 2.
         # So, only 2 calls to the API are expected.
@@ -550,10 +550,10 @@ class TestBrevoClient(unittest.TestCase):
         mock_response_data = {"contacts": contacts_data}  # No 'count' or pagination needed
         mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
-        result_emails = self.client.get_contacts_from_list(list_id)
-        self.assertIsNotNone(result_emails)
-        self.assertEqual(len(result_emails), 2)
-        self.assertIn("alpha@example.com", result_emails)
+        result_contacts = self.client.get_contacts_from_list(list_id)
+        self.assertIsNotNone(result_contacts)
+        self.assertEqual(len(result_contacts), 2)
+        self.assertEqual(result_contacts[0]["email"], "alpha@example.com")
         mock_request.assert_called_once_with(
             "GET",
             f"{FAKE_API_URL}/contacts/lists/{list_id}/contacts",
@@ -600,12 +600,11 @@ class TestBrevoClient(unittest.TestCase):
         mock_response_data = {"contacts": contacts_data}
         mock_request.return_value = mock_brevo_response(200, json_data=mock_response_data)
 
-        result_emails = self.client.get_contacts_from_list(list_id)
-        self.assertIsNotNone(result_emails)
-        self.assertEqual(len(result_emails), 2)
-        self.assertIn("user1@example.com", result_emails)
-        self.assertIn("user3@example.com", result_emails)
-        self.assertNotIn(None, result_emails)
+        result_contacts = self.client.get_contacts_from_list(list_id)
+        self.assertIsNotNone(result_contacts)
+        self.assertEqual(len(result_contacts), 3)
+        self.assertEqual(result_contacts[0]["email"], "user1@example.com")
+        self.assertEqual(result_contacts[2]["email"], "user3@example.com")
 
     @patch("requests.request")
     def test_get_contacts_from_list_with_limit_and_offset(self, mock_request):
@@ -613,7 +612,7 @@ class TestBrevoClient(unittest.TestCase):
         mock_request.return_value = mock_response
         contacts = self.client.get_contacts_from_list(1)
         self.assertEqual(len(contacts), 1)
-        self.assertEqual(contacts[0], "test@example.com")
+        self.assertEqual(contacts[0]["email"], "test@example.com")
         mock_request.assert_called_with(
             "GET",
             f"{FAKE_API_URL}/contacts/lists/1/contacts",

@@ -220,60 +220,42 @@ class BrevoClient:
     def get_contacts_from_list(self, list_id: int) -> list[str] | None:
         """
         Retrieves all contact emails from a specific list, handling pagination.
-        Returns a list of email addresses or None on failure.
+        Returns a list of contact objects or None on failure.
         """
-        logging.info(f"Fetching all contact emails from Brevo list ID {list_id}")
-        all_contact_emails = []
+        logging.info(f"Fetching all contacts from Brevo list ID {list_id}")
+        all_contacts = []
         limit = 500  # Max limit allowed by Brevo API for this endpoint
         offset = 0
-        total_fetched_contacts = 0  # For logging and safety break
 
         while True:
             log_msg = f"Fetching contacts from Brevo list ID {list_id} (limit: {limit}, offset: {offset})"
-            logging.debug(log_msg)  # Changed to debug for less verbose logging per page
-            params = {"limit": limit, "offset": offset, "sort": "desc"}  # Sort is optional but good for consistency
+            logging.debug(log_msg)
+            params = {"limit": limit, "offset": offset, "sort": "desc"}
             status_code, data = self._make_request("GET", f"contacts/lists/{list_id}/contacts", params=params)
 
             if status_code == 200 and data and "contacts" in data:
                 page_contacts = data["contacts"]
-                if not page_contacts:  # No more contacts on this page, means we're done
+                if not page_contacts:
                     logging.info(
-                        f"Finished fetching contacts for list ID {list_id}. Total emails fetched: {len(all_contact_emails)}"
+                        f"Finished fetching contacts for list ID {list_id}. Total contacts fetched: {len(all_contacts)}"
                     )
                     break
 
-                for contact in page_contacts:
-                    email = contact.get("email")
-                    if email:
-                        all_contact_emails.append(email)
+                all_contacts.extend(page_contacts)
 
-                total_fetched_contacts += len(page_contacts)
-                offset += len(page_contacts)
-
-                # Brevo's /contacts/lists/{listId}/contacts endpoint might not return a total count in pagination
-                # So we rely on an empty 'contacts' array or a page with fewer contacts than the limit to stop.
-                # If the number of contacts fetched is less than the limit, it's the last page.
                 if len(page_contacts) < limit:
                     logging.info(
-                        f"Finished fetching contacts for list ID {list_id} (last page had {len(page_contacts)} items). Total emails fetched: {len(all_contact_emails)}"
+                        f"Finished fetching contacts for list ID {list_id} (last page had {len(page_contacts)} items). Total contacts fetched: {len(all_contacts)}"
                     )
                     break
-                # If len(page_contacts) == limit, we must continue to the next page as there might be more.
-                # The loop condition (while True) and the `if not page_contacts:` check handle the end.
-
-                # Safety break if we somehow fetch an unreasonable number of contacts (e.g. 100k for a small list)
-                # This indicates a possible issue with pagination logic or API behavior.
-                if offset > 200000:  # Arbitrary large number, adjust as needed
-                    logging.warning(f"Safety break: Fetched over {offset} contacts for list {list_id}. Breaking loop.")
-                    break
-
+                offset += len(page_contacts)
             else:
                 logging.error(
                     f"Failed to fetch contacts from list ID {list_id} at offset {offset}. Status: {status_code}, Response: {data}"
                 )
-                return None  # Return None on any error during pagination
+                return None
 
-        return all_contact_emails
+        return all_contacts
 
     def delete_list(self, list_id: int) -> bool:
         """Deletes a list by its ID."""
