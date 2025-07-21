@@ -17,11 +17,16 @@ class TestMattermostClient(unittest.TestCase):
 
         # Configure the mock for the get_me call within MattermostClient.__init__
         mock_setup_response = Mock(status_code=200)
-        mock_setup_response.json.return_value = {"id": "bot_user_id_setup", "username": "testbot_setup"}
+        mock_setup_response.json.return_value = {
+            "id": "bot_user_id_setup",
+            "username": "testbot_setup",
+        }
         mock_requests_get_for_setup.return_value = mock_setup_response
 
         try:
-            self.client = MattermostClient(base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id)
+            self.client = MattermostClient(
+                base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id
+            )
         except ValueError:
             self.fail("Client instantiation failed in setUp")
 
@@ -41,16 +46,24 @@ class TestMattermostClient(unittest.TestCase):
         self.assertIn(f"Bearer {self.mock_token}", self.client.headers["Authorization"])
 
     def test_constructor_value_error(self):
-        with self.assertRaisesRegex(ValueError, "Mattermost base_url, token, and team_id must be provided."):
+        with self.assertRaisesRegex(
+            ValueError, "Mattermost base_url, token, and team_id must be provided."
+        ):
             MattermostClient(base_url=None, token="fake", team_id="fake_team")
-        with self.assertRaisesRegex(ValueError, "Mattermost base_url, token, and team_id must be provided."):
+        with self.assertRaisesRegex(
+            ValueError, "Mattermost base_url, token, and team_id must be provided."
+        ):
             MattermostClient(base_url="fake", token=None, team_id="fake_team")
-        with self.assertRaisesRegex(ValueError, "Mattermost base_url, token, and team_id must be provided."):
+        with self.assertRaisesRegex(
+            ValueError, "Mattermost base_url, token, and team_id must be provided."
+        ):
             MattermostClient(base_url="fake", token="fake", team_id=None)
 
     def test_constructor_url_trailing_slash(self):
         client_with_slash = MattermostClient(
-            base_url="http://fake-mm.com/", token=self.mock_token, team_id=self.mock_team_id
+            base_url="http://fake-mm.com/",
+            token=self.mock_token,
+            team_id=self.mock_team_id,
         )
         self.assertEqual(client_with_slash.base_url, "http://fake-mm.com")
 
@@ -75,7 +88,9 @@ class TestMattermostClient(unittest.TestCase):
             "purpose": f"Channel for project {project_name}",
             "header": f"Project {project_name}",
         }
-        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
+        mock_post_request.assert_called_once_with(
+            expected_api_url, headers=self.client.headers, json=expected_payload
+        )
         self.assertIsNotNone(result)
         self.assertEqual(result["id"], "channel_id_123")
 
@@ -93,40 +108,61 @@ class TestMattermostClient(unittest.TestCase):
         self.assertEqual(kwargs["json"]["team_id"], override_team_id)
 
     @patch("requests.post")
-    @patch.object(MattermostClient, "get_channel_by_name")  # Mock get_channel_by_name for exists case
-    def test_create_channel_failure_http_error_exists(self, mock_get_channel_by_name, mock_post_request):
+    @patch.object(
+        MattermostClient, "get_channel_by_name"
+    )  # Mock get_channel_by_name for exists case
+    def test_create_channel_failure_http_error_exists(
+        self, mock_get_channel_by_name, mock_post_request
+    ):
         project_name = "Existing Project"
         channel_name_slug = slugify(project_name)
-        mock_error_response = Mock(status_code=400)  # Typically 400 for "exists" if not handled as 200/201
+        mock_error_response = Mock(
+            status_code=400
+        )  # Typically 400 for "exists" if not handled as 200/201
         mock_error_details = {
             "id": "store.sql_channel.save_channel.exists.app_error",
             "message": "Channel exists",
         }
         mock_error_response.json.return_value = mock_error_details
-        mock_error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_error_response)
+        mock_error_response.raise_for_status.side_effect = (
+            requests.exceptions.HTTPError(response=mock_error_response)
+        )
         mock_post_request.return_value = mock_error_response
 
         # Simulate get_channel_by_name returning the existing channel
-        existing_channel_data = {"id": "existing_channel_id", "name": channel_name_slug, "display_name": project_name}
+        existing_channel_data = {
+            "id": "existing_channel_id",
+            "name": channel_name_slug,
+            "display_name": project_name,
+        }
         mock_get_channel_by_name.return_value = existing_channel_data
 
         result = self.client.create_channel(project_name)
         self.assertIsNotNone(result)
         self.assertEqual(result["id"], "existing_channel_id")
-        mock_get_channel_by_name.assert_called_once_with(self.mock_team_id, channel_name_slug)
+        mock_get_channel_by_name.assert_called_once_with(
+            self.mock_team_id, channel_name_slug
+        )
 
     @patch("requests.post")
     def test_create_channel_failure_http_error_other(self, mock_post_request):
         mock_response = Mock(status_code=500)  # Some other server error
-        mock_response.json.return_value = {"id": "internal.server.error", "message": "Server blew up"}
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.json.return_value = {
+            "id": "internal.server.error",
+            "message": "Server blew up",
+        }
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_response
+        )
         mock_post_request.return_value = mock_response
         result = self.client.create_channel("Test Project Fail Other")
         self.assertIsNone(result)
 
     @patch("requests.post")
     def test_create_channel_failure_request_exception(self, mock_post_request):
-        mock_post_request.side_effect = requests.exceptions.RequestException("Connection timeout")
+        mock_post_request.side_effect = requests.exceptions.RequestException(
+            "Connection timeout"
+        )
         result = self.client.create_channel("Test Project Exception")
         self.assertIsNone(result)
 
@@ -153,7 +189,9 @@ class TestMattermostClient(unittest.TestCase):
     def test_get_channel_by_name_not_found(self, mock_get):
         channel_name = "non-existent-channel"
         mock_response = Mock(status_code=404)
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_response
+        )
         mock_get.return_value = mock_response
 
         channel = self.client.get_channel_by_name(self.mock_team_id, channel_name)
@@ -169,20 +207,27 @@ class TestMattermostClient(unittest.TestCase):
     @patch("requests.get")
     def test_get_users_in_channel_success_no_pagination(self, mock_get):
         channel_id = "chan_id_1"
-        mock_users_data = [{"id": "user1", "email": "user1@test.com"}, {"id": "user2", "email": "user2@test.com"}]
+        mock_users_data = [
+            {"id": "user1", "email": "user1@test.com"},
+            {"id": "user2", "email": "user2@test.com"},
+        ]
         mock_response = Mock(status_code=200)
         mock_response.json.return_value = mock_users_data
         mock_get.return_value = mock_response
 
         users = self.client.get_users_in_channel(channel_id)
         self.assertEqual(users, mock_users_data)
-        expected_url = f"{self.mock_url}/api/v4/users?in_channel={channel_id}&page=0&per_page=200"
+        expected_url = (
+            f"{self.mock_url}/api/v4/users?in_channel={channel_id}&page=0&per_page=200"
+        )
         mock_get.assert_called_once_with(expected_url, headers=self.client.headers)
 
     @patch("requests.get")
     def test_get_users_in_channel_success_with_pagination(self, mock_get):
         channel_id = "chan_id_paginated"
-        page1_users = [{"id": f"user{i}", "email": f"user{i}@test.com"} for i in range(200)]
+        page1_users = [
+            {"id": f"user{i}", "email": f"user{i}@test.com"} for i in range(200)
+        ]
         page2_users = [{"id": "user200", "email": "user200@test.com"}]
 
         mock_response1 = Mock(status_code=200)
@@ -197,10 +242,12 @@ class TestMattermostClient(unittest.TestCase):
         self.assertEqual(users[-1]["id"], "user200")
         self.assertEqual(mock_get.call_count, 2)
         mock_get.assert_any_call(
-            f"{self.mock_url}/api/v4/users?in_channel={channel_id}&page=0&per_page=200", headers=self.client.headers
+            f"{self.mock_url}/api/v4/users?in_channel={channel_id}&page=0&per_page=200",
+            headers=self.client.headers,
         )
         mock_get.assert_any_call(
-            f"{self.mock_url}/api/v4/users?in_channel={channel_id}&page=1&per_page=200", headers=self.client.headers
+            f"{self.mock_url}/api/v4/users?in_channel={channel_id}&page=1&per_page=200",
+            headers=self.client.headers,
         )
 
     @patch("requests.get")
@@ -232,7 +279,9 @@ class TestMattermostClient(unittest.TestCase):
         self.assertEqual(slugify(" Ends-with-hyphen-"), "ends-with-hyphen")
         self.assertEqual(slugify("-Starts-with-hyphen"), "starts-with-hyphen")
         self.assertEqual(
-            slugify("Test Project with really really long name that will be cut off at sixty four characters"),
+            slugify(
+                "Test Project with really really long name that will be cut off at sixty four characters"
+            ),
             "test-project-with-really-really-long-name-that-will-be-cut-off-a",
         )
 
@@ -245,11 +294,15 @@ class TestMattermostClient(unittest.TestCase):
 
         # Re-initialize client to trigger _initialize_bot_user_id which calls get_me
         # This client's __init__ will call get_me
-        client = MattermostClient(base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id)
+        client = MattermostClient(
+            base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id
+        )
 
         self.assertEqual(client.bot_user_id, "bot_user_id_123")
         expected_api_url = f"{self.mock_url}/api/v4/users/me"
-        mock_get_request.assert_called_once_with(expected_api_url, headers=client.headers)
+        mock_get_request.assert_called_once_with(
+            expected_api_url, headers=client.headers
+        )
 
         # Test direct call to get_me as well (will be second call)
         details = client.get_me()
@@ -269,8 +322,12 @@ class TestMattermostClient(unittest.TestCase):
         mock_get_request.return_value = mock_response
 
         # Re-initialize client; _initialize_bot_user_id should handle failure gracefully
-        client = MattermostClient(base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id)
-        self.assertIsNone(client.bot_user_id)  # Bot ID should be None after failed fetch
+        client = MattermostClient(
+            base_url=self.mock_url, token=self.mock_token, team_id=self.mock_team_id
+        )
+        self.assertIsNone(
+            client.bot_user_id
+        )  # Bot ID should be None after failed fetch
 
         # Direct call should also fail
         details = client.get_me()
@@ -281,7 +338,11 @@ class TestMattermostClient(unittest.TestCase):
     def test_create_direct_channel_success(self, mock_post_request):
         # Ensure bot_user_id is set on the existing client for this test
         # In real usage, it's set during __init__
-        with patch.object(self.client, "get_me", return_value={"id": "bot_id_for_test", "username": "testbot"}):
+        with patch.object(
+            self.client,
+            "get_me",
+            return_value={"id": "bot_id_for_test", "username": "testbot"},
+        ):
             self.client._initialize_bot_user_id()  # Manually call to set bot_user_id based on new mock
         self.assertEqual(self.client.bot_user_id, "bot_id_for_test")
 
@@ -296,7 +357,9 @@ class TestMattermostClient(unittest.TestCase):
         self.assertEqual(dm_channel_id, "dm_channel_id_456")
         expected_api_url = f"{self.mock_url}/api/v4/channels/direct"
         expected_payload = [self.client.bot_user_id, other_user_id]
-        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
+        mock_post_request.assert_called_once_with(
+            expected_api_url, headers=self.client.headers, json=expected_payload
+        )
 
     def test_create_direct_channel_fail_no_bot_id(self):
         original_bot_id = self.client.bot_user_id
@@ -309,7 +372,9 @@ class TestMattermostClient(unittest.TestCase):
 
     @patch("clients.mattermost_client.MattermostClient.post_message")
     @patch("clients.mattermost_client.MattermostClient.create_direct_channel")
-    def test_send_dm_success(self, mock_create_direct_channel_class, mock_post_message_class):
+    def test_send_dm_success(
+        self, mock_create_direct_channel_class, mock_post_message_class
+    ):
         self.client.bot_user_id = "bot_for_dm_test"
 
         target_user_id = "target_user_1"
@@ -323,16 +388,22 @@ class TestMattermostClient(unittest.TestCase):
 
         self.assertTrue(success)
         mock_create_direct_channel_class.assert_called_once_with(target_user_id)
-        mock_post_message_class.assert_called_once_with(channel_id=mock_dm_channel_id, message=dm_message)
+        mock_post_message_class.assert_called_once_with(
+            channel_id=mock_dm_channel_id, message=dm_message
+        )
 
     @patch("clients.mattermost_client.MattermostClient.post_message")
     @patch("clients.mattermost_client.MattermostClient.create_direct_channel")
-    def test_send_dm_fail_channel_creation(self, mock_create_direct_channel_class, mock_post_message_class):
+    def test_send_dm_fail_channel_creation(
+        self, mock_create_direct_channel_class, mock_post_message_class
+    ):
         self.client.bot_user_id = "bot_for_dm_test"
 
         target_user_id = "target_user_2"
         dm_message = "Test DM"
-        mock_create_direct_channel_class.return_value = None  # Simulate DM channel creation failure
+        mock_create_direct_channel_class.return_value = (
+            None  # Simulate DM channel creation failure
+        )
 
         success = self.client.send_dm(target_user_id, dm_message)
         self.assertFalse(success)
@@ -341,7 +412,9 @@ class TestMattermostClient(unittest.TestCase):
 
     @patch("clients.mattermost_client.MattermostClient.post_message")
     @patch("clients.mattermost_client.MattermostClient.create_direct_channel")
-    def test_send_dm_fail_post_message(self, mock_create_direct_channel_class, mock_post_message_class):
+    def test_send_dm_fail_post_message(
+        self, mock_create_direct_channel_class, mock_post_message_class
+    ):
         self.client.bot_user_id = "bot_for_dm_test"
 
         target_user_id = "target_user_3"
@@ -355,7 +428,9 @@ class TestMattermostClient(unittest.TestCase):
 
         self.assertFalse(success)
         mock_create_direct_channel_class.assert_called_once_with(target_user_id)
-        mock_post_message_class.assert_called_once_with(channel_id=mock_dm_channel_id, message=dm_message)
+        mock_post_message_class.assert_called_once_with(
+            channel_id=mock_dm_channel_id, message=dm_message
+        )
 
     # Tests for add_user_to_channel
     @patch("requests.post")
@@ -370,7 +445,9 @@ class TestMattermostClient(unittest.TestCase):
         self.assertTrue(result)
         expected_api_url = f"{self.mock_url}/api/v4/channels/{channel_id}/members"
         expected_payload = {"user_id": user_id}
-        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
+        mock_post_request.assert_called_once_with(
+            expected_api_url, headers=self.client.headers, json=expected_payload
+        )
 
     @patch("requests.post")
     def test_add_user_to_channel_already_member(self, mock_post_request):
@@ -382,35 +459,44 @@ class TestMattermostClient(unittest.TestCase):
             "message": f"User {user_id} is already a member of channel {channel_id}",
             "status_code": 500,  # Mattermost sometimes returns 500 for this
         }
-        mock_http_error_response = Mock(status_code=500)  # Or 400, depending on MM version / specific case
+        mock_http_error_response = Mock(
+            status_code=500
+        )  # Or 400, depending on MM version / specific case
         mock_http_error_response.json.return_value = mock_error_response_content
         mock_http_error_response.text = json.dumps(mock_error_response_content)
 
-        mock_post_request.return_value = mock_http_error_response  # Simulate the response object directly
+        mock_post_request.return_value = (
+            mock_http_error_response  # Simulate the response object directly
+        )
         # Simulate raise_for_status for this specific error
-        mock_post_request.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            response=mock_http_error_response
+        mock_post_request.return_value.raise_for_status.side_effect = (
+            requests.exceptions.HTTPError(response=mock_http_error_response)
         )
 
         result = self.client.add_user_to_channel(channel_id, user_id)
         self.assertTrue(result)  # Should be considered success
         expected_api_url = f"{self.mock_url}/api/v4/channels/{channel_id}/members"
         expected_payload = {"user_id": user_id}
-        mock_post_request.assert_called_once_with(expected_api_url, headers=self.client.headers, json=expected_payload)
+        mock_post_request.assert_called_once_with(
+            expected_api_url, headers=self.client.headers, json=expected_payload
+        )
 
     @patch("requests.post")
     def test_add_user_to_channel_failure_other_http_error(self, mock_post_request):
         channel_id = "channel_id_for_add"
         user_id = "user_id_http_fail"
 
-        mock_error_response_content = {"id": "api.some.other.error", "message": "Another error"}
+        mock_error_response_content = {
+            "id": "api.some.other.error",
+            "message": "Another error",
+        }
         mock_http_error_response = Mock(status_code=403)  # e.g. Forbidden
         mock_http_error_response.json.return_value = mock_error_response_content
         mock_http_error_response.text = json.dumps(mock_error_response_content)
 
         mock_post_request.return_value = mock_http_error_response
-        mock_post_request.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            response=mock_http_error_response
+        mock_post_request.return_value.raise_for_status.side_effect = (
+            requests.exceptions.HTTPError(response=mock_http_error_response)
         )
 
         result = self.client.add_user_to_channel(channel_id, user_id)
@@ -420,7 +506,9 @@ class TestMattermostClient(unittest.TestCase):
     def test_add_user_to_channel_failure_request_exception(self, mock_post_request):
         channel_id = "channel_id_for_add"
         user_id = "user_id_req_ex"
-        mock_post_request.side_effect = requests.exceptions.RequestException("Network issue")
+        mock_post_request.side_effect = requests.exceptions.RequestException(
+            "Network issue"
+        )
         result = self.client.add_user_to_channel(channel_id, user_id)
         self.assertFalse(result)
 
@@ -434,13 +522,38 @@ class TestMattermostClient(unittest.TestCase):
     def test_get_channels_for_team_success_mixed_public_private(self, mock_get_request):
         team_id = "team_with_mixed_channels"
         private_channels_data = [
-            {"id": "private_chan_1", "name": "private-1", "type": "P", "team_id": team_id},
-            {"id": "shared_chan_A", "name": "shared-A", "type": "P", "team_id": team_id},  # Test deduplication
+            {
+                "id": "private_chan_1",
+                "name": "private-1",
+                "type": "P",
+                "team_id": team_id,
+            },
+            {
+                "id": "shared_chan_A",
+                "name": "shared-A",
+                "type": "P",
+                "team_id": team_id,
+            },  # Test deduplication
         ]
         public_channels_data = [
-            {"id": "public_chan_1", "name": "public-1", "type": "O", "team_id": team_id},
-            {"id": "public_chan_2", "name": "public-2", "type": "O", "team_id": team_id},
-            {"id": "shared_chan_A", "name": "shared-A", "type": "O", "team_id": team_id},  # Test deduplication
+            {
+                "id": "public_chan_1",
+                "name": "public-1",
+                "type": "O",
+                "team_id": team_id,
+            },
+            {
+                "id": "public_chan_2",
+                "name": "public-2",
+                "type": "O",
+                "team_id": team_id,
+            },
+            {
+                "id": "shared_chan_A",
+                "name": "shared-A",
+                "type": "O",
+                "team_id": team_id,
+            },  # Test deduplication
         ]
 
         mock_response_private = Mock(status_code=200)
@@ -455,10 +568,12 @@ class TestMattermostClient(unittest.TestCase):
 
         self.assertEqual(mock_get_request.call_count, 2)
         mock_get_request.assert_any_call(
-            f"{self.mock_url}/api/v4/teams/{team_id}/channels/private", headers=self.client.headers
+            f"{self.mock_url}/api/v4/teams/{team_id}/channels/private",
+            headers=self.client.headers,
         )
         mock_get_request.assert_any_call(
-            f"{self.mock_url}/api/v4/teams/{team_id}/channels", headers=self.client.headers
+            f"{self.mock_url}/api/v4/teams/{team_id}/channels",
+            headers=self.client.headers,
         )
 
         # Expected: p_chan_1, pub_chan_1, pub_chan_2, shared_A (deduplicated)  # noqa: E501
@@ -485,7 +600,10 @@ class TestMattermostClient(unittest.TestCase):
         mock_response_public = Mock(status_code=200)
         mock_response_public.json.return_value = public_channels_data
 
-        mock_get_request.side_effect = [mock_response_private_empty, mock_response_public]
+        mock_get_request.side_effect = [
+            mock_response_private_empty,
+            mock_response_public,
+        ]
         # mock_get_request.side_effect = [mock_response_private_404, mock_response_public] # Test with 404 for private
 
         channels = self.client.get_channels_for_team(team_id)
@@ -507,7 +625,10 @@ class TestMattermostClient(unittest.TestCase):
         mock_response_public_empty = Mock(status_code=200)
         mock_response_public_empty.json.return_value = []
 
-        mock_get_request.side_effect = [mock_response_private, mock_response_public_empty]
+        mock_get_request.side_effect = [
+            mock_response_private,
+            mock_response_public_empty,
+        ]
 
         channels = self.client.get_channels_for_team(team_id)
         self.assertEqual(len(channels), 2)
@@ -533,7 +654,9 @@ class TestMattermostClient(unittest.TestCase):
         public_channels_data = [{"id": "pub_C", "name": "pub-c", "type": "O"}]
 
         mock_private_error = Mock(status_code=500)
-        mock_private_error.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_private_error)
+        mock_private_error.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_private_error
+        )
 
         mock_response_public = Mock(status_code=200)
         mock_response_public.json.return_value = public_channels_data
@@ -553,7 +676,9 @@ class TestMattermostClient(unittest.TestCase):
         mock_response_private.json.return_value = private_channels_data
 
         mock_public_error = Mock(status_code=500)
-        mock_public_error.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_public_error)
+        mock_public_error.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_public_error
+        )
 
         mock_get_request.side_effect = [mock_response_private, mock_public_error]
 
@@ -566,9 +691,13 @@ class TestMattermostClient(unittest.TestCase):
         team_id = "team_err_both"
 
         mock_private_error = Mock(status_code=500)
-        mock_private_error.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_private_error)
+        mock_private_error.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_private_error
+        )
         mock_public_error = Mock(status_code=500)
-        mock_public_error.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_public_error)
+        mock_public_error.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_public_error
+        )
 
         mock_get_request.side_effect = [mock_private_error, mock_public_error]
         channels = self.client.get_channels_for_team(team_id)
@@ -589,8 +718,8 @@ class TestMattermostClient(unittest.TestCase):
 
         # Simulate 403 Forbidden for private channels
         mock_private_forbidden = Mock(status_code=403)
-        mock_private_forbidden.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            response=mock_private_forbidden
+        mock_private_forbidden.raise_for_status.side_effect = (
+            requests.exceptions.HTTPError(response=mock_private_forbidden)
         )
 
         mock_response_public = Mock(status_code=200)
@@ -614,8 +743,8 @@ class TestMattermostClient(unittest.TestCase):
 
         # Simulate 403 Forbidden for public channels
         mock_public_forbidden = Mock(status_code=403)
-        mock_public_forbidden.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            response=mock_public_forbidden
+        mock_public_forbidden.raise_for_status.side_effect = (
+            requests.exceptions.HTTPError(response=mock_public_forbidden)
         )
 
         mock_get_request.side_effect = [mock_response_private, mock_public_forbidden]
@@ -636,7 +765,9 @@ class TestMattermostClient(unittest.TestCase):
         roles = self.client.get_user_roles(user_id)
         self.assertEqual(roles, ["system_user", "system_admin"])
         expected_url = f"{self.mock_url}/api/v4/users/{user_id}"
-        mock_get_request.assert_called_once_with(expected_url, headers=self.client.headers)
+        mock_get_request.assert_called_once_with(
+            expected_url, headers=self.client.headers
+        )
 
     @patch("requests.get")
     def test_get_user_roles_success_user_only(self, mock_get_request):
@@ -653,7 +784,10 @@ class TestMattermostClient(unittest.TestCase):
     def test_get_user_roles_success_no_roles_string(self, mock_get_request):
         user_id = "user_with_no_roles_field"
         # Simulate response where 'roles' field is missing or null
-        expected_roles_data = {"id": user_id, "username": "norolesuser"}  # No 'roles' key
+        expected_roles_data = {
+            "id": user_id,
+            "username": "norolesuser",
+        }  # No 'roles' key
         mock_response = Mock(status_code=200)
         mock_response.json.return_value = expected_roles_data
         mock_get_request.return_value = mock_response
@@ -668,13 +802,17 @@ class TestMattermostClient(unittest.TestCase):
         mock_response.json.return_value = expected_roles_data
         mock_get_request.return_value = mock_response
         roles = self.client.get_user_roles(user_id)
-        self.assertEqual(roles, [])  # Should return empty list, not list with one empty string
+        self.assertEqual(
+            roles, []
+        )  # Should return empty list, not list with one empty string
 
     @patch("requests.get")
     def test_get_user_roles_user_not_found(self, mock_get_request):
         user_id = "non_existent_user_id"
         mock_response = Mock(status_code=404)
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_response
+        )
         mock_get_request.return_value = mock_response
 
         roles = self.client.get_user_roles(user_id)
@@ -683,7 +821,9 @@ class TestMattermostClient(unittest.TestCase):
     @patch("requests.get")
     def test_get_user_roles_api_error(self, mock_get_request):
         user_id = "user_id_api_error"
-        mock_get_request.side_effect = requests.exceptions.RequestException("API connection error")
+        mock_get_request.side_effect = requests.exceptions.RequestException(
+            "API connection error"
+        )
         roles = self.client.get_user_roles(user_id)
         self.assertEqual(roles, [])
 

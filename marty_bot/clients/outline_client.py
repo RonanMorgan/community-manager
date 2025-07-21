@@ -6,11 +6,21 @@ from enum import Enum
 
 
 class OutlineAction(Enum):
-    USER_ADDED_TO_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT = "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT"
-    USER_ADDED_TO_COLLECTION_WITH_READ_WRITE_ACCESS_AND_DM_SENT = "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_WRITE_ACCESS_AND_DM_SENT"
-    USER_ADDED_TO_COLLECTION_WITH_READ_ACCESS_DM_FAILED = "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_FAILED"
-    USER_ADDED_TO_COLLECTION_WITH_READ_WRITE_ACCESS_DM_FAILED = "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_WRITE_ACCESS_DM_FAILED"
-    USER_ALREADY_IN_COLLECTION_PERMISSION_ENSURED = "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED"
+    USER_ADDED_TO_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT = (
+        "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT"
+    )
+    USER_ADDED_TO_COLLECTION_WITH_READ_WRITE_ACCESS_AND_DM_SENT = (
+        "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_WRITE_ACCESS_AND_DM_SENT"
+    )
+    USER_ADDED_TO_COLLECTION_WITH_READ_ACCESS_DM_FAILED = (
+        "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_FAILED"
+    )
+    USER_ADDED_TO_COLLECTION_WITH_READ_WRITE_ACCESS_DM_FAILED = (
+        "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_WRITE_ACCESS_DM_FAILED"
+    )
+    USER_ALREADY_IN_COLLECTION_PERMISSION_ENSURED = (
+        "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED"
+    )
     USER_REMOVED_FROM_COLLECTION = "USER_REMOVED_FROM_OUTLINE_COLLECTION"
 
 
@@ -62,7 +72,9 @@ class OutlineClient:
                 data_content = response_data.get("data")
                 if isinstance(data_content, dict) and data_content.get("id"):
                     collection_id = data_content.get("id")
-                    logging.info(f"Outline collection '{project_name}' (ID: {collection_id}) created successfully.")
+                    logging.info(
+                        f"Outline collection '{project_name}' (ID: {collection_id}) created successfully."
+                    )
                     return data_content  # Return the newly created collection object
                 else:
                     logging.warning(
@@ -82,7 +94,9 @@ class OutlineClient:
                 )
                 return None
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request exception during Outline collection creation for '{project_name}': {e}")
+            logging.error(
+                f"Request exception during Outline collection creation for '{project_name}': {e}"
+            )
             return None
 
     def get_user_by_email(self, email: str) -> dict | None:
@@ -93,10 +107,14 @@ class OutlineClient:
         """
         api_url = f"{self.base_url}/api/users.list"
         payload = {
-            "emails": [email.lower()],  # API expects a list, convert email to lowercase for case-insensitivity
+            "emails": [
+                email.lower()
+            ],  # API expects a list, convert email to lowercase for case-insensitivity
             "limit": 1,  # We only expect one user or none
         }
-        logging.debug(f"Outline API >> Getting user by email '{email}' with payload: {json.dumps(payload)}")
+        logging.debug(
+            f"Outline API >> Getting user by email '{email}' with payload: {json.dumps(payload)}"
+        )
         try:
             response = requests.post(api_url, headers=self.headers, json=payload)
             response.raise_for_status()  # Check for HTTP errors like 401, 403, etc.
@@ -107,7 +125,9 @@ class OutlineClient:
             if users and len(users) > 0:
                 # Assuming the first user found with that email is the correct one
                 user_data = users[0]
-                logging.info(f"Found Outline user (ID: {user_data.get('id')}) for email '{email}'.")
+                logging.info(
+                    f"Found Outline user (ID: {user_data.get('id')}) for email '{email}'."
+                )
                 return user_data
             else:
                 logging.info(f"No Outline user found for email '{email}'.")
@@ -119,13 +139,19 @@ class OutlineClient:
             )
             return None
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request failed while fetching Outline user by email '{email}': {e}")
+            logging.error(
+                f"Request failed while fetching Outline user by email '{email}': {e}"
+            )
             return None
         except json.JSONDecodeError as e:
-            logging.error(f"Error decoding JSON from Outline users.list response for email '{email}': {e}")
+            logging.error(
+                f"Error decoding JSON from Outline users.list response for email '{email}': {e}"
+            )
             return None
 
-    def list_collections(self, name: Optional[str] = None, limit: int = 100) -> list[dict] | dict | None:
+    def list_collections(
+        self, name: Optional[str] = None, limit: int = 100
+    ) -> list[dict] | dict | None:
         """
         Retrieves collections from Outline. If a name is provided, it returns a single matching collection object.
         If no name is provided, it returns all collections.
@@ -138,7 +164,9 @@ class OutlineClient:
         offset = 0
 
         if name:
-            logging.debug(f"Outline API >> Attempting to find collection by name '{name}'.")
+            logging.debug(
+                f"Outline API >> Attempting to find collection by name '{name}'."
+            )
         else:
             logging.info("Outline API >> Listing all collections...")
 
@@ -156,10 +184,14 @@ class OutlineClient:
 
                 if name:
                     if collections:
-                        logging.info(f"Found Outline collection '{name}' (ID: {collections[0].get('id')}).")
+                        logging.info(
+                            f"Found Outline collection '{name}' (ID: {collections[0].get('id')})."
+                        )
                         return collections[0]
                     else:
-                        logging.info(f"Outline collection named '{name}' not found after checking all collections.")
+                        logging.info(
+                            f"Outline collection named '{name}' not found after checking all collections."
+                        )
                         return []
                 else:
                     all_collections.extend(collections)
@@ -169,19 +201,27 @@ class OutlineClient:
 
                 offset += len(all_collections)
 
-            logging.info(f"Successfully fetched {len(all_collections)} Outline collections.")
+            logging.info(
+                f"Successfully fetched {len(all_collections)} Outline collections."
+            )
             return all_collections
         except requests.exceptions.HTTPError as e:
-            logging.error(f"HTTP error fetching Outline collections: {e.response.status_code} - {e.response.text}")
+            logging.error(
+                f"HTTP error fetching Outline collections: {e.response.status_code} - {e.response.text}"
+            )
             return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Request failed while fetching Outline collections: {e}")
             return None
         except json.JSONDecodeError as e:
-            logging.error(f"Error decoding JSON from Outline collections.list response: {e}")
+            logging.error(
+                f"Error decoding JSON from Outline collections.list response: {e}"
+            )
             return None
 
-    def get_collection_members(self, collection_id: str, limit: int = 100) -> list[str] | None:
+    def get_collection_members(
+        self, collection_id: str, limit: int = 100
+    ) -> list[str] | None:
         """
         Retrieves user IDs of members for a specific collection.
         :param collection_id: The ID of the collection.
@@ -197,7 +237,9 @@ class OutlineClient:
         offset = 0
         page_count = 0
 
-        logging.debug(f"Outline API >> Getting collection members for ID '{collection_id}'")
+        logging.debug(
+            f"Outline API >> Getting collection members for ID '{collection_id}'"
+        )
 
         try:
             while True:
@@ -220,7 +262,9 @@ class OutlineClient:
 
                 if not memberships and not data_block.get("users"):
                     if offset == 0:
-                        logging.info(f"No members found for Outline collection ID '{collection_id}'.")
+                        logging.info(
+                            f"No members found for Outline collection ID '{collection_id}'."
+                        )
                     break
 
                 for membership in memberships:
@@ -255,7 +299,9 @@ class OutlineClient:
             )
             return None
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request failed while fetching members for Outline collection ID '{collection_id}': {e}")
+            logging.error(
+                f"Request failed while fetching members for Outline collection ID '{collection_id}': {e}"
+            )
             return None
         except json.JSONDecodeError as e:
             logging.error(
@@ -263,7 +309,9 @@ class OutlineClient:
             )
             return None
 
-    def add_user_to_collection(self, collection_id: str, user_id: str, permission: str = "read") -> bool:
+    def add_user_to_collection(
+        self, collection_id: str, user_id: str, permission: str = "read"
+    ) -> bool:
         """
         Adds a user to an Outline collection.
         :param collection_id: The ID of the collection.
@@ -329,7 +377,9 @@ class OutlineClient:
 
         api_url = f"{self.base_url}/api/collections.info"
         payload = {"id": collection_id}
-        logging.debug(f"Outline API >> Getting collection details for ID '{collection_id}'")
+        logging.debug(
+            f"Outline API >> Getting collection details for ID '{collection_id}'"
+        )
 
         try:
             response = requests.post(api_url, headers=self.headers, json=payload)
@@ -339,7 +389,9 @@ class OutlineClient:
             collection_data = response_data.get("data")
 
             if collection_data:
-                logging.info(f"Successfully fetched details for Outline collection ID '{collection_id}'.")
+                logging.info(
+                    f"Successfully fetched details for Outline collection ID '{collection_id}'."
+                )
                 return collection_data
             else:
                 logging.warning(
@@ -354,7 +406,9 @@ class OutlineClient:
             )
             return None
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request failed while fetching details for Outline collection ID '{collection_id}': {e}")
+            logging.error(
+                f"Request failed while fetching details for Outline collection ID '{collection_id}': {e}"
+            )
             return None
         except json.JSONDecodeError as e:
             logging.error(
@@ -384,10 +438,14 @@ class OutlineClient:
             user_data = response_data.get("data")
 
             if user_data:
-                logging.info(f"Successfully fetched Outline user (ID: {user_id}, Name: {user_data.get('name')}).")
+                logging.info(
+                    f"Successfully fetched Outline user (ID: {user_id}, Name: {user_data.get('name')})."
+                )
                 return user_data
             else:
-                logging.warning(f"Outline user ID '{user_id}' not found or no data returned.")
+                logging.warning(
+                    f"Outline user ID '{user_id}' not found or no data returned."
+                )
                 return None
         except requests.exceptions.HTTPError as e:
             logging.error(
@@ -395,10 +453,14 @@ class OutlineClient:
             )
             return None
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request failed while fetching Outline user by ID '{user_id}': {e}")
+            logging.error(
+                f"Request failed while fetching Outline user by ID '{user_id}': {e}"
+            )
             return None
         except json.JSONDecodeError as e:
-            logging.error(f"Error decoding JSON from Outline users.info response for ID '{user_id}': {e}")
+            logging.error(
+                f"Error decoding JSON from Outline users.info response for ID '{user_id}': {e}"
+            )
             return None
 
     def remove_user_from_collection(self, collection_id: str, user_id: str) -> bool:
@@ -409,7 +471,9 @@ class OutlineClient:
         :return: True if successful, False otherwise.
         """
         if not collection_id or not user_id:
-            logging.error("Collection ID and User ID must be provided to remove user from collection.")
+            logging.error(
+                "Collection ID and User ID must be provided to remove user from collection."
+            )
             return False
 
         api_url = f"{self.base_url}/api/collections.remove_user"
@@ -427,12 +491,16 @@ class OutlineClient:
             # Outline API usually returns a success boolean or specific data structure
             # For remove_user, a 200 OK with {"success": true} is common, or 204 No Content
             if response.status_code == 204:  # Successfully removed, no content
-                logging.info(f"Successfully removed user ID '{user_id}' from Outline collection ID '{collection_id}'.")
+                logging.info(
+                    f"Successfully removed user ID '{user_id}' from Outline collection ID '{collection_id}'."
+                )
                 return True
 
             response_data = response.json()
             if response_data.get("success"):
-                logging.info(f"Successfully removed user ID '{user_id}' from Outline collection ID '{collection_id}'.")
+                logging.info(
+                    f"Successfully removed user ID '{user_id}' from Outline collection ID '{collection_id}'."
+                )
                 return True
             else:
                 # This case handles 200 OK but success:false or missing success field
@@ -474,7 +542,9 @@ if __name__ == "__main__":
     outline_token_env = os.getenv("OUTLINE_TOKEN")
 
     if not outline_url_env or not outline_token_env:
-        print("Please set OUTLINE_URL and OUTLINE_TOKEN environment variables for this example.")  # noqa: E501
+        print(
+            "Please set OUTLINE_URL and OUTLINE_TOKEN environment variables for this example."
+        )  # noqa: E501
     else:
         print(f"Attempting to connect to Outline at {outline_url_env}")
         try:
@@ -486,7 +556,9 @@ if __name__ == "__main__":
             print(f"Outline collection creation success: {success}")
 
             if success:
-                print(f"\nAttempting to create Outline collection AGAIN: '{project_to_create}'")
+                print(
+                    f"\nAttempting to create Outline collection AGAIN: '{project_to_create}'"
+                )
                 success_again = client.create_group(project_to_create)
                 print(
                     f"Second Outline collection creation success: {success_again} (expected False if already exists or handled by Outline)"  # noqa: E501

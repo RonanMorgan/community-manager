@@ -11,7 +11,9 @@ class NocoDBAction(Enum):
     USER_ROLE_UPDATED_TO_COMMENTER = "NOCODB_USER_ROLE_UPDATED_TO_COMMENTER"
     USER_ROLE_UPDATED_TO_VIEWER = "NOCODB_USER_ROLE_UPDATED_TO_VIEWER"
     USER_ROLE_UPDATED_TO_GUEST = "NOCODB_USER_ROLE_UPDATED_TO_GUEST"
-    USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE = "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"
+    USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE = (
+        "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"
+    )
     USER_INVITED_AS_OWNER = "NOCODB_USER_INVITED_AS_OWNER"
     USER_INVITED_AS_CREATOR = "NOCODB_USER_INVITED_AS_CREATOR"
     USER_INVITED_AS_EDITOR = "NOCODB_USER_INVITED_AS_EDITOR"
@@ -21,7 +23,9 @@ class NocoDBAction(Enum):
     USER_INVITED_AS_OWNER_AND_DM_SENT = "NOCODB_USER_INVITED_AS_OWNER_AND_DM_SENT"
     USER_INVITED_AS_CREATOR_AND_DM_SENT = "NOCODB_USER_INVITED_AS_CREATOR_AND_DM_SENT"
     USER_INVITED_AS_EDITOR_AND_DM_SENT = "NOCODB_USER_INVITED_AS_EDITOR_AND_DM_SENT"
-    USER_INVITED_AS_COMMENTER_AND_DM_SENT = "NOCODB_USER_INVITED_AS_COMMENTER_AND_DM_SENT"
+    USER_INVITED_AS_COMMENTER_AND_DM_SENT = (
+        "NOCODB_USER_INVITED_AS_COMMENTER_AND_DM_SENT"
+    )
     USER_INVITED_AS_VIEWER_AND_DM_SENT = "NOCODB_USER_INVITED_AS_VIEWER_AND_DM_SENT"
     USER_INVITED_AS_GUEST_AND_DM_SENT = "NOCODB_USER_INVITED_AS_GUEST_AND_DM_SENT"
     USER_INVITED_AS_OWNER_DM_FAILED = "NOCODB_USER_INVITED_AS_OWNER_DM_FAILED"
@@ -30,12 +34,24 @@ class NocoDBAction(Enum):
     USER_INVITED_AS_COMMENTER_DM_FAILED = "NOCODB_USER_INVITED_AS_COMMENTER_DM_FAILED"
     USER_INVITED_AS_VIEWER_DM_FAILED = "NOCODB_USER_INVITED_AS_VIEWER_DM_FAILED"
     USER_INVITED_AS_GUEST_DM_FAILED = "NOCODB_USER_INVITED_AS_GUEST_DM_FAILED"
-    USER_INVITED_AS_OWNER_DM_SKIPPED_NO_URL = "NOCODB_USER_INVITED_AS_OWNER_DM_SKIPPED_NO_URL"
-    USER_INVITED_AS_CREATOR_DM_SKIPPED_NO_URL = "NOCODB_USER_INVITED_AS_CREATOR_DM_SKIPPED_NO_URL"
-    USER_INVITED_AS_EDITOR_DM_SKIPPED_NO_URL = "NOCODB_USER_INVITED_AS_EDITOR_DM_SKIPPED_NO_URL"
-    USER_INVITED_AS_COMMENTER_DM_SKIPPED_NO_URL = "NOCODB_USER_INVITED_AS_COMMENTER_DM_SKIPPED_NO_URL"
-    USER_INVITED_AS_VIEWER_DM_SKIPPED_NO_URL = "NOCODB_USER_INVITED_AS_VIEWER_DM_SKIPPED_NO_URL"
-    USER_INVITED_AS_GUEST_DM_SKIPPED_NO_URL = "NOCODB_USER_INVITED_AS_GUEST_DM_SKIPPED_NO_URL"
+    USER_INVITED_AS_OWNER_DM_SKIPPED_NO_URL = (
+        "NOCODB_USER_INVITED_AS_OWNER_DM_SKIPPED_NO_URL"
+    )
+    USER_INVITED_AS_CREATOR_DM_SKIPPED_NO_URL = (
+        "NOCODB_USER_INVITED_AS_CREATOR_DM_SKIPPED_NO_URL"
+    )
+    USER_INVITED_AS_EDITOR_DM_SKIPPED_NO_URL = (
+        "NOCODB_USER_INVITED_AS_EDITOR_DM_SKIPPED_NO_URL"
+    )
+    USER_INVITED_AS_COMMENTER_DM_SKIPPED_NO_URL = (
+        "NOCODB_USER_INVITED_AS_COMMENTER_DM_SKIPPED_NO_URL"
+    )
+    USER_INVITED_AS_VIEWER_DM_SKIPPED_NO_URL = (
+        "NOCODB_USER_INVITED_AS_VIEWER_DM_SKIPPED_NO_URL"
+    )
+    USER_INVITED_AS_GUEST_DM_SKIPPED_NO_URL = (
+        "NOCODB_USER_INVITED_AS_GUEST_DM_SKIPPED_NO_URL"
+    )
     FAILED_TO_UPDATE_NOCODB_USER_ROLE = "FAILED_TO_UPDATE_NOCODB_USER_ROLE"
     FAILED_TO_INVITE_NOCODB_USER = "FAILED_TO_INVITE_NOCODB_USER"
 
@@ -58,7 +74,9 @@ class NocoDBClient:
             "xc-token": token,  # Based on NoCoDB docs, token is often passed as xc-token
             "Content-Type": "application/json",
         }
-        logger.debug("NocoDBClient initialized for URL: %s", self.base_url)  # Changed to DEBUG
+        logger.debug(
+            "NocoDBClient initialized for URL: %s", self.base_url
+        )  # Changed to DEBUG
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> dict | list | None:
         """Helper function to make requests to the NoCoDB API."""
@@ -73,7 +91,9 @@ class NocoDBClient:
         try:
             response = requests.request(method, url, headers=self.headers, **kwargs)
             response.raise_for_status()
-            if response.content:  # Handle cases where response might be empty (e.g., 204 No Content)
+            if (
+                response.content
+            ):  # Handle cases where response might be empty (e.g., 204 No Content)
                 return response.json()
             return None  # Or return a specific success indicator if appropriate for empty responses
         except requests.exceptions.HTTPError as e:
@@ -83,11 +103,17 @@ class NocoDBClient:
                     f"{e.response.status_code} - {e.response.text}"
                 )
             else:
-                logger.error(f"NoCoDB API << HTTP error for {method.upper()} {url} with no response body: {e}")
+                logger.error(
+                    f"NoCoDB API << HTTP error for {method.upper()} {url} with no response body: {e}"
+                )
         except requests.exceptions.RequestException as e:
-            logger.error(f"NoCoDB API << Request exception for {method.upper()} {url}: {e}")
+            logger.error(
+                f"NoCoDB API << Request exception for {method.upper()} {url}: {e}"
+            )
         except ValueError as e:  # Includes JSONDecodeError
-            logger.error(f"NoCoDB API << Error decoding JSON response from {method.upper()} {url}: {e}")
+            logger.error(
+                f"NoCoDB API << Error decoding JSON response from {method.upper()} {url}: {e}"
+            )
         return None
 
     def create_base(self, base_title: str, description: str = "") -> dict | None:
@@ -101,14 +127,22 @@ class NocoDBClient:
             # "sources": [], # Default, can be customized if needed
             # "color": "#24716E" # Default color
         }
-        logger.info(f"Attempting to create NoCoDB base with title: {base_title}")  # Kept as INFO
+        logger.info(
+            f"Attempting to create NoCoDB base with title: {base_title}"
+        )  # Kept as INFO
         response_data = self._make_request("post", "projects/", json=payload)
-        if response_data and isinstance(response_data, dict) and response_data.get("id"):
+        if (
+            response_data
+            and isinstance(response_data, dict)
+            and response_data.get("id")
+        ):
             logger.info(
                 f"Successfully created NoCoDB base '{base_title}' with ID: {response_data['id']}"
             )  # Kept as INFO
             return response_data
-        logger.warning(f"Failed to create NoCoDB base '{base_title}'. Response: {response_data}")  # Kept as WARNING
+        logger.warning(
+            f"Failed to create NoCoDB base '{base_title}'. Response: {response_data}"
+        )  # Kept as WARNING
         return None
 
     def get_base_by_title(self, base_title: str) -> dict | None:
@@ -119,14 +153,26 @@ class NocoDBClient:
         """
         logger.debug("Attempting to find NoCoDB base with title: %s", base_title)
         response_data = self._make_request("get", "projects/")
-        if response_data and isinstance(response_data, dict) and "list" in response_data:
+        if (
+            response_data
+            and isinstance(response_data, dict)
+            and "list" in response_data
+        ):
             for base in response_data["list"]:
                 if base.get("title") == base_title:
-                    logger.debug("Found NoCoDB base '%s' with ID: %s", base_title, base["id"])
+                    logger.debug(
+                        "Found NoCoDB base '%s' with ID: %s", base_title, base["id"]
+                    )
                     return base
-            logger.debug("NoCoDB base with title '%s' not found in the list of bases.", base_title)
+            logger.debug(
+                "NoCoDB base with title '%s' not found in the list of bases.",
+                base_title,
+            )
         else:
-            logger.warning("Failed to list NoCoDB bases or unexpected response format. Response: %s", response_data)
+            logger.warning(
+                "Failed to list NoCoDB bases or unexpected response format. Response: %s",
+                response_data,
+            )
         return None
 
     def invite_user_to_base(self, base_id: str, email: str, role: str) -> bool:
@@ -148,7 +194,9 @@ class NocoDBClient:
             message_info = f"Message: {response_data['msg']}"
             logger.info(f"{user_info} {message_info}")
             return True
-        logger.warning(f"Failed to invite user '{email}' to base ID '{base_id}'. Response: {response_data}")
+        logger.warning(
+            f"Failed to invite user '{email}' to base ID '{base_id}'. Response: {response_data}"
+        )
         return False
 
     def update_base_user(self, base_id: str, user_id: str, role: str) -> bool:
@@ -169,7 +217,8 @@ class NocoDBClient:
             response_data and isinstance(response_data, dict) and "msg" in response_data
         ):  # e.g. {"msg": "The user has been updated successfully"}
             log_msg = (
-                f"Successfully updated user ID '{user_id}' in base ID '{base_id}'. " f"Message: {response_data['msg']}"
+                f"Successfully updated user ID '{user_id}' in base ID '{base_id}'. "
+                f"Message: {response_data['msg']}"
             )
             logger.info(log_msg)  # Kept as INFO
             return True
@@ -196,7 +245,9 @@ class NocoDBClient:
             logger.debug("Found %d users for base ID '%s'.", len(users_list), base_id)
             return users_list
         logger.warning(
-            "Failed to list users for base ID '%s' or unexpected format. Response: %s", base_id, response_data
+            "Failed to list users for base ID '%s' or unexpected format. Response: %s",
+            base_id,
+            response_data,
         )
         return []
 
@@ -237,7 +288,10 @@ class NocoDBClient:
         users = self.list_base_users(base_id)
         for user in users:
             if user.get("email", "").lower() == email.lower():
-                log_msg = f"Found user '{email}' with ID '{user.get('id')}' " f"in base '{base_id}'."
+                log_msg = (
+                    f"Found user '{email}' with ID '{user.get('id')}' "
+                    f"in base '{base_id}'."
+                )
                 logger.debug(log_msg)
                 return user
         logger.debug(f"User with email '{email}' not found in base ID '{base_id}'.")

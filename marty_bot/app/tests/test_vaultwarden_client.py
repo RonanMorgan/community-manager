@@ -14,7 +14,9 @@ class TestVaultwardenClient(unittest.TestCase):
         self.organization_id = "test-org-id"
         self.server_url = "https://test.vaultwarden.com"
 
-        self.env_patcher_bw_password = patch.dict(os.environ, {"BW_PASSWORD": "testpassword"})
+        self.env_patcher_bw_password = patch.dict(
+            os.environ, {"BW_PASSWORD": "testpassword"}
+        )
         self.env_patcher_bw_session = patch.dict(os.environ, {"BW_SESSION": ""})
 
         self.mock_bw_password_env = self.env_patcher_bw_password.start()
@@ -50,19 +52,26 @@ class TestVaultwardenClient(unittest.TestCase):
     def test_initialization_missing_org_id(self):
         with self.assertRaises(ValueError) as context:
             VaultwardenClient(organization_id="", server_url=self.server_url)
-        self.assertIn("Vaultwarden organization_id must be provided", str(context.exception))
+        self.assertIn(
+            "Vaultwarden organization_id must be provided", str(context.exception)
+        )
 
     @patch("clients.vaultwarden_client.VaultwardenClient._run_bw_command")
     def test_ensure_server_configuration_already_set(self, mock_run_bw_command):
         mock_run_bw_command.return_value = (0, self.server_url, "")
         client = self.client
         self.assertTrue(client._ensure_server_configuration())
-        mock_run_bw_command.assert_called_once_with(["config", "server"], custom_env=unittest.mock.ANY)
+        mock_run_bw_command.assert_called_once_with(
+            ["config", "server"], custom_env=unittest.mock.ANY
+        )
         self.assertEqual(mock_run_bw_command.call_count, 1)
 
     @patch("clients.vaultwarden_client.VaultwardenClient._run_bw_command")
     def test_ensure_server_configuration_needs_set(self, mock_run_bw_command):
-        mock_run_bw_command.side_effect = [(0, "https://otherserver.com", ""), (0, "", "")]
+        mock_run_bw_command.side_effect = [
+            (0, "https://otherserver.com", ""),
+            (0, "", ""),
+        ]
         client = self.client
         self.assertTrue(client._ensure_server_configuration())
         expected_calls = [
@@ -73,7 +82,9 @@ class TestVaultwardenClient(unittest.TestCase):
         self.assertEqual(mock_run_bw_command.call_count, 2)
 
     @patch("subprocess.run")
-    def test_ensure_server_configuration_handles_bw_not_found(self, mock_subprocess_run):
+    def test_ensure_server_configuration_handles_bw_not_found(
+        self, mock_subprocess_run
+    ):
         mock_subprocess_run.side_effect = FileNotFoundError("bw not found simulation")
         client = self.client
         with self.assertRaises(FileNotFoundError):
@@ -85,7 +96,9 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_run_bw.return_value = (0, json.dumps({"status": "unlocked"}), "")
         status = self.client._get_cli_status()
         self.assertEqual(status, "unlocked")
-        mock_run_bw.assert_called_once_with(["status", "--raw"], custom_env=unittest.mock.ANY)
+        mock_run_bw.assert_called_once_with(
+            ["status", "--raw"], custom_env=unittest.mock.ANY
+        )
 
     # ... (other CLI status tests remain the same) ...
     @patch.object(VaultwardenClient, "_run_bw_command")
@@ -122,7 +135,9 @@ class TestVaultwardenClient(unittest.TestCase):
 
     @patch.object(VaultwardenClient, "_get_cli_status")
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_session_status_locked_unlock_success(self, mock_run_bw, mock_get_cli_status):
+    def test_get_session_status_locked_unlock_success(
+        self, mock_run_bw, mock_get_cli_status
+    ):
         mock_get_cli_status.return_value = "locked"
         expected_session_key = "new_session_key_from_unlock"
         mock_run_bw.return_value = (0, f"{expected_session_key}\n", "")
@@ -131,7 +146,9 @@ class TestVaultwardenClient(unittest.TestCase):
 
     @patch.object(VaultwardenClient, "_get_cli_status")
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_session_status_locked_unlock_fail_no_password(self, mock_run_bw, mock_get_cli_status):
+    def test_get_session_status_locked_unlock_fail_no_password(
+        self, mock_run_bw, mock_get_cli_status
+    ):
         mock_get_cli_status.return_value = "locked"
         with patch.dict(os.environ, {"BW_PASSWORD": ""}):
             session = self.client._get_session()
@@ -140,7 +157,9 @@ class TestVaultwardenClient(unittest.TestCase):
 
     @patch.object(VaultwardenClient, "_get_cli_status")
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_session_status_unlocked_existing_valid_session(self, mock_run_bw, mock_get_cli_status):
+    def test_get_session_status_unlocked_existing_valid_session(
+        self, mock_run_bw, mock_get_cli_status
+    ):
         mock_get_cli_status.return_value = "unlocked"
         self.client.bw_session = "valid_existing_session"
         mock_run_bw.return_value = (0, "", "")
@@ -149,11 +168,16 @@ class TestVaultwardenClient(unittest.TestCase):
 
     @patch.object(VaultwardenClient, "_get_cli_status")
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_session_status_unlocked_existing_invalid_session_then_unlock(self, mock_run_bw, mock_get_cli_status):
+    def test_get_session_status_unlocked_existing_invalid_session_then_unlock(
+        self, mock_run_bw, mock_get_cli_status
+    ):
         mock_get_cli_status.return_value = "unlocked"
         self.client.bw_session = "invalid_session"
         expected_new_key = "freshly_unlocked_key"
-        mock_run_bw.side_effect = [(1, "", "session invalid error"), (0, f"{expected_new_key}\n", "")]
+        mock_run_bw.side_effect = [
+            (1, "", "session invalid error"),
+            (0, f"{expected_new_key}\n", ""),
+        ]
         session = self.client._get_session()
         self.assertEqual(session, expected_new_key)
 
@@ -180,10 +204,15 @@ class TestVaultwardenClient(unittest.TestCase):
     @patch.object(VaultwardenClient, "_get_session")
     @patch.object(VaultwardenClient, "_sync_vault")
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_create_collection_success(self, mock_run_bw, mock_sync_vault, mock_get_session):
+    def test_create_collection_success(
+        self, mock_run_bw, mock_sync_vault, mock_get_session
+    ):
         mock_get_session.return_value = "fake_session_for_create"
         mock_sync_vault.return_value = True
-        mock_run_bw.side_effect = [(0, "encoded", ""), (0, json.dumps({"id": "id"}), "")]
+        mock_run_bw.side_effect = [
+            (0, "encoded", ""),
+            (0, json.dumps({"id": "id"}), ""),
+        ]
         self.assertIsNotNone(self.client.create_collection("New Coll"))
 
     @patch.object(VaultwardenClient, "_get_session", return_value=None)
@@ -193,28 +222,57 @@ class TestVaultwardenClient(unittest.TestCase):
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
     @patch.object(VaultwardenClient, "_sync_vault", return_value=False)
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_create_collection_sync_fail_still_attempts(self, mock_run_bw, mock_sync_vault, mock_get_session):
-        mock_run_bw.side_effect = [(0, "encoded", ""), (0, json.dumps({"id": "id"}), "")]
+    def test_create_collection_sync_fail_still_attempts(
+        self, mock_run_bw, mock_sync_vault, mock_get_session
+    ):
+        mock_run_bw.side_effect = [
+            (0, "encoded", ""),
+            (0, json.dumps({"id": "id"}), ""),
+        ]
         self.assertIsNotNone(self.client.create_collection("Sync Fail"))
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
     @patch.object(VaultwardenClient, "_sync_vault", return_value=True)
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_create_collection_already_exists_finds_it(self, mock_run_bw, mock_sync, mock_get_session):
+    def test_create_collection_already_exists_finds_it(
+        self, mock_run_bw, mock_sync, mock_get_session
+    ):
         mock_run_bw.side_effect = [
             (0, "encoded_payload", ""),
             (1, "", "already exists"),
-            (0, json.dumps([{"id": "existing-uuid", "name": "Existing", "organizationId": self.organization_id}]), ""),
+            (
+                0,
+                json.dumps(
+                    [
+                        {
+                            "id": "existing-uuid",
+                            "name": "Existing",
+                            "organizationId": self.organization_id,
+                        }
+                    ]
+                ),
+                "",
+            ),
         ]
         self.assertEqual(self.client.create_collection("Existing"), "existing-uuid")
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
     @patch.object(VaultwardenClient, "_sync_vault", return_value=True)
     @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_collection_by_name_found(self, mock_run_bw, mock_sync_vault, mock_get_session):
+    def test_get_collection_by_name_found(
+        self, mock_run_bw, mock_sync_vault, mock_get_session
+    ):
         mock_run_bw.return_value = (
             0,
-            json.dumps([{"name": "Target", "id": "target-uuid", "organizationId": self.organization_id}]),
+            json.dumps(
+                [
+                    {
+                        "name": "Target",
+                        "id": "target-uuid",
+                        "organizationId": self.organization_id,
+                    }
+                ]
+            ),
             "",
         )
         self.assertEqual(self.client.get_collection_by_name("Target"), "target-uuid")
@@ -254,11 +312,15 @@ class TestVaultwardenClient(unittest.TestCase):
         self.assertIsNone(self.client._get_api_token())
 
     def test_get_api_token_no_credentials(self):
-        client_no_creds = VaultwardenClient(organization_id=self.organization_id, server_url=self.server_url)
+        client_no_creds = VaultwardenClient(
+            organization_id=self.organization_id, server_url=self.server_url
+        )
         self.assertIsNone(client_no_creds._get_api_token())
 
     def test_get_api_token_no_server_url(self):
-        client_no_url = VaultwardenClient(organization_id=self.organization_id, api_username="u", api_password="p")
+        client_no_url = VaultwardenClient(
+            organization_id=self.organization_id, api_username="u", api_password="p"
+        )
         self.assertIsNone(client_no_url._get_api_token())
 
     @patch("requests.post")
@@ -266,7 +328,9 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
-        self.assertTrue(self.client.invite_user_to_collection("u@e.com", "cid", "oid", "token"))
+        self.assertTrue(
+            self.client.invite_user_to_collection("u@e.com", "cid", "oid", "token")
+        )
 
     @patch("requests.post")
     def test_invite_user_to_collection_http_error(self, mock_post):
@@ -279,16 +343,24 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_response_obj.raise_for_status.side_effect = mock_http_error
         mock_response_obj.status_code = 400
         mock_post.return_value = mock_response_obj
-        self.assertFalse(self.client.invite_user_to_collection("u@e.com", "cid", "oid", "token"))
+        self.assertFalse(
+            self.client.invite_user_to_collection("u@e.com", "cid", "oid", "token")
+        )
 
     @patch("requests.post")
     def test_invite_user_to_collection_request_exception(self, mock_post):
         mock_post.side_effect = requests.exceptions.RequestException("Network error")
-        self.assertFalse(self.client.invite_user_to_collection("u@e.com", "cid", "oid", "token"))
+        self.assertFalse(
+            self.client.invite_user_to_collection("u@e.com", "cid", "oid", "token")
+        )
 
     def test_invite_user_to_collection_no_server_url(self):
-        client_no_url = VaultwardenClient(organization_id=self.organization_id, api_username="u", api_password="p")
-        self.assertFalse(client_no_url.invite_user_to_collection("u@e.com", "cid", "oid", "token"))
+        client_no_url = VaultwardenClient(
+            organization_id=self.organization_id, api_username="u", api_password="p"
+        )
+        self.assertFalse(
+            client_no_url.invite_user_to_collection("u@e.com", "cid", "oid", "token")
+        )
 
     @patch("requests.post")
     def test_invite_user_to_collection_already_member_is_success(self, mock_post):
@@ -301,9 +373,13 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_error_response_model = MagicMock()
         mock_error_response_model.status_code = 400
         mock_error_response_model.json.return_value = {
-            "errorModel": {"message": f"{user_email} is already a member of this collection."}
+            "errorModel": {
+                "message": f"{user_email} is already a member of this collection."
+            }
         }
-        mock_error_response_model.text = json.dumps(mock_error_response_model.json.return_value)
+        mock_error_response_model.text = json.dumps(
+            mock_error_response_model.json.return_value
+        )
         mock_http_error_model.response = mock_error_response_model
 
         mock_response_obj_model = MagicMock()
@@ -315,21 +391,33 @@ class TestVaultwardenClient(unittest.TestCase):
             success = self.client.invite_user_to_collection(
                 user_email, collection_id, self.organization_id, access_token
             )
-            self.assertTrue(success, "Should return True if user already a member (errorModel case)")
-            self.assertTrue(any("already a member" in record.getMessage() for record in log.records))
+            self.assertTrue(
+                success, "Should return True if user already a member (errorModel case)"
+            )
+            self.assertTrue(
+                any("already a member" in record.getMessage() for record in log.records)
+            )
 
         mock_post.reset_mock()
 
         # Test case 2: Error in ValidationErrors
-        mock_http_error_validation = requests.exceptions.HTTPError("Simulated 400 Error")
+        mock_http_error_validation = requests.exceptions.HTTPError(
+            "Simulated 400 Error"
+        )
         mock_error_response_validation = MagicMock()
         mock_error_response_validation.status_code = 400
-        mock_error_response_validation.json.return_value = {"ValidationErrors": {"": ["User is already confirmed."]}}
-        mock_error_response_validation.text = json.dumps(mock_error_response_validation.json.return_value)
+        mock_error_response_validation.json.return_value = {
+            "ValidationErrors": {"": ["User is already confirmed."]}
+        }
+        mock_error_response_validation.text = json.dumps(
+            mock_error_response_validation.json.return_value
+        )
         mock_http_error_validation.response = mock_error_response_validation
 
         mock_response_obj_validation = MagicMock()
-        mock_response_obj_validation.raise_for_status.side_effect = mock_http_error_validation
+        mock_response_obj_validation.raise_for_status.side_effect = (
+            mock_http_error_validation
+        )
         mock_response_obj_validation.status_code = 400
         mock_post.return_value = mock_response_obj_validation
 
@@ -338,7 +426,10 @@ class TestVaultwardenClient(unittest.TestCase):
             user_email, collection_id, self.organization_id, access_token
         )
         print(f"DEBUG_TEST_CASE2_RETURN_VALUE: success_case2 = {success_case2}")
-        self.assertTrue(success_case2, "Should return True if user already confirmed (ValidationErrors case)")
+        self.assertTrue(
+            success_case2,
+            "Should return True if user already confirmed (ValidationErrors case)",
+        )
 
         # To verify logging for this specific path if needed, could re-call within assertLogs
         # or check logs via other means if print statements confirm the path.
@@ -347,11 +438,17 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_post.reset_mock()
 
         # Test case 3: A different 400 error (should return False)
-        mock_http_error_other = requests.exceptions.HTTPError("Simulated 400 Error - Other")
+        mock_http_error_other = requests.exceptions.HTTPError(
+            "Simulated 400 Error - Other"
+        )
         mock_error_response_other = MagicMock()
         mock_error_response_other.status_code = 400
-        mock_error_response_other.json.return_value = {"errorModel": {"message": "Some other unrelated 400 error."}}
-        mock_error_response_other.text = json.dumps(mock_error_response_other.json.return_value)
+        mock_error_response_other.json.return_value = {
+            "errorModel": {"message": "Some other unrelated 400 error."}
+        }
+        mock_error_response_other.text = json.dumps(
+            mock_error_response_other.json.return_value
+        )
         mock_http_error_other.response = mock_error_response_other
 
         mock_response_obj_other = MagicMock()
@@ -374,7 +471,8 @@ class TestVaultwardenClient(unittest.TestCase):
                     already_member_log_found = True
                     break
             self.assertFalse(
-                already_member_log_found, "Should not log 'already member/invited' for a generic 400 error"
+                already_member_log_found,
+                "Should not log 'already member/invited' for a generic 400 error",
             )
 
     def test_get_collections_details_success(self):

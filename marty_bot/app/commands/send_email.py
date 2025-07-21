@@ -15,14 +15,21 @@ class SendEmailCommand(BaseCommand):
         Usage: @marty send_email <Sujet de l'email> /// <Contenu de l'email>
         Doit être lancé depuis un canal admin d'une entité (projet, pôle, antenne).
         """
-        logging.info(f"'send_email' command received in channel {channel_id} by user {user_id_who_posted}.")
+        logging.info(
+            f"'send_email' command received in channel {channel_id} by user {user_id_who_posted}."
+        )
 
         if not self.bot.brevo_client:
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, ":x: Erreur: Le client Brevo n'est pas configuré."
+                self.bot.envoyer_message,
+                channel_id,
+                ":x: Erreur: Le client Brevo n'est pas configuré.",
             )
             return
-        if not self.bot.config.BREVO_DEFAULT_SENDER_EMAIL or not self.bot.config.BREVO_DEFAULT_SENDER_NAME:
+        if (
+            not self.bot.config.BREVO_DEFAULT_SENDER_EMAIL
+            or not self.bot.config.BREVO_DEFAULT_SENDER_NAME
+        ):
             await asyncio.to_thread(
                 self.bot.envoyer_message,
                 channel_id,
@@ -31,19 +38,29 @@ class SendEmailCommand(BaseCommand):
             return
         if not self.bot.mattermost_api_client:
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, ":x: Erreur: Le client Mattermost API n'est pas configuré."
+                self.bot.envoyer_message,
+                channel_id,
+                ":x: Erreur: Le client Mattermost API n'est pas configuré.",
             )
             return
 
         if not arg_string or "///" not in arg_string:
-            usage_msg = "Usage: `@marty send_email <Sujet de l'email> /// <Contenu de l'email>`"
-            await asyncio.to_thread(self.bot.envoyer_message, channel_id, f":warning: Syntaxe incorrecte. {usage_msg}")
+            usage_msg = (
+                "Usage: `@marty send_email <Sujet de l'email> /// <Contenu de l'email>`"
+            )
+            await asyncio.to_thread(
+                self.bot.envoyer_message,
+                channel_id,
+                f":warning: Syntaxe incorrecte. {usage_msg}",
+            )
             return
 
         subject, text_content = [part.strip() for part in arg_string.split("///", 1)]
 
         if not subject or not text_content:
-            usage_msg = "Usage: `@marty send_email <Sujet de l'email> /// <Contenu de l'email>`"
+            usage_msg = (
+                "Usage: `@marty send_email <Sujet de l'email> /// <Contenu de l'email>`"
+            )
             await asyncio.to_thread(
                 self.bot.envoyer_message,
                 channel_id,
@@ -105,14 +122,20 @@ class SendEmailCommand(BaseCommand):
                     # This part is tricky and might need refinement based on exact naming conventions.
 
                     # Attempt with display_name:
-                    temp_entity_key, temp_base_name = _map_mm_channel_to_entity_and_base_name(
-                        admin_channel_name_slug,
-                        current_channel_info.get("display_name"),
-                        {e_key: e_conf},  # Pass only current entity for specific matching
+                    temp_entity_key, temp_base_name = (
+                        _map_mm_channel_to_entity_and_base_name(
+                            admin_channel_name_slug,
+                            current_channel_info.get("display_name"),
+                            {
+                                e_key: e_conf
+                            },  # Pass only current entity for specific matching
+                        )
                     )
                     if temp_entity_key == e_key and temp_base_name:
                         # Verify if this is indeed an admin channel for THIS entity_key
-                        expected_admin_channel_slug = slugify(admin_pattern.format(base_name=temp_base_name))
+                        expected_admin_channel_slug = slugify(
+                            admin_pattern.format(base_name=temp_base_name)
+                        )
                         if admin_channel_name_slug == expected_admin_channel_slug:
                             entity_key_found = e_key
                             base_name_found = temp_base_name
@@ -134,11 +157,15 @@ class SendEmailCommand(BaseCommand):
         )
 
         # 2. Récupérer la liste Brevo du canal standard
-        entity_permissions = self.bot.config.PERMISSIONS_MATRIX.get(entity_key_found, {})
+        entity_permissions = self.bot.config.PERMISSIONS_MATRIX.get(
+            entity_key_found, {}
+        )
         brevo_config = entity_permissions.get("brevo", {})
         brevo_list_pattern = brevo_config.get("list_name_pattern")
         standard_channel_config = entity_permissions.get("standard", {})
-        standard_mm_channel_name_pattern = standard_channel_config.get("mattermost_channel_name_pattern")
+        standard_mm_channel_name_pattern = standard_channel_config.get(
+            "mattermost_channel_name_pattern"
+        )
 
         if not brevo_list_pattern or not standard_mm_channel_name_pattern:
             await asyncio.to_thread(
@@ -149,11 +176,15 @@ class SendEmailCommand(BaseCommand):
             return
 
         target_brevo_list_name = brevo_list_pattern.format(base_name=base_name_found)
-        brevo_list_obj = await asyncio.to_thread(self.bot.brevo_client.get_list_by_name, target_brevo_list_name)
+        brevo_list_obj = await asyncio.to_thread(
+            self.bot.brevo_client.get_list_by_name, target_brevo_list_name
+        )
 
         if not brevo_list_obj or not brevo_list_obj.get("id"):
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, f":x: Erreur: Liste Brevo '{target_brevo_list_name}' non trouvée."
+                self.bot.envoyer_message,
+                channel_id,
+                f":x: Erreur: Liste Brevo '{target_brevo_list_name}' non trouvée.",
             )
             return
 
@@ -161,7 +192,9 @@ class SendEmailCommand(BaseCommand):
 
         # 3. Récupérer les contacts de la liste Brevo
         # Assuming get_contacts_from_list can fetch all contacts (might need pagination handling for very large lists)
-        contacts_on_list = await asyncio.to_thread(self.bot.brevo_client.get_contacts_from_list, brevo_list_id)
+        contacts_on_list = await asyncio.to_thread(
+            self.bot.brevo_client.get_contacts_from_list, brevo_list_id
+        )
 
         if contacts_on_list is None:  # API error
             await asyncio.to_thread(
@@ -171,7 +204,11 @@ class SendEmailCommand(BaseCommand):
             )
             return
 
-        to_contacts = [{"email": contact["email"]} for contact in contacts_on_list if contact.get("email")]
+        to_contacts = [
+            {"email": contact["email"]}
+            for contact in contacts_on_list
+            if contact.get("email")
+        ]
 
         if not to_contacts:
             await asyncio.to_thread(
@@ -201,9 +238,7 @@ class SendEmailCommand(BaseCommand):
         if email_sent_successfully:
             feedback_msg = f":white_check_mark: Email avec sujet '{subject}' envoyé (ou tentative d'envoi) à {len(to_contacts)} destinataires de la liste '{target_brevo_list_name}'."
         else:
-            feedback_msg = (
-                f":x: Échec de l'envoi de l'email avec sujet '{subject}' via Brevo. Vérifiez les logs du serveur."
-            )
+            feedback_msg = f":x: Échec de l'envoi de l'email avec sujet '{subject}' via Brevo. Vérifiez les logs du serveur."
 
         await asyncio.to_thread(self.bot.envoyer_message, channel_id, feedback_msg)
 

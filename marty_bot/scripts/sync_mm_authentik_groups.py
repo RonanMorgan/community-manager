@@ -1,19 +1,19 @@
 import logging
-import sys
 import os
+import sys
 
 # Adjust path to import from the app directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app import config
 from clients.authentik_client import AuthentikClient
-from clients.mattermost_client import MattermostClient
-from clients.outline_client import OutlineClient
 from clients.brevo_client import BrevoClient
+from clients.mattermost_client import MattermostClient
 from clients.nocodb_client import NocoDBClient
-from clients.vaultwarden_client import VaultwardenClient  # Import VaultwardenClient
-
-# Import the orchestrator function
+from clients.outline_client import OutlineClient
+from clients.vaultwarden_client import (
+    VaultwardenClient,
+)
 from libraries.group_sync_services import orchestrate_group_synchronization
 
 # Configure logging
@@ -35,17 +35,23 @@ def initialize_clients():
         except ValueError as e:
             logging.error(f"Failed to initialize AuthentikClient: {e}")
     else:
-        logging.warning("Authentik URL or Token not configured. Authentik client not created.")
+        logging.warning(
+            "Authentik URL or Token not configured. Authentik client not created."
+        )
 
     mm_client = None
     if config.MATTERMOST_URL and config.BOT_TOKEN and config.MATTERMOST_TEAM_ID:
         try:
-            mm_client = MattermostClient(config.MATTERMOST_URL, config.BOT_TOKEN, config.MATTERMOST_TEAM_ID)
+            mm_client = MattermostClient(
+                config.MATTERMOST_URL, config.BOT_TOKEN, config.MATTERMOST_TEAM_ID
+            )
             logging.info("MattermostClient initialized successfully for sync script.")
         except ValueError as e:
             logging.error(f"Failed to initialize MattermostClient: {e}")
     else:
-        logging.warning("Mattermost URL, Bot Token, or Team ID not configured. Mattermost client not created.")
+        logging.warning(
+            "Mattermost URL, Bot Token, or Team ID not configured. Mattermost client not created."
+        )
 
     outline_client = None
     if config.OUTLINE_URL and config.OUTLINE_TOKEN:
@@ -53,9 +59,13 @@ def initialize_clients():
             outline_client = OutlineClient(config.OUTLINE_URL, config.OUTLINE_TOKEN)
             logging.info("OutlineClient initialized successfully for sync script.")
         except ValueError as e:
-            logging.error(f"Failed to initialize OutlineClient for script: {e}. Outline sync will be skipped.")
+            logging.error(
+                f"Failed to initialize OutlineClient for script: {e}. Outline sync will be skipped."
+            )
     else:
-        logging.info("Outline URL or Token not configured for script. Outline sync will be skipped.")
+        logging.info(
+            "Outline URL or Token not configured for script. Outline sync will be skipped."
+        )
 
     brevo_client = None
     if config.BREVO_API_URL and config.BREVO_API_KEY:
@@ -65,7 +75,9 @@ def initialize_clients():
         except ValueError as e:
             logging.error(f"Failed to initialize BrevoClient for script: {e}")
     else:
-        logging.info("Brevo API URL or Key not configured for script. Brevo sync will be skipped.")
+        logging.info(
+            "Brevo API URL or Key not configured for script. Brevo sync will be skipped."
+        )
 
     nocodb_client = None
     if config.NOCODB_URL and config.NOCODB_TOKEN:
@@ -73,9 +85,13 @@ def initialize_clients():
             nocodb_client = NocoDBClient(config.NOCODB_URL, config.NOCODB_TOKEN)
             logging.info("NocoDBClient initialized successfully for sync script.")
         except ValueError as e:
-            logging.error(f"Failed to initialize NocoDBClient for script: {e}. NocoDB sync will be skipped.")
+            logging.error(
+                f"Failed to initialize NocoDBClient for script: {e}. NocoDB sync will be skipped."
+            )
     else:
-        logging.info("NocoDB URL or Token not configured for script. NocoDB sync will be skipped.")
+        logging.info(
+            "NocoDB URL or Token not configured for script. NocoDB sync will be skipped."
+        )
 
     vaultwarden_client = None
     if (
@@ -93,13 +109,22 @@ def initialize_clients():
             )
             logging.info("VaultwardenClient initialized successfully for sync script.")
         except Exception as e:
-            logging.error(f"Failed to initialize VaultwardenClient for script: {e}. Vaultwarden sync will be skipped.")
+            logging.error(
+                f"Failed to initialize VaultwardenClient for script: {e}. Vaultwarden sync will be skipped."
+            )
     else:
         logging.info(
             "Vaultwarden config (Org ID, Server URL, API User/Pass) not fully set for script. Vaultwarden sync will be skipped."
         )
 
-    return auth_client, mm_client, outline_client, brevo_client, nocodb_client, vaultwarden_client
+    return (
+        auth_client,
+        mm_client,
+        outline_client,
+        brevo_client,
+        nocodb_client,
+        vaultwarden_client,
+    )
 
 
 async def main_sync_logic():  # Changed to async
@@ -107,12 +132,21 @@ async def main_sync_logic():  # Changed to async
         "Attempting to run Mattermost to Authentik, Outline, Brevo, NocoDB, & Vaultwarden group synchronization via script..."
     )
 
-    authentik_client, mattermost_client, outline_client, brevo_client, nocodb_client, vaultwarden_client = (
-        initialize_clients()
-    )
+    (
+        authentik_client,
+        mattermost_client,
+        outline_client,
+        brevo_client,
+        nocodb_client,
+        vaultwarden_client,
+    ) = initialize_clients()
 
-    if not authentik_client:  # Keeping Authentik mandatory for FULL_SYNC mode often initiated by script
-        logging.critical("Authentik client not initialized in script. Aborting FULL_SYNC.")
+    if (
+        not authentik_client
+    ):  # Keeping Authentik mandatory for FULL_SYNC mode often initiated by script
+        logging.critical(
+            "Authentik client not initialized in script. Aborting FULL_SYNC."
+        )
         return
     if not mattermost_client:
         logging.critical("Mattermost client not initialized in script. Aborting sync.")
@@ -125,17 +159,19 @@ async def main_sync_logic():  # Changed to async
         "Clients initialized by script. Calling group synchronization function from library (FULL_SYNC mode)..."
     )
 
-    success, detailed_results = await orchestrate_group_synchronization(  # Changed to await
-        authentik_client=authentik_client,
-        mattermost_client=mattermost_client,
-        outline_client=outline_client,
-        brevo_client=brevo_client,
-        nocodb_client=nocodb_client,
-        vaultwarden_client=vaultwarden_client,
-        mm_team_id=config.MATTERMOST_TEAM_ID,
-        perform_deletions=True,  # FULL_SYNC typically implies deletions
-        sync_mode="FULL_SYNC",  # Explicitly set sync_mode
-        skip_services=None,  # Can be configured via script arguments in future if needed
+    success, detailed_results = (
+        await orchestrate_group_synchronization(  # Changed to await
+            authentik_client=authentik_client,
+            mattermost_client=mattermost_client,
+            outline_client=outline_client,
+            brevo_client=brevo_client,
+            nocodb_client=nocodb_client,
+            vaultwarden_client=vaultwarden_client,
+            mm_team_id=config.MATTERMOST_TEAM_ID,
+            perform_deletions=True,  # FULL_SYNC typically implies deletions
+            sync_mode="FULL_SYNC",  # Explicitly set sync_mode
+            skip_services=None,  # Can be configured via script arguments in future if needed
+        )
     )
 
     if success:
@@ -149,9 +185,13 @@ async def main_sync_logic():  # Changed to async
         if detailed_results:
             logging.info(f"Script run (FULL_SYNC) actions summary: {actions_summary}")
         else:
-            logging.info("Script run (FULL_SYNC) completed with no specific actions performed or results reported.")
+            logging.info(
+                "Script run (FULL_SYNC) completed with no specific actions performed or results reported."
+            )
     else:
-        logging.error("Synchronization process (FULL_SYNC) orchestrated by script encountered errors or failed.")
+        logging.error(
+            "Synchronization process (FULL_SYNC) orchestrated by script encountered errors or failed."
+        )
 
 
 if __name__ == "__main__":

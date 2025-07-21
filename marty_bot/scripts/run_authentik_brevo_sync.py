@@ -59,10 +59,14 @@ if __name__ == "__main__":
     temp_logger.propagate = False
 
     logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO").upper(),  # Default INFO, peut être changé par env var
+        level=os.getenv(
+            "LOG_LEVEL", "INFO"
+        ).upper(),  # Default INFO, peut être changé par env var
         format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(module)s - %(message)s",
         handlers=[
-            logging.StreamHandler(sys.stdout),  # Log vers stdout (visible dans les logs cron)
+            logging.StreamHandler(
+                sys.stdout
+            ),  # Log vers stdout (visible dans les logs cron)
             logging.FileHandler(log_file_path),  # Log vers un fichier
         ],
     )
@@ -70,10 +74,15 @@ if __name__ == "__main__":
     logging.info("Démarrage du script de synchronisation Authentik vers Brevo.")
     try:
         sync_authentik_users_to_brevo_list()
-        logging.info("Script de synchronisation Authentik vers Brevo terminé avec succès.")
+        logging.info(
+            "Script de synchronisation Authentik vers Brevo terminé avec succès."
+        )
     except Exception as e:
         logging.error(
-            f"Une erreur s'est produite pendant l'exécution du script de synchronisation : {e}", exc_info=True
+            f"Une erreur s'est produite pendant l'exécution du script de synchronisation : {e}",
+            exc_info=True,
         )
-        sys.exit(1)  # Quitter avec un code d'erreur en cas d'échec grave non géré dans la fonction principale
+        sys.exit(
+            1
+        )  # Quitter avec un code d'erreur en cas d'échec grave non géré dans la fonction principale
     sys.exit(0)  # Quitter avec succès

@@ -26,13 +26,21 @@ class BrevoClient:
         }
         logging.info("BrevoClient initialized.")
 
-    def _make_request(self, method: str, endpoint: str, json_data=None, params=None) -> tuple[int, dict | list | None]:
+    def _make_request(
+        self, method: str, endpoint: str, json_data=None, params=None
+    ) -> tuple[int, dict | list | None]:
         """Helper function to make HTTP requests to Brevo API."""
         url = f"{self.api_url}/{endpoint.lstrip('/')}"
-        logging.debug(f"Brevo API >> Request: {method.upper()} {url}, Params: {params}, JSON: {json_data}")
+        logging.debug(
+            f"Brevo API >> Request: {method.upper()} {url}, Params: {params}, JSON: {json_data}"
+        )
         try:
-            response = requests.request(method, url, headers=self.headers, json=json_data, params=params)
-            logging.debug(f"Brevo API << Response: Status={response.status_code}, Content='{response.text[:200]}...'")
+            response = requests.request(
+                method, url, headers=self.headers, json=json_data, params=params
+            )
+            logging.debug(
+                f"Brevo API << Response: Status={response.status_code}, Content='{response.text[:200]}...'"
+            )
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
             if response.status_code == 204:  # No content
                 return response.status_code, None
@@ -41,12 +49,20 @@ class BrevoClient:
             logging.error(
                 f"Brevo API HTTP Error for {method.upper()} {url}: {e.response.status_code} - {e.response.text}"
             )
-            return e.response.status_code, e.response.json() if e.response.content else {"error": str(e)}
+            return e.response.status_code, (
+                e.response.json() if e.response.content else {"error": str(e)}
+            )
         except requests.exceptions.RequestException as e:
-            logging.error(f"Brevo API Request Exception for {method.upper()} {url}: {e}")
-            return 500, {"error": str(e)}  # Generic server error for other request exceptions
+            logging.error(
+                f"Brevo API Request Exception for {method.upper()} {url}: {e}"
+            )
+            return 500, {
+                "error": str(e)
+            }  # Generic server error for other request exceptions
         except ValueError as e:  # Includes JSONDecodeError
-            logging.error(f"Brevo API JSON Decode Error for {method.upper()} {url}: {e}")
+            logging.error(
+                f"Brevo API JSON Decode Error for {method.upper()} {url}: {e}"
+            )
             return 500, {"error": f"JSON decode error: {e}"}
 
     def get_lists(self, name: Optional[str] = None) -> list[dict] | None:
@@ -66,7 +82,9 @@ class BrevoClient:
 
         while True:
             params = {"limit": limit, "offset": offset}
-            status_code, data = self._make_request("GET", "contacts/lists", params=params)
+            status_code, data = self._make_request(
+                "GET", "contacts/lists", params=params
+            )
 
             if status_code == 200 and data and "lists" in data:
                 lists_on_page = data["lists"]
@@ -74,7 +92,9 @@ class BrevoClient:
                 if processed_list_name:
                     for lst in lists_on_page:
                         if lst.get("name", "").strip().lower() == processed_list_name:
-                            logging.info(f"Found Brevo list '{name}' with ID {lst['id']}.")
+                            logging.info(
+                                f"Found Brevo list '{name}' with ID {lst['id']}."
+                            )
                             return [lst]
                 else:
                     all_lists.extend(lists_on_page)
@@ -101,20 +121,38 @@ class BrevoClient:
         folder_id defaults to a common default if not specified.
         Returns the created list object or None on failure.
         """
-        logging.info(f"Creating Brevo list with name: '{list_name}' in folder ID {folder_id}")
-        payload = {"name": list_name, "folderId": folder_id}  # Default folder ID, adjust if necessary
-        status_code, data = self._make_request("POST", "contacts/lists", json_data=payload)
+        logging.info(
+            f"Creating Brevo list with name: '{list_name}' in folder ID {folder_id}"
+        )
+        payload = {
+            "name": list_name,
+            "folderId": folder_id,
+        }  # Default folder ID, adjust if necessary
+        status_code, data = self._make_request(
+            "POST", "contacts/lists", json_data=payload
+        )
 
         if status_code == 201 and data and "id" in data:
-            logging.info(f"Brevo list '{list_name}' created successfully with ID {data['id']}.")
+            logging.info(
+                f"Brevo list '{list_name}' created successfully with ID {data['id']}."
+            )
             # The response from create list is just {"id": 123}, so we fetch the full list object
             return self.get_list_by_id(data["id"])
-        elif status_code == 400 and data and "code" in data and data["code"] == "duplicate_parameter":
-            logging.warning(f"Brevo list '{list_name}' already exists. Attempting to fetch it.")
+        elif (
+            status_code == 400
+            and data
+            and "code" in data
+            and data["code"] == "duplicate_parameter"
+        ):
+            logging.warning(
+                f"Brevo list '{list_name}' already exists. Attempting to fetch it."
+            )
             lists = self.get_lists(name=list_name)
             return lists[0] if lists else None
         else:
-            logging.error(f"Failed to create Brevo list '{list_name}'. Status: {status_code}, Response: {data}")
+            logging.error(
+                f"Failed to create Brevo list '{list_name}'. Status: {status_code}, Response: {data}"
+            )
             return None
 
     def get_list_by_id(self, list_id: int) -> dict | None:
@@ -123,7 +161,9 @@ class BrevoClient:
         status_code, data = self._make_request("GET", f"contacts/lists/{list_id}")
         if status_code == 200 and data:
             return data
-        logging.warning(f"Could not retrieve list with ID {list_id}. Status: {status_code}")
+        logging.warning(
+            f"Could not retrieve list with ID {list_id}. Status: {status_code}"
+        )
         return None
 
     def get_all_lists(self) -> list[dict] | None:
@@ -138,7 +178,9 @@ class BrevoClient:
 
         while True:
             params = {"limit": limit, "offset": offset}
-            status_code, data = self._make_request("GET", "contacts/lists", params=params)
+            status_code, data = self._make_request(
+                "GET", "contacts/lists", params=params
+            )
 
             if status_code == 200 and data and "lists" in data:
                 page_lists = data["lists"]
@@ -158,14 +200,22 @@ class BrevoClient:
         return all_lists
 
     def add_contact_to_list(
-        self, email: str, list_id: int, attributes: dict = None, update_enabled: bool = True
+        self,
+        email: str,
+        list_id: int,
+        attributes: dict = None,
+        update_enabled: bool = True,
     ) -> bool:
         """
         Adds a contact to a specific list.
         Optionally allows setting contact attributes and enabling/disabling contact update.
         """
         logging.info(f"Adding contact '{email}' to Brevo list ID {list_id}")
-        payload = {"email": email, "listIds": [list_id], "updateEnabled": update_enabled}
+        payload = {
+            "email": email,
+            "listIds": [list_id],
+            "updateEnabled": update_enabled,
+        }
         if attributes:
             payload["attributes"] = attributes
 
@@ -175,12 +225,16 @@ class BrevoClient:
         if status_code == 201:  # Contact created and added to list
             logging.info(f"Contact '{email}' created and added to list ID {list_id}.")
             return True
-        elif status_code == 204:  # Contact updated and added to list (or already in list and updated)
+        elif (
+            status_code == 204
+        ):  # Contact updated and added to list (or already in list and updated)
             logging.info(f"Contact '{email}' updated and ensured in list ID {list_id}.")
             return True
         # Brevo might return 400 if email is invalid, or other errors.
         # The _make_request logs errors, here we just return success/failure.
-        logging.error(f"Failed to add contact '{email}' to list ID {list_id}. Status: {status_code}, Response: {data}")
+        logging.error(
+            f"Failed to add contact '{email}' to list ID {list_id}. Status: {status_code}, Response: {data}"
+        )
         return False
 
     def remove_contact_from_list(self, email: str, list_id: int) -> bool:
@@ -203,13 +257,19 @@ class BrevoClient:
         # The identifier for the contact can be their email.
         # PUT /contacts/{identifier} where identifier is URL-encoded email
         encoded_email = requests.utils.quote(email)
-        status_code, data = self._make_request("PUT", f"contacts/{encoded_email}", json_data=payload)
+        status_code, data = self._make_request(
+            "PUT", f"contacts/{encoded_email}", json_data=payload
+        )
 
         if status_code == 204:  # Successfully updated (contact unlinked from list)
-            logging.info(f"Contact '{email}' successfully unlinked/removed from list ID {list_id}.")
+            logging.info(
+                f"Contact '{email}' successfully unlinked/removed from list ID {list_id}."
+            )
             return True
         elif status_code == 404:  # Contact not found
-            logging.warning(f"Contact '{email}' not found in Brevo, cannot remove from list ID {list_id}.")
+            logging.warning(
+                f"Contact '{email}' not found in Brevo, cannot remove from list ID {list_id}."
+            )
             return False  # Or True if "not being on the list" is the desired state
         else:
             logging.error(
@@ -231,8 +291,14 @@ class BrevoClient:
         while True:
             log_msg = f"Fetching contacts from Brevo list ID {list_id} (limit: {limit}, offset: {offset})"
             logging.debug(log_msg)  # Changed to debug for less verbose logging per page
-            params = {"limit": limit, "offset": offset, "sort": "desc"}  # Sort is optional but good for consistency
-            status_code, data = self._make_request("GET", f"contacts/lists/{list_id}/contacts", params=params)
+            params = {
+                "limit": limit,
+                "offset": offset,
+                "sort": "desc",
+            }  # Sort is optional but good for consistency
+            status_code, data = self._make_request(
+                "GET", f"contacts/lists/{list_id}/contacts", params=params
+            )
 
             if status_code == 200 and data and "contacts" in data:
                 page_contacts = data["contacts"]
@@ -264,7 +330,9 @@ class BrevoClient:
                 # Safety break if we somehow fetch an unreasonable number of contacts (e.g. 100k for a small list)
                 # This indicates a possible issue with pagination logic or API behavior.
                 if offset > 200000:  # Arbitrary large number, adjust as needed
-                    logging.warning(f"Safety break: Fetched over {offset} contacts for list {list_id}. Breaking loop.")
+                    logging.warning(
+                        f"Safety break: Fetched over {offset} contacts for list {list_id}. Breaking loop."
+                    )
                     break
 
             else:
@@ -282,7 +350,9 @@ class BrevoClient:
         if status_code == 204:
             logging.info(f"Brevo list ID {list_id} deleted successfully.")
             return True
-        logging.error(f"Failed to delete Brevo list ID {list_id}. Status: {status_code}")
+        logging.error(
+            f"Failed to delete Brevo list ID {list_id}. Status: {status_code}"
+        )
         return False
 
     def get_folder_id_by_name(self, folder_name: str) -> int | None:
@@ -292,14 +362,18 @@ class BrevoClient:
         :param folder_name: The name of the folder to find.
         :return: The ID of the folder if found, None otherwise.
         """
-        logging.info(f"Attempting to find Brevo folder ID for folder name: '{folder_name}'")
+        logging.info(
+            f"Attempting to find Brevo folder ID for folder name: '{folder_name}'"
+        )
         limit = 50  # Brevo's default limit for folders is often 10 or 50.
         offset = 0
         total_folders = None
 
         while True:
             params = {"limit": limit, "offset": offset, "sort": "desc"}
-            status_code, data = self._make_request("GET", "contacts/folders", params=params)
+            status_code, data = self._make_request(
+                "GET", "contacts/folders", params=params
+            )
 
             if status_code == 200 and data and "folders" in data:
                 if total_folders is None:  # First call
@@ -308,11 +382,15 @@ class BrevoClient:
                 for folder in data["folders"]:
                     if folder.get("name") == folder_name:
                         folder_id = folder.get("id")
-                        logging.info(f"Found Brevo folder '{folder_name}' with ID {folder_id}.")
+                        logging.info(
+                            f"Found Brevo folder '{folder_name}' with ID {folder_id}."
+                        )
                         return folder_id
 
                 offset += len(data["folders"])
-                if offset >= total_folders or not data["folders"]:  # No more folders or reached the end
+                if (
+                    offset >= total_folders or not data["folders"]
+                ):  # No more folders or reached the end
                     break
             else:
                 logging.warning(
@@ -320,7 +398,9 @@ class BrevoClient:
                 )
                 return None
 
-        logging.info(f"Brevo folder '{folder_name}' not found after checking {total_folders or 0} folders.")
+        logging.info(
+            f"Brevo folder '{folder_name}' not found after checking {total_folders or 0} folders."
+        )
         return None
 
     def send_transactional_email(
@@ -342,8 +422,12 @@ class BrevoClient:
         :param html_content: Optional HTML content of the email.
         :return: True if email was sent successfully (API accepted the request), False otherwise.
         """
-        if not all([subject, text_content, sender_email, to_contacts]):  # html_content is optional
-            logging.error("Send email failed: Missing subject, text_content (fallback), sender_email, or to_contacts.")
+        if not all(
+            [subject, text_content, sender_email, to_contacts]
+        ):  # html_content is optional
+            logging.error(
+                "Send email failed: Missing subject, text_content (fallback), sender_email, or to_contacts."
+            )
             return False
 
         payload = {
@@ -355,21 +439,27 @@ class BrevoClient:
         if html_content:
             payload["htmlContent"] = html_content
 
-        log_message = (
-            f"Attempting to send transactional email. Subject: '{subject}', To: {len(to_contacts)} recipients."
-        )
+        log_message = f"Attempting to send transactional email. Subject: '{subject}', To: {len(to_contacts)} recipients."
         if html_content:
             log_message += " (HTML content provided)"
         logging.info(log_message)
         status_code, data = self._make_request("POST", "smtp/email", json_data=payload)
 
         # Brevo API returns 201 Created if the email is accepted for sending
-        if status_code == 201 and data and (data.get("messageId") or data.get("messageIds")):
+        if (
+            status_code == 201
+            and data
+            and (data.get("messageId") or data.get("messageIds"))
+        ):
             msg_id = data.get("messageId") or data.get("messageIds")
-            logging.info(f"Transactional email accepted for sending. Message ID(s): {msg_id}")
+            logging.info(
+                f"Transactional email accepted for sending. Message ID(s): {msg_id}"
+            )
             return True
         else:
-            logging.error(f"Failed to send transactional email. Status: {status_code}, Response: {data}")
+            logging.error(
+                f"Failed to send transactional email. Status: {status_code}, Response: {data}"
+            )
             return False
 
 
@@ -401,7 +491,9 @@ if __name__ == "__main__":
             list_obj = client.create_list(test_list_name)
             if list_obj and list_obj.get("id"):
                 created_list_id = list_obj["id"]
-                print(f"List '{test_list_name}' ID: {created_list_id} (ensured/created)")
+                print(
+                    f"List '{test_list_name}' ID: {created_list_id} (ensured/created)"
+                )
 
                 # 2. Add contacts to the list
                 print(f"\n--- Adding {test_email_1} to list {created_list_id} ---")
@@ -431,20 +523,28 @@ if __name__ == "__main__":
                 if client.remove_contact_from_list(test_email_1, created_list_id):
                     print(f"Removed {test_email_1} from list {created_list_id}")
                 else:
-                    print(f"Failed to remove {test_email_1} from list {created_list_id}")
+                    print(
+                        f"Failed to remove {test_email_1} from list {created_list_id}"
+                    )
 
                 # 5. Get contacts again to verify
-                print(f"\n--- Getting contacts from {created_list_id} (after removal) ---")
+                print(
+                    f"\n--- Getting contacts from {created_list_id} (after removal) ---"
+                )
                 contacts_after_removal = client.get_contacts_from_list(created_list_id)
                 if contacts_after_removal is not None:
-                    print(f"List {created_list_id} contacts: {len(contacts_after_removal)}")  # noqa: E501
+                    print(
+                        f"List {created_list_id} contacts: {len(contacts_after_removal)}"
+                    )  # noqa: E501
                     for contact in contacts_after_removal:
                         print(f"  - {contact.get('email')}")
                 else:
                     print(f"Could not fetch contacts from list {created_list_id}")
 
             else:
-                print(f"Could not create or ensure list '{test_list_name}'. Further tests skipped.")
+                print(
+                    f"Could not create or ensure list '{test_list_name}'. Further tests skipped."
+                )
 
         except Exception as e:
             print(f"An error occurred during testing: {e}")

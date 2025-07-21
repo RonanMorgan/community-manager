@@ -60,10 +60,16 @@ class AuthentikClient:
             # For example, if response.json().get('name') == ["group with this name already exists."]: logging.info(...) return True
             return False
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request failed for Authentik group creation '{project_name}': {e}")
+            logging.error(
+                f"Request failed for Authentik group creation '{project_name}': {e}"
+            )
             return False
-        except json.JSONDecodeError as e:  # In case response.json() fails on success (unlikely for 201)
-            logging.error(f"Error decoding JSON from Authentik group creation response for '{project_name}': {e}")
+        except (
+            json.JSONDecodeError
+        ) as e:  # In case response.json() fails on success (unlikely for 201)
+            logging.error(
+                f"Error decoding JSON from Authentik group creation response for '{project_name}': {e}"
+            )
             return False
 
     def get_groups_with_users(self):
@@ -73,17 +79,19 @@ class AuthentikClient:
         Each group object in the list should at least contain 'pk', 'name', and 'users' (list of user PKs).
         The dict_email_to_user_pk maps user email to their Authentik user PK.
         """
-        if not self.base_url or not self.token:  # Should be caught by __init__ but good practice
+        if (
+            not self.base_url or not self.token
+        ):  # Should be caught by __init__ but good practice
             logging.error("Authentik client not configured (URL or Token missing).")
             return [], {}
 
         all_groups = []
         email_to_user_pk_map = {}
 
-        current_url = (
-            f"{self.base_url}/api/v3/core/groups/?include_users=true"  # Assuming include_users provides users_obj
+        current_url = f"{self.base_url}/api/v3/core/groups/?include_users=true"  # Assuming include_users provides users_obj
+        logging.info(
+            f"Fetching Authentik groups (with users) from initial URL: {current_url}"
         )
-        logging.info(f"Fetching Authentik groups (with users) from initial URL: {current_url}")
 
         page_count = 0
         while current_url:
@@ -107,7 +115,10 @@ class AuthentikClient:
                         email = user.get("email")
                         pk = user.get("pk")
                         if email and pk is not None:
-                            if email in email_to_user_pk_map and email_to_user_pk_map[email] != pk:
+                            if (
+                                email in email_to_user_pk_map
+                                and email_to_user_pk_map[email] != pk
+                            ):
                                 logging.warning(
                                     f"User email {email} has conflicting PKs: "
                                     f"{email_to_user_pk_map[email]} vs {pk}. Using the latest one encountered."
@@ -119,11 +130,15 @@ class AuthentikClient:
                     logging.debug(f"Next page for groups: {current_url}")
 
             except requests.exceptions.RequestException as e:
-                logging.error(f"Error fetching Authentik groups from {current_url}: {e}")
+                logging.error(
+                    f"Error fetching Authentik groups from {current_url}: {e}"
+                )
                 # Depending on desired behavior, could return partial results or empty
                 return [], {}
             except json.JSONDecodeError as e:
-                logging.error(f"Error decoding JSON from Authentik groups response ({current_url}): {e}")
+                logging.error(
+                    f"Error decoding JSON from Authentik groups response ({current_url}): {e}"
+                )
                 return [], {}
 
         logging.info(
@@ -152,7 +167,9 @@ class AuthentikClient:
         current_url = f"{self.base_url}/api/v3/core/groups/"
         params = {"name": group_name}
 
-        logging.info(f"Fetching Authentik group(s) by name '{group_name}' from {current_url} with params {params}")
+        logging.info(
+            f"Fetching Authentik group(s) by name '{group_name}' from {current_url} with params {params}"
+        )
         page_count = 0
         while current_url:
             page_count += 1
@@ -160,7 +177,11 @@ class AuthentikClient:
                 f"Fetching group search page {page_count} from {current_url} with params {params if page_count == 1 else None}"
             )
             try:
-                response = requests.get(current_url, headers=self.headers, params=params if page_count == 1 else None)
+                response = requests.get(
+                    current_url,
+                    headers=self.headers,
+                    params=params if page_count == 1 else None,
+                )
                 response.raise_for_status()
                 data = response.json()
                 page_results = data.get("results", [])
@@ -169,10 +190,14 @@ class AuthentikClient:
                 if current_url:
                     logging.debug(f"Next page for group search: {current_url}")
             except requests.exceptions.RequestException as e:
-                logging.error(f"Error fetching Authentik groups by name '{group_name}': {e}")
+                logging.error(
+                    f"Error fetching Authentik groups by name '{group_name}': {e}"
+                )
                 return None
             except json.JSONDecodeError as e:
-                logging.error(f"Error decoding JSON for Authentik groups by name '{group_name}': {e}")
+                logging.error(
+                    f"Error decoding JSON for Authentik groups by name '{group_name}': {e}"
+                )
                 return None
 
         if not groups_found:
@@ -196,11 +221,15 @@ class AuthentikClient:
         users_for_group_objs = []
         current_users_url = f"{self.base_url}/api/v3/core/groups/{group_pk}/users/"
         user_page_count = 0
-        logging.info(f"Fetching users for group '{group_name}' (PK: {group_pk}) from {current_users_url}")
+        logging.info(
+            f"Fetching users for group '{group_name}' (PK: {group_pk}) from {current_users_url}"
+        )
 
         while current_users_url:
             user_page_count += 1
-            logging.debug(f"Fetching users page {user_page_count} for group {group_pk} from {current_users_url}")
+            logging.debug(
+                f"Fetching users page {user_page_count} for group {group_pk} from {current_users_url}"
+            )
             try:
                 response = requests.get(current_users_url, headers=self.headers)
                 response.raise_for_status()
@@ -209,20 +238,28 @@ class AuthentikClient:
 
                 for user_detail in page_user_results:
                     users_for_group_pks.append(user_detail.get("pk"))
-                    users_for_group_objs.append(user_detail)  # Assuming this is the user object structure
+                    users_for_group_objs.append(
+                        user_detail
+                    )  # Assuming this is the user object structure
 
                 current_users_url = user_data.get("pagination", {}).get("next")
                 if current_users_url:
-                    logging.debug(f"Next page for users of group {group_pk}: {current_users_url}")
+                    logging.debug(
+                        f"Next page for users of group {group_pk}: {current_users_url}"
+                    )
 
             except requests.exceptions.RequestException as e:
-                logging.error(f"Error fetching users for Authentik group PK {group_pk}: {e}")
+                logging.error(
+                    f"Error fetching users for Authentik group PK {group_pk}: {e}"
+                )
                 # Return group object with potentially partial user list or empty if preferred
                 group_obj["users"] = users_for_group_pks
                 group_obj["users_obj"] = users_for_group_objs
                 return group_obj  # Or None if failure to get users is critical
             except json.JSONDecodeError as e:
-                logging.error(f"Error decoding JSON for users of Authentik group PK {group_pk}: {e}")
+                logging.error(
+                    f"Error decoding JSON for users of Authentik group PK {group_pk}: {e}"
+                )
                 group_obj["users"] = users_for_group_pks
                 group_obj["users_obj"] = users_for_group_objs
                 return group_obj  # Or None
@@ -252,14 +289,18 @@ class AuthentikClient:
         payload = {"pk": user_pk}
 
         # self.headers already includes Content-Type: application/json and Authorization
-        logging.info(f"Adding user PK {user_pk} to Authentik group PK {group_pk} at {url}")
+        logging.info(
+            f"Adding user PK {user_pk} to Authentik group PK {group_pk} at {url}"
+        )
         try:
             response = requests.post(url, headers=self.headers, json=payload)
             response.raise_for_status()
 
             # Typically 204 No Content or 200 OK for this kind of operation
             if 200 <= response.status_code < 300:
-                logging.info(f"Successfully added/ensured user PK {user_pk} in group PK {group_pk}.")
+                logging.info(
+                    f"Successfully added/ensured user PK {user_pk} in group PK {group_pk}."
+                )
                 return True
             else:
                 # Should be caught by raise_for_status, but as a fallback
@@ -274,7 +315,8 @@ class AuthentikClient:
             try:
                 error_data = e.response.json()
                 if isinstance(error_data, dict) and any(
-                    "already a member" in str(val).lower() for val in error_data.values()
+                    "already a member" in str(val).lower()
+                    for val in error_data.values()
                 ):
                     logging.info(
                         f"User PK {user_pk} is already a member of group PK {group_pk}. Considered successful."
@@ -289,7 +331,9 @@ class AuthentikClient:
             )
             return False
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request exception adding user PK {user_pk} to group PK {group_pk}: {e}")
+            logging.error(
+                f"Request exception adding user PK {user_pk} to group PK {group_pk}: {e}"
+            )
             return False
 
     def remove_user_from_group(self, group_pk: str, user_pk: int) -> bool:
@@ -297,21 +341,29 @@ class AuthentikClient:
         if not self.base_url or not self.token:
             logging.error("Authentik client not configured.")
             return False
-        if not group_pk or user_pk is None:  # user_pk can be 0, so check for None explicitly
-            logging.error("Group PK and User PK must be provided to remove user from group.")
+        if (
+            not group_pk or user_pk is None
+        ):  # user_pk can be 0, so check for None explicitly
+            logging.error(
+                "Group PK and User PK must be provided to remove user from group."
+            )
             return False
 
         url = f"{self.base_url}/api/v3/core/groups/{group_pk}/remove_user/"
         payload = {"pk": user_pk}
 
-        logging.info(f"Removing user PK {user_pk} from Authentik group PK {group_pk} at {url}")
+        logging.info(
+            f"Removing user PK {user_pk} from Authentik group PK {group_pk} at {url}"
+        )
         try:
             response = requests.post(url, headers=self.headers, json=payload)
             response.raise_for_status()  # Raises for 4xx/5xx responses
 
             # Typically 204 No Content or 200 OK for this kind of operation
             if 200 <= response.status_code < 300:
-                logging.info(f"Successfully removed user PK {user_pk} from group PK {group_pk}.")
+                logging.info(
+                    f"Successfully removed user PK {user_pk} from group PK {group_pk}."
+                )
                 return True
             else:
                 # This case might be redundant if raise_for_status() is effective
@@ -333,7 +385,9 @@ class AuthentikClient:
             )
             return False
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request exception removing user PK {user_pk} from group PK {group_pk}: {e}")
+            logging.error(
+                f"Request exception removing user PK {user_pk} from group PK {group_pk}: {e}"
+            )
             return False
 
     def get_all_users_data(self) -> list[dict]:
@@ -363,22 +417,32 @@ class AuthentikClient:
                 page_users = data.get("results", [])
                 for user in page_users:
                     email = user.get("email")
-                    attributes = user.get("attributes", {})  # Default to empty dict if no attributes
+                    attributes = user.get(
+                        "attributes", {}
+                    )  # Default to empty dict if no attributes
                     if email:  # Only include users with an email
-                        all_users_data.append({"email": email, "attributes": attributes})
+                        all_users_data.append(
+                            {"email": email, "attributes": attributes}
+                        )
 
                 current_url = data.get("pagination", {}).get("next")
                 if current_url:
                     logging.debug(f"Next page for users data: {current_url}")
 
             except requests.exceptions.RequestException as e:
-                logging.error(f"Error fetching Authentik users data from {current_url}: {e}")
+                logging.error(
+                    f"Error fetching Authentik users data from {current_url}: {e}"
+                )
                 return []  # Return empty list on error
             except json.JSONDecodeError as e:
-                logging.error(f"Error decoding JSON from Authentik users data response ({current_url}): {e}")
+                logging.error(
+                    f"Error decoding JSON from Authentik users data response ({current_url}): {e}"
+                )
                 return []  # Return empty list on error
 
-        logging.info(f"Fetched data for {len(all_users_data)} users from Authentik over {page_count} pages.")
+        logging.info(
+            f"Fetched data for {len(all_users_data)} users from Authentik over {page_count} pages."
+        )
         return all_users_data
 
 
@@ -391,9 +455,13 @@ if __name__ == "__main__":
     auth_token = os.getenv("AUTHENTIK_TOKEN")
 
     if not auth_url or not auth_token:
-        print("Please set AUTHENTIK_URL and AUTHENTIK_TOKEN environment variables for this example.")
+        print(
+            "Please set AUTHENTIK_URL and AUTHENTIK_TOKEN environment variables for this example."
+        )
     else:
-        log_format = "%(asctime)s - %(levelname)s - " "[%(filename)s:%(lineno)d] - %(message)s"  # noqa: E501
+        log_format = (
+            "%(asctime)s - %(levelname)s - " "[%(filename)s:%(lineno)d] - %(message)s"
+        )  # noqa: E501
         logging.basicConfig(level=logging.DEBUG, format=log_format)
         print(f"Attempting to connect to Authentik at {auth_url}")
         try:

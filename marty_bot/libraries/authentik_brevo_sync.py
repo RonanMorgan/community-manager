@@ -58,7 +58,15 @@ def sync_authentik_users_to_brevo_list():
     BREVO_API_KEY = os.getenv("BREVO_API_KEY")
     BREVO_AUTHENTIK_USERS_LIST_ID_STR = os.getenv("BREVO_AUTHENTIK_USERS_LIST_ID")
 
-    if not all([AUTHENTIK_URL, AUTHENTIK_TOKEN, BREVO_API_URL, BREVO_API_KEY, BREVO_AUTHENTIK_USERS_LIST_ID_STR]):
+    if not all(
+        [
+            AUTHENTIK_URL,
+            AUTHENTIK_TOKEN,
+            BREVO_API_URL,
+            BREVO_API_KEY,
+            BREVO_AUTHENTIK_USERS_LIST_ID_STR,
+        ]
+    ):
         logging.error(
             "Missing one or more required environment variables for Authentik/Brevo sync: "
             "AUTHENTIK_URL, AUTHENTIK_TOKEN, BREVO_API_URL, BREVO_API_KEY, BREVO_AUTHENTIK_USERS_LIST_ID"
@@ -79,7 +87,9 @@ def sync_authentik_users_to_brevo_list():
 
         # 1. Récupérer tous les utilisateurs et leurs attributs d'Authentik
         logging.info("Fetching all users data from Authentik...")
-        authentik_users_data = auth_client.get_all_users_data()  # Returns list of {'email': ..., 'attributes': ...}
+        authentik_users_data = (
+            auth_client.get_all_users_data()
+        )  # Returns list of {'email': ..., 'attributes': ...}
 
         if authentik_users_data is None:
             logging.error("Failed to fetch users data from Authentik. Aborting sync.")
@@ -89,33 +99,45 @@ def sync_authentik_users_to_brevo_list():
             logging.info("No users found in Authentik.")
             return
 
-        logging.info(f"Fetched data for {len(authentik_users_data)} users from Authentik.")
+        logging.info(
+            f"Fetched data for {len(authentik_users_data)} users from Authentik."
+        )
 
         # Create a dictionary for quick lookup of Authentik users by email
         authentik_users_map = {
-            user["email"].lower(): user["attributes"] for user in authentik_users_data if user.get("email")
+            user["email"].lower(): user["attributes"]
+            for user in authentik_users_data
+            if user.get("email")
         }
 
         # 2. Récupérer tous les contacts de la liste Brevo
         logging.info(f"Fetching all contacts from Brevo list ID {brevo_list_id}...")
         brevo_contact_emails = brevo_client.get_contacts_from_list(brevo_list_id)
         if brevo_contact_emails is None:
-            logging.error(f"Failed to fetch contacts from Brevo list ID {brevo_list_id}. Aborting sync.")
+            logging.error(
+                f"Failed to fetch contacts from Brevo list ID {brevo_list_id}. Aborting sync."
+            )
             return
 
-        logging.info(f"Fetched {len(brevo_contact_emails)} contact emails from Brevo list {brevo_list_id}.")
+        logging.info(
+            f"Fetched {len(brevo_contact_emails)} contact emails from Brevo list {brevo_list_id}."
+        )
         brevo_contact_emails_set = set(email.lower() for email in brevo_contact_emails)
 
         # 3. Comparer les listes et identifier les utilisateurs à ajouter
         users_to_add_to_brevo = []
         for auth_email_lower, auth_attrs in authentik_users_map.items():
             if auth_email_lower not in brevo_contact_emails_set:
-                users_to_add_to_brevo.append({"email": auth_email_lower, "attributes": auth_attrs})
+                users_to_add_to_brevo.append(
+                    {"email": auth_email_lower, "attributes": auth_attrs}
+                )
 
         if not users_to_add_to_brevo:
             logging.info("No new users from Authentik to add to Brevo list.")
         else:
-            logging.info(f"Found {len(users_to_add_to_brevo)} users to add to Brevo list.")
+            logging.info(
+                f"Found {len(users_to_add_to_brevo)} users to add to Brevo list."
+            )
             added_count = 0
             failed_count = 0
             for user_data_to_add in users_to_add_to_brevo:
@@ -129,12 +151,16 @@ def sync_authentik_users_to_brevo_list():
                 )
 
                 if brevo_client.add_contact_to_list(
-                    email=email_to_add, list_id=brevo_list_id, attributes=brevo_attributes
+                    email=email_to_add,
+                    list_id=brevo_list_id,
+                    attributes=brevo_attributes,
                 ):
                     added_count += 1
                 else:
                     failed_count += 1
-            logging.info(f"Finished adding users to Brevo. Added: {added_count}, Failed: {failed_count}.")
+            logging.info(
+                f"Finished adding users to Brevo. Added: {added_count}, Failed: {failed_count}."
+            )
 
         # (Optional) Step 4: Identify users to remove from Brevo list
         # users_to_remove_from_brevo = brevo_contact_emails_set - authentik_user_emails_set
@@ -150,7 +176,10 @@ def sync_authentik_users_to_brevo_list():
     ) as ve:  # Handles AuthentikClient/BrevoClient init errors if URLs/tokens are invalid after load_dotenv
         logging.error(f"Configuration error during client initialization: {ve}")
     except Exception as e:
-        logging.error(f"An unexpected error occurred during Authentik to Brevo sync: {e}", exc_info=True)
+        logging.error(
+            f"An unexpected error occurred during Authentik to Brevo sync: {e}",
+            exc_info=True,
+        )
 
 
 if __name__ == "__main__":
