@@ -173,15 +173,17 @@ class TestGroupSyncServices(unittest.TestCase):
             ("PROJET", "my-cool-project"),
         )
 
+    @patch("libraries.services.authentik.config")
     @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
     def test_sync_single_group_user_exclusion(
-        self, mock_config_module_in_service, mock_config_module_in_outline_service
+        self, mock_config_module_in_service, mock_config_module_in_outline_service, mock_service_config_authentik
     ):
         mock_config_module_in_service.EXCLUDED_USERS = {"excluded_user", "marty"}
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
         mock_config_module_in_outline_service.EXCLUDED_USERS = {"excluded_user", "marty"}
         mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
+        mock_service_config_authentik.EXCLUDED_USERS = {"excluded_user", "marty"}
 
         base_name = "MyTestProject"
         entity_key = "PROJET"
@@ -888,10 +890,12 @@ permissions:
         )
         self.assertTrue(kept_action_found, "USER_ALREADY_IN_AUTHENTIK_GROUP action not found for 'keepme_user'")
 
+    @patch("libraries.services.authentik.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_authentik_excluded_user_not_removed_if_not_in_mm(self, mock_config_module_in_service):
+    def test_sync_single_group_authentik_excluded_user_not_removed_if_not_in_mm(self, mock_config_module_in_service, mock_service_config_authentik):
         excluded_auth_username = "excluded_from_removal"
         mock_config_module_in_service.EXCLUDED_USERS = {excluded_auth_username}
+        mock_service_config_authentik.EXCLUDED_USERS = {excluded_auth_username}
         auth_user_pk_excluded = "auth_pk_excluded_removal"
         auth_user_obj_excluded = {
             "pk": auth_user_pk_excluded,

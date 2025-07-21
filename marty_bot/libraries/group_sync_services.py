@@ -12,7 +12,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from app import config
 from app.enums import SyncStatus
-from clients.authentik_client import AuthentikAction
 from clients.vaultwarden_client import VaultwardenAction
 from libraries.services.outline import (
     _sync_single_outline_collection,
@@ -21,6 +20,11 @@ from libraries.services.outline import (
 from libraries.services.nocodb import _sync_single_nocodb_base, _remove_user_from_nocodb_base
 from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
 from libraries.services.brevo import _sync_single_brevo_list
+from libraries.services.authentik import (
+    get_all_authentik_groups_and_user_map,
+    _sync_single_authentik_group,
+    remove_user_from_authentik_group,
+)
 
 # Import client-specific utilities and classes for type hinting
 # from clients.mattermost_client import slugify # Removed to avoid potential circular dependency if this slugify is widely used
@@ -44,24 +48,6 @@ from libraries.services.mattermost import slugify, _get_mm_users_for_entity
 #     ...
 
 
-def get_all_authentik_groups_and_user_map(authentik_client: "AuthentikClient"):
-    """
-    Fetches all Authentik groups and constructs a user email-to-PK map.
-    Uses the get_groups_with_users method from AuthentikClient.
-    """
-    logging.info("Fetching all Authentik groups and constructing user email-to-PK map...")
-    if not authentik_client:
-        logging.error("Authentik client not provided to get_all_authentik_groups_and_user_map.")
-        return [], {}
-
-    groups, email_map = authentik_client.get_groups_with_users()
-
-    if not groups:
-        logging.warning("No Authentik groups found or an error occurred during fetching.")
-    if not email_map:
-        logging.warning("Authentik user email-to-PK map is empty or could not be constructed.")
-
-    return groups, email_map
 
 
 def sync_entity_permissions(
@@ -571,92 +557,6 @@ def _ensure_users_in_authentik_group(
 
 
 
-def _sync_single_authentik_group(
-    authentik_client: "AuthentikClient",
-    auth_group_obj: dict,
-    mm_users_in_corresponding_channel: list[dict],
-    email_to_authentik_user_pk_map: dict,
-    mm_channel_display_name_for_log: str,
-    perform_deletions: bool,
-) -> list[dict]:
-    results = []
-    auth_group_name = auth_group_obj.get("name")
-    auth_group_pk = auth_group_obj.get("pk")
-
-    if not auth_group_pk or not auth_group_name:
-        logging.error(
-            f"Authentik group PK or name missing in auth_group_obj: {auth_group_obj}. Skipping sync for this group."
-        )
-        return [
-            {
-                "service": "AUTHENTIK",
-                "target_resource_name": str(auth_group_obj.get("name", "UnknownGroup")),
-                "status": SyncStatus.FAILURE.value,
-                "action": "MISSING_GROUP_PK_OR_NAME",
-                "error_message": "Group PK or name missing.",
-            }
-        ]
-
-    current_auth_user_pks_in_group = set(auth_group_obj.get("users", []))
-    auth_pk_to_auth_user_obj_map = {user.get("pk"): user for user in auth_group_obj.get("users_obj", [])}
-
-    # Initialize target_auth_pks_for_this_group with PKs of excluded users already in the group
-    target_auth_pks_for_this_group = set()
-    for mm_user_email_lower, auth_pk_val in email_to_authentik_user_pk_map.items():
-        # Need to find the username associated with this email to check against EXCLUDED_USERS
-        # This requires iterating mm_users_in_corresponding_channel or having a direct email->username map for excluded check
-        # For simplicity, if an Authentik user (via their PK) is in EXCLUDED_USERS (via their username), preserve them.
-        # This check is more robust if we can map auth_pk_val back to a username found in EXCLUDED_USERS.
-        auth_user_obj = auth_pk_to_auth_user_obj_map.get(auth_pk_val)
-        if auth_user_obj and auth_user_obj.get("username") in config.EXCLUDED_USERS:
-            if auth_pk_val in current_auth_user_pks_in_group:
-                target_auth_pks_for_this_group.add(auth_pk_val)
-
-    # Ensure users from Mattermost channel are in the Authentik group
-    # This function handles additions and returns results for those actions,
-    # and the set of Authentik PKs that were targeted based on MM channel members.
-    add_results, mm_targeted_pks = _ensure_users_in_authentik_group(
-        authentik_client,
-        auth_group_pk,
-        auth_group_name,
-        mm_users_in_corresponding_channel,
-        email_to_authentik_user_pk_map,
-        mm_channel_display_name_for_log,
-        current_auth_user_pks_in_group,  # Pass current members for accurate reporting in _ensure_users
-    )
-    results.extend(add_results)
-    target_auth_pks_for_this_group.update(mm_targeted_pks)  # Add all users who should be in the group based on MM
-
-    # Removal logic: Only if perform_deletions is True
-    if perform_deletions:
-        for auth_pk_in_group_obj in list(current_auth_user_pks_in_group):  # Iterate over a copy for safe removal
-            auth_user_details = auth_pk_to_auth_user_obj_map.get(auth_pk_in_group_obj)
-            auth_username_for_check = auth_user_details.get("username") if auth_user_details else None
-
-            # Skip removal for excluded users, they are managed manually or by other means
-            if auth_username_for_check and auth_username_for_check in config.EXCLUDED_USERS:
-                continue
-
-            if auth_pk_in_group_obj not in target_auth_pks_for_this_group:
-                # This Authentik user was in the group but is no longer in the target set from Mattermost
-                removal_base_info = {
-                    "mm_username": auth_username_for_check or f"AuthUserPK_{auth_pk_in_group_obj}",
-                    "mm_user_email": auth_user_details.get("email", "N/A") if auth_user_details else "N/A",
-                    "mm_channel_display_name": mm_channel_display_name_for_log,
-                    "target_resource_name": auth_group_name,
-                }
-                removal_result = {
-                    **removal_base_info,
-                    "service": "AUTHENTIK",
-                    "status": SyncStatus.FAILURE.value,
-                    "action": "FAILED_TO_REMOVE_FROM_AUTHENTIK_GROUP",
-                }
-                if authentik_client.remove_user_from_group(auth_group_pk, auth_pk_in_group_obj):
-                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_REMOVED_FROM_GROUP.value})
-                else:
-                    removal_result["error_message"] = "API call to remove user from Authentik group failed."
-                results.append(removal_result)
-    return results
 
 
 
@@ -1249,26 +1149,3 @@ def _extract_base_name(actual_name: str, pattern_with_placeholder: str) -> Optio
 
 
 
-def remove_user_from_authentik_group(
-    authentik_client: "AuthentikClient",
-    group_pk: str,
-    group_name: str,
-    user_pk: int,
-    user_email: str,
-    mm_channel_context_name: str,
-) -> dict:
-    """Removes a user from an Authentik group and returns a result dictionary."""
-    result = {
-        "service": "AUTHENTIK",
-        "target_resource_name": group_name,
-        "mm_user_email": user_email,
-        "mm_channel_display_name": mm_channel_context_name,
-        "status": SyncStatus.FAILURE.value,
-        "action": "FAILED_TO_REMOVE_FROM_AUTHENTIK_GROUP",
-    }
-    if authentik_client.remove_user_from_group(group_pk, user_pk):
-        result["status"] = SyncStatus.SUCCESS.value
-        result["action"] = AuthentikAction.USER_REMOVED_FROM_GROUP.value
-    else:
-        result["error_message"] = "API call to remove user from Authentik group failed."
-    return result
