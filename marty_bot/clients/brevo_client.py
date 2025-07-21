@@ -1,7 +1,8 @@
-import requests
 import logging
-from typing import Optional
 from enum import Enum
+from typing import Optional
+
+import requests
 
 
 class BrevoAction(Enum):
@@ -359,6 +360,7 @@ if __name__ == "__main__":
     # Example Usage (requires .env file with BREVO_API_URL and BREVO_API_KEY)
     # Ensure to install python-dotenv: pip install python-dotenv
     import os
+
     from dotenv import load_dotenv
 
     load_dotenv()

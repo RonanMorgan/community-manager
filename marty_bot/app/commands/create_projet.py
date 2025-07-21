@@ -1,5 +1,6 @@
-from .base_command import BaseCommand
 from libraries.resource_creation import execute_batch_create_command
+
+from .base_command import BaseCommand
 
 
 class CreateProjetCommand(BaseCommand):

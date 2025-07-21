@@ -1,10 +1,11 @@
 import logging
 from typing import TYPE_CHECKING, Optional
-from .mattermost import _extract_base_name
 
 import config
 from app.enums import SyncStatus
 from clients.outline_client import OutlineAction
+
+from .mattermost import _extract_base_name
 
 if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
@@ -265,7 +266,12 @@ def _sync_single_outline_collection(
                     "action": "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION",
                 }
                 if outline_client.remove_user_from_collection(outline_collection_id, outline_member_id):
-                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": OutlineAction.USER_REMOVED_FROM_COLLECTION.value})
+                    removal_result.update(
+                        {
+                            "status": SyncStatus.SUCCESS.value,
+                            "action": OutlineAction.USER_REMOVED_FROM_COLLECTION.value,
+                        }
+                    )
                 else:
                     removal_result["error_message"] = "API call to remove user from Outline collection failed."
                 results.append(removal_result)
@@ -314,8 +320,30 @@ def _map_outline_collection_to_entity_and_base_name(
     return None, None
 
 
-def _sync_outline_for_entity(outline_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
+def _sync_outline_for_entity(
+    outline_client,
+    mattermost_client,
+    base_name,
+    config,
+    all_authentik_groups_by_name,
+    email_to_authentik_user_pk_map,
+    std_mm_users,
+    admin_mm_users,
+    mm_users_for_services,
+    log_channel_name,
+    perform_deletions,
+    entity_key,
+):
     outline_coll_name = config.get("collection_name_pattern", "{base_name}").format(base_name=base_name)
     default_permission = config.get("default_access", "read")
     admin_permission = config.get("admin_access", "read_write")
-    return _sync_single_outline_collection(outline_client, mattermost_client, outline_coll_name, mm_users_for_services, default_permission, admin_permission, log_channel_name, perform_deletions)
+    return _sync_single_outline_collection(
+        outline_client,
+        mattermost_client,
+        outline_coll_name,
+        mm_users_for_services,
+        default_permission,
+        admin_permission,
+        log_channel_name,
+        perform_deletions,
+    )

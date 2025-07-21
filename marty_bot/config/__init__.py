@@ -1,6 +1,7 @@
-import os
-import yaml  # Added for permissions matrix
 import logging  # Added for logging matrix loading status
+import os
+
+import yaml  # Added for permissions matrix
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -72,7 +73,9 @@ else:
 
 
 # Permissions Matrix Configuration
-PERMISSIONS_MATRIX_FILE_PATH = os.getenv("PERMISSIONS_MATRIX_FILE_PATH", os.path.join(config_dir, "permissions_matrix.yml"))
+PERMISSIONS_MATRIX_FILE_PATH = os.getenv(
+    "PERMISSIONS_MATRIX_FILE_PATH", os.path.join(config_dir, "permissions_matrix.yml")
+)
 PERMISSIONS_MATRIX: dict = {}
 
 if PERMISSIONS_MATRIX_FILE_PATH:

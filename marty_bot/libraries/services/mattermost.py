@@ -1,6 +1,6 @@
 import logging
-from typing import TYPE_CHECKING, Optional
 import re
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient

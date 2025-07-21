@@ -1,9 +1,8 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 # import os # Removed as it's unused in test logic, only in example main
 import requests
-
 from clients.nocodb_client import NocoDBClient
 
 # Helper to load .env for local testing if NocoDBClient's main example is run

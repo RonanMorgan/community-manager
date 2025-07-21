@@ -1,6 +1,8 @@
-from .base_command import BaseCommand
 import asyncio
 import logging
+
+from .base_command import BaseCommand
+
 
 class UpdateAllUserRightsCommand(BaseCommand):
     @property
@@ -35,7 +37,11 @@ class UpdateAllUserRightsCommand(BaseCommand):
         initial_message_text = ":hourglass_flowing_sand: Démarrage de la mise à jour des droits utilisateurs (ajouts/modifications uniquement)... Ceci peut prendre un moment."
         initial_post_id = await asyncio.to_thread(self.bot.envoyer_message, channel_id, initial_message_text)
 
-        if not self.bot.authentik_client or not self.bot.mattermost_api_client or not self.bot.config.MATTERMOST_TEAM_ID:
+        if (
+            not self.bot.authentik_client
+            or not self.bot.mattermost_api_client
+            or not self.bot.config.MATTERMOST_TEAM_ID
+        ):
             error_msg = (
                 ":warning: **Erreur :** Le bot n'est pas correctement configuré pour la mise à jour des droits. "
                 "Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. "
@@ -93,7 +99,9 @@ class UpdateAllUserRightsCommand(BaseCommand):
                 f"An unexpected error occurred while dispatching or running the upsert task: {e}", exc_info=True
             )
             error_response_msg = ":boom: Une erreur serveur inattendue s'est produite lors de la tentative d'exécution de la mise à jour des droits (upsert). Veuillez consulter les logs du serveur."
-            await asyncio.to_thread(self.bot.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id)
+            await asyncio.to_thread(
+                self.bot.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id
+            )
 
     @staticmethod
     def get_help():

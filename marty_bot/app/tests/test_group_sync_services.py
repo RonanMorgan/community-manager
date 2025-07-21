@@ -1,25 +1,25 @@
-import unittest
+import asyncio  # Needed for async_test
 import os
-from unittest.mock import patch, MagicMock, mock_open
+import unittest
+from unittest.mock import MagicMock, mock_open, patch
 
+import config as app_config
+from clients.authentik_client import AuthentikClient
+from clients.brevo_client import BrevoClient
+from clients.mattermost_client import MattermostClient
+from clients.nocodb_client import NocoDBClient
+from clients.outline_client import OutlineClient
+from clients.vaultwarden_client import VaultwardenClient  # Added
 from libraries.group_sync_services import (
-    sync_entity_permissions,
     orchestrate_group_synchronization,
-)
-from libraries.services.mattermost import (
-    _map_mm_channel_to_entity_and_base_name,
-    _extract_base_name,
+    sync_entity_permissions,
 )
 from libraries.services.authentik import _map_auth_group_to_entity_and_base_name
-from libraries.services.mattermost import slugify
-import config as app_config
-import asyncio  # Needed for async_test
-from clients.mattermost_client import MattermostClient
-from clients.authentik_client import AuthentikClient
-from clients.outline_client import OutlineClient
-from clients.brevo_client import BrevoClient
-from clients.nocodb_client import NocoDBClient
-from clients.vaultwarden_client import VaultwardenClient  # Added
+from libraries.services.mattermost import (
+    _extract_base_name,
+    _map_mm_channel_to_entity_and_base_name,
+    slugify,
+)
 
 
 def reload_config_module():
@@ -916,7 +916,9 @@ permissions:
 
     @patch("libraries.services.authentik.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_authentik_excluded_user_not_removed_if_not_in_mm(self, mock_config_module_in_service, mock_service_config_authentik):
+    def test_sync_single_group_authentik_excluded_user_not_removed_if_not_in_mm(
+        self, mock_config_module_in_service, mock_service_config_authentik
+    ):
         excluded_auth_username = "excluded_from_removal"
         mock_config_module_in_service.EXCLUDED_USERS = {excluded_auth_username}
         mock_service_config_authentik.EXCLUDED_USERS = {excluded_auth_username}
@@ -1558,9 +1560,7 @@ permissions:
             perform_deletions=True,
         )
 
-        self.mock_brevo_client.get_contacts_from_list.assert_called_once_with(
-            existing_list_obj["id"]
-        )
+        self.mock_brevo_client.get_contacts_from_list.assert_called_once_with(existing_list_obj["id"])
         self.mock_brevo_client.remove_contact_from_list.assert_called_once_with(
             email="remove@example.com", list_id=existing_list_obj["id"]
         )
@@ -1576,7 +1576,9 @@ permissions:
 
     @patch("libraries.services.brevo.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_brevo_list_excluded_user_not_added_or_removed(self, mock_lib_config_brevo, mock_service_config_brevo):
+    def test_sync_brevo_list_excluded_user_not_added_or_removed(
+        self, mock_lib_config_brevo, mock_service_config_brevo
+    ):
         excluded_username = "excluded_brevo_user"
         mock_lib_config_brevo.EXCLUDED_USERS = {excluded_username}
         mock_service_config_brevo.EXCLUDED_USERS = {excluded_username}
@@ -1627,7 +1629,9 @@ permissions:
         # Assuming _sync_single_brevo_list is globally available or imported for these tests.
         # For now, let's assume it's directly callable or defined in this file for testing.
         # If it's in group_sync_services, we'd call it as:
-        from libraries.services.brevo import _sync_single_brevo_list as actual_sync_function
+        from libraries.services.brevo import (
+            _sync_single_brevo_list as actual_sync_function,
+        )
 
         return actual_sync_function(
             brevo_client=mock_brevo_client,
@@ -1640,7 +1644,9 @@ permissions:
     # --- Tests for NocoDB base synchronization ---
     @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")  # To mock EXCLUDED_USERS and NOCODB_URL
-    def test_sync_nocodb_base_creation_and_user_invite_with_dm(self, mock_lib_config_nocodb, mock_service_config_nocodb):
+    def test_sync_nocodb_base_creation_and_user_invite_with_dm(
+        self, mock_lib_config_nocodb, mock_service_config_nocodb
+    ):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
         mock_lib_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"  # Mock NOCODB_URL for DM link
         mock_service_config_nocodb.EXCLUDED_USERS = set()
@@ -2042,7 +2048,9 @@ permissions:
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
         mock_service_config_vw.EXCLUDED_USERS = set()
         mock_service_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
+        from libraries.services.vaultwarden import (
+            _sync_single_vaultwarden_collection_members,
+        )
 
         collection_name = "TestVWCollection"
         mm_user_data = {"username": "vw_user1", "mm_user_id": "mm_vw_u1", "is_admin_channel_member": False}
@@ -2088,7 +2096,9 @@ permissions:
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
         mock_service_config_vw.EXCLUDED_USERS = set()
         mock_service_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
+        from libraries.services.vaultwarden import (
+            _sync_single_vaultwarden_collection_members,
+        )
 
         collection_name = "VWCollectionDMFail"
         mm_users_for_services = {"vw.dm.fail@example.com": {"username": "vw_dm_fail", "mm_user_id": "mm_vw_dm_fail"}}
@@ -2116,7 +2126,9 @@ permissions:
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = None  # Simulate URL not set
         mock_service_config_vw.EXCLUDED_USERS = set()
         mock_service_config_vw.VAULTWARDEN_SERVER_URL = None
-        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
+        from libraries.services.vaultwarden import (
+            _sync_single_vaultwarden_collection_members,
+        )
 
         collection_name = "VWCollectionDMSkip"
         mm_users_for_services = {"vw.dm.skip@example.com": {"username": "vw_dm_skip", "mm_user_id": "mm_vw_dm_skip"}}
@@ -2141,7 +2153,9 @@ permissions:
     def test_sync_vaultwarden_invite_fails_no_dm(self, mock_lib_config_vw):
         mock_lib_config_vw.EXCLUDED_USERS = set()
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
+        from libraries.services.vaultwarden import (
+            _sync_single_vaultwarden_collection_members,
+        )
 
         collection_name = "VWCollectionInviteFail"
         mm_users_for_services = {

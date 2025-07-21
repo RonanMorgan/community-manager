@@ -1,6 +1,7 @@
-import requests
 import logging
 from enum import Enum
+
+import requests
 
 
 class NocoDBAction(Enum):

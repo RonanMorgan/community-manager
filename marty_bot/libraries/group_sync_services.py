@@ -3,58 +3,45 @@
 # It will be used by both the bot (app) and standalone scripts.
 
 import logging
-import re
+import os
+import sys
 from typing import TYPE_CHECKING, Optional
 
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import config
 from app.enums import SyncStatus
 from clients.vaultwarden_client import VaultwardenAction
-from libraries.services.outline import (
-    _sync_single_outline_collection,
-    _remove_user_from_outline_collection,
-    _map_outline_collection_to_entity_and_base_name,
-    _sync_outline_for_entity,
+from libraries.services.authentik import (
+    _map_auth_group_to_entity_and_base_name,
+    _sync_authentik_for_entity,
+    get_all_authentik_groups_and_user_map,
+    remove_user_from_authentik_group,
+)
+from libraries.services.brevo import _sync_brevo_for_entity
+from libraries.services.mattermost import (
+    _extract_base_name,
+    _map_mm_channel_to_entity_and_base_name,
 )
 from libraries.services.nocodb import (
-    _sync_single_nocodb_base,
-    _remove_user_from_nocodb_base,
     _map_nocodb_base_to_entity_and_base_name,
+    _remove_user_from_nocodb_base,
     _sync_nocodb_for_entity,
 )
+from libraries.services.outline import (
+    _map_outline_collection_to_entity_and_base_name,
+    _remove_user_from_outline_collection,
+    _sync_outline_for_entity,
+)
 from libraries.services.vaultwarden import (
-    _sync_single_vaultwarden_collection_members,
     _map_vaultwarden_collection_to_entity_and_base_name,
     _sync_vaultwarden_for_entity,
 )
-from libraries.services.brevo import (
-    _sync_single_brevo_list,
-    _map_brevo_list_to_entity_and_base_name,
-    _sync_brevo_for_entity,
-)
-from libraries.services.authentik import (
-    get_all_authentik_groups_and_user_map,
-    _sync_single_authentik_group,
-    remove_user_from_authentik_group,
-    _map_auth_group_to_entity_and_base_name,
-    _sync_authentik_for_entity,
-)
-from libraries.services.mattermost import _map_mm_channel_to_entity_and_base_name, _extract_base_name
-
 
 if TYPE_CHECKING:
-    from clients.authentik_client import AuthentikClient
     from clients.mattermost_client import MattermostClient
-    from clients.outline_client import OutlineClient
-    from clients.brevo_client import BrevoClient
-    from clients.nocodb_client import NocoDBClient
-    from clients.vaultwarden_client import VaultwardenClient  # Added VaultwardenClient
 
-
-from libraries.services.mattermost import slugify, _get_mm_users_for_entity
+from libraries.services.mattermost import _get_mm_users_for_entity, slugify
 
 
 # Helper function to determine Outline permission (REMOVED as logic is now in _sync_single_outline_collection)
@@ -90,7 +77,9 @@ def sync_entity_permissions(
 
     adm_mm_users_in_channel = []
     if admin_config:
-        adm_mm_channel_name = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin").format(base_name=base_name)
+        adm_mm_channel_name = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin").format(
+            base_name=base_name
+        )
         adm_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(adm_mm_channel_name))
         if adm_mm_channel:
             adm_mm_users_in_channel = mattermost_client.get_users_in_channel(adm_mm_channel["id"])
@@ -99,11 +88,19 @@ def sync_entity_permissions(
     for mm_user in std_mm_users_in_channel:
         email = mm_user.get("email", "").lower()
         if email:
-            mm_users_for_services[email] = {"username": mm_user.get("username"), "mm_user_id": mm_user.get("id"), "is_admin_channel_member": False}
+            mm_users_for_services[email] = {
+                "username": mm_user.get("username"),
+                "mm_user_id": mm_user.get("id"),
+                "is_admin_channel_member": False,
+            }
     for mm_user in adm_mm_users_in_channel:
         email = mm_user.get("email", "").lower()
         if email:
-            mm_users_for_services[email] = {"username": mm_user.get("username"), "mm_user_id": mm_user.get("id"), "is_admin_channel_member": True}
+            mm_users_for_services[email] = {
+                "username": mm_user.get("username"),
+                "mm_user_id": mm_user.get("id"),
+                "is_admin_channel_member": True,
+            }
 
     # Service-specific logic
     service_registry = {
@@ -136,29 +133,25 @@ def sync_entity_permissions(
 
     for service_name, service_data in service_registry.items():
         if service_name not in skip_services and service_data["client"] and service_data["config"]:
-            results.extend(service_data["sync_function"](
-                service_data["client"],
-                mattermost_client,
-                base_name,
-                service_data["config"],
-                all_authentik_groups_by_name,
-                email_to_authentik_user_pk_map,
-                std_mm_users_in_channel,
-                adm_mm_users_in_channel,
-                mm_users_for_services,
-                std_mm_channel_name_for_log,
-                perform_deletions,
-                entity_key,
-            ))
+            results.extend(
+                service_data["sync_function"](
+                    service_data["client"],
+                    mattermost_client,
+                    base_name,
+                    service_data["config"],
+                    all_authentik_groups_by_name,
+                    email_to_authentik_user_pk_map,
+                    std_mm_users_in_channel,
+                    adm_mm_users_in_channel,
+                    mm_users_for_services,
+                    std_mm_channel_name_for_log,
+                    perform_deletions,
+                    entity_key,
+                )
+            )
 
     logging.info(f"Finished sync for entity '{base_name}'. Total results: {len(results)}")
     return results
-
-
-
-
-
-
 
 
 async def orchestrate_group_synchronization(

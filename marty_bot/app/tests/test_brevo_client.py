@@ -1,5 +1,9 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+from clients.brevo_client import (  # Direct import assuming PYTHONPATH is correct or tests are run with pytest
+    BrevoClient,
+)
 
 # Ensure clients are importable by adding the project root to sys.path if necessary
 # This might be needed if tests are run from a different directory context.
@@ -7,9 +11,6 @@ from unittest.mock import patch, MagicMock
 # import sys
 # sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from clients.brevo_client import (
-    BrevoClient,
-)  # Direct import assuming PYTHONPATH is correct or tests are run with pytest
 
 # Load environment variables for testing if not already set (e.g., by a CI/CD pipeline)
 # from dotenv import load_dotenv
@@ -512,9 +513,9 @@ class TestBrevoClient(unittest.TestCase):
         ]
 
         # Expected: all contacts from page 1 and page 2
-        expected_contacts = [
-            {"email": f"user{i}@example.com", "id": i} for i in range(internal_limit)
-        ] + [{"email": "finaluser@example.com", "id": internal_limit}]
+        expected_contacts = [{"email": f"user{i}@example.com", "id": i} for i in range(internal_limit)] + [
+            {"email": "finaluser@example.com", "id": internal_limit}
+        ]
 
         # Use self.client which is already set up
         result_contacts = self.client.get_contacts_from_list(list_id)

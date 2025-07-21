@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
+
 import websockets
+
 
 class WebsocketHandler:
     def __init__(self, bot):

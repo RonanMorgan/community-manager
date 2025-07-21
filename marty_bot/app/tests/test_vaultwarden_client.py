@@ -1,10 +1,10 @@
-import unittest
-from unittest.mock import patch, MagicMock, call
-import os
 import json
-import requests
 import logging  # For assertLogs
+import os
+import unittest
+from unittest.mock import MagicMock, call, patch
 
+import requests
 from clients.vaultwarden_client import VaultwardenClient
 
 
