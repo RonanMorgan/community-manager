@@ -16,20 +16,32 @@ from clients.vaultwarden_client import VaultwardenAction
 from libraries.services.outline import (
     _sync_single_outline_collection,
     _remove_user_from_outline_collection,
+    _map_outline_collection_to_entity_and_base_name,
+    _sync_outline_for_entity,
 )
-from libraries.services.nocodb import _sync_single_nocodb_base, _remove_user_from_nocodb_base
-from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
-from libraries.services.brevo import _sync_single_brevo_list
+from libraries.services.nocodb import (
+    _sync_single_nocodb_base,
+    _remove_user_from_nocodb_base,
+    _map_nocodb_base_to_entity_and_base_name,
+    _sync_nocodb_for_entity,
+)
+from libraries.services.vaultwarden import (
+    _sync_single_vaultwarden_collection_members,
+    _map_vaultwarden_collection_to_entity_and_base_name,
+    _sync_vaultwarden_for_entity,
+)
+from libraries.services.brevo import (
+    _sync_single_brevo_list,
+    _map_brevo_list_to_entity_and_base_name,
+    _sync_brevo_for_entity,
+)
 from libraries.services.authentik import (
     get_all_authentik_groups_and_user_map,
     _sync_single_authentik_group,
     remove_user_from_authentik_group,
     _map_auth_group_to_entity_and_base_name,
+    _sync_authentik_for_entity,
 )
-from libraries.services.outline import _map_outline_collection_to_entity_and_base_name
-from libraries.services.vaultwarden import _map_vaultwarden_collection_to_entity_and_base_name
-from libraries.services.brevo import _map_brevo_list_to_entity_and_base_name
-from libraries.services.nocodb import _map_nocodb_base_to_entity_and_base_name
 from libraries.services.mattermost import _map_mm_channel_to_entity_and_base_name
 
 
@@ -143,53 +155,10 @@ def sync_entity_permissions(
     return results
 
 
-def _sync_authentik_for_entity(authentik_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
-    results = []
-    std_auth_group_name = config["standard"].get("authentik_group_name_pattern", "{base_name}").format(base_name=base_name)
-    std_auth_group_obj = all_authentik_groups_by_name.get(std_auth_group_name)
-    if not std_auth_group_obj:
-        std_auth_group_obj = authentik_client.get_group_by_name(std_auth_group_name) or authentik_client.create_group(std_auth_group_name)
-    if std_auth_group_obj:
-        results.extend(_sync_single_authentik_group(authentik_client, std_auth_group_obj, std_mm_users, email_to_authentik_user_pk_map, log_channel_name, perform_deletions))
 
-    if config.get("admin"):
-        adm_auth_group_name = config["admin"].get("authentik_group_name_pattern", "{base_name} Admin").format(base_name=base_name)
-        adm_auth_group_obj = all_authentik_groups_by_name.get(adm_auth_group_name)
-        if not adm_auth_group_obj:
-            adm_auth_group_obj = authentik_client.get_group_by_name(adm_auth_group_name) or authentik_client.create_group(adm_auth_group_name)
-        if adm_auth_group_obj:
-            results.extend(_sync_single_authentik_group(authentik_client, adm_auth_group_obj, admin_mm_users, email_to_authentik_user_pk_map, log_channel_name, perform_deletions))
-    return results
 
-def _sync_outline_for_entity(outline_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
-    outline_coll_name = config.get("collection_name_pattern", "{base_name}").format(base_name=base_name)
-    default_permission = config.get("default_access", "read")
-    admin_permission = config.get("admin_access", "read_write")
-    return _sync_single_outline_collection(outline_client, mattermost_client, outline_coll_name, mm_users_for_services, default_permission, admin_permission, log_channel_name, perform_deletions)
 
-def _sync_brevo_for_entity(brevo_client, mattermost_client, base_name, config, *args):
-    brevo_list_name = config.get("list_name_pattern", "mm_{base_name}").format(base_name=base_name)
-    std_mm_users = args[3]  # std_mm_users is the 4th argument after config
-    log_channel_name = args[6]
-    perform_deletions = args[7]
-    return _sync_single_brevo_list(brevo_client, brevo_list_name, std_mm_users, log_channel_name, perform_deletions)
 
-def _sync_nocodb_for_entity(nocodb_client, mattermost_client, base_name, config, *args):
-    if args[8] not in ["ANTENNE", "POLES"]:  # entity_key is the 9th argument
-        return []
-    nocodb_base_title_pattern = config.get("base_title_pattern", "nocodb_{base_name}")
-    default_permission = config.get("default_access", "viewer")
-    admin_permission = config.get("admin_access", "owner")
-    mm_users_for_services = args[5]
-    log_channel_name = args[6]
-    perform_deletions = args[7]
-    return _sync_single_nocodb_base(nocodb_client, mattermost_client, nocodb_base_title_pattern, base_name, mm_users_for_services, default_permission, admin_permission, log_channel_name, perform_deletions)
-
-def _sync_vaultwarden_for_entity(vaultwarden_client, mattermost_client, base_name, config, *args):
-    vw_collection_name = config.get("collection_name_pattern", "Shared - {base_name}").format(base_name=base_name)
-    mm_users_for_services = args[5]
-    log_channel_name = args[6]
-    return _sync_single_vaultwarden_collection_members(vaultwarden_client, mattermost_client, vw_collection_name, mm_users_for_services, log_channel_name)
 
 
 async def orchestrate_group_synchronization(
