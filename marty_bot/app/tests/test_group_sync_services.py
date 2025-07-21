@@ -2060,11 +2060,14 @@ permissions:
         self.assertEqual(results[0]["status"], "SUCCESS")
         self.assertEqual(results[0]["action"], "USER_INVITED_TO_VW_COLLECTION_DM_FAILED")
 
+    @patch("libraries.services.vaultwarden.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_vaultwarden_invite_dm_skipped_no_url(self, mock_lib_config_vw):
+    def test_sync_vaultwarden_invite_dm_skipped_no_url(self, mock_lib_config_vw, mock_service_config_vw):
         mock_lib_config_vw.EXCLUDED_USERS = set()
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = None  # Simulate URL not set
-        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+        mock_service_config_vw.EXCLUDED_USERS = set()
+        mock_service_config_vw.VAULTWARDEN_SERVER_URL = None
+        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
 
         collection_name = "VWCollectionDMSkip"
         mm_users_for_services = {"vw.dm.skip@example.com": {"username": "vw_dm_skip", "mm_user_id": "mm_vw_dm_skip"}}
