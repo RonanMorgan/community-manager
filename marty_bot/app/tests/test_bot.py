@@ -494,7 +494,6 @@ class TestMartyBot(unittest.TestCase):
         async def actual_test_logic():
             command_name = "update_all_user_rights"
             admin_user_id = "admin_user_for_upsert"
-            # Mock get_user_roles to return admin role for this test
             self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin", "system_user"]
 
             mock_orchestrate_sync.return_value = (
@@ -509,7 +508,6 @@ class TestMartyBot(unittest.TestCase):
                     }
                 ],
             )
-            # Use the specific admin_user_id when sending the message
             await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}", user_id=admin_user_id)
 
             self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
@@ -522,20 +520,9 @@ class TestMartyBot(unittest.TestCase):
                 vaultwarden_client=self.bot.vaultwarden_client,
                 mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,
-                sync_mode="MM_TO_TOOLS",  # Corrected: was fetch_remote_members=False
+                sync_mode="MM_TO_TOOLS",
                 skip_services=None,
             )
-            # The actual call from bot.py for orchestrate_group_synchronization is:
-            # orchestrate_group_synchronization(
-            #     self.authentik_client, self.mattermost_api_client, self.outline_client,
-            #     self.brevo_client, # NocoDB client is missing here in the actual call in bot.py
-            #     self.config.MATTERMOST_TEAM_ID, ...
-            # )
-            # This needs to be corrected in bot.py, not the test.
-            # For now, to make the test pass with current bot.py, I will adjust the assertion.
-            # However, the proper fix is in bot.py. I'll assume bot.py will be fixed.
-            # If bot.py is not fixed, this test will fail again.
-
             self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
             summary_call_found = False
             for call_args_tuple in self.bot.envoyer_message.call_args_list:
@@ -545,6 +532,7 @@ class TestMartyBot(unittest.TestCase):
                     break
             self.assertTrue(summary_call_found, "Summary message for upsert not found.")
 
+        self.bot.orchestrate_group_synchronization = mock_orchestrate_sync
         asyncio.run(actual_test_logic())
 
     @patch("app.bot.orchestrate_group_synchronization")
@@ -552,7 +540,6 @@ class TestMartyBot(unittest.TestCase):
         async def actual_test_logic():
             command_name = "update_user_rights_and_remove"
             admin_user_id = "admin_user_id_for_sync"
-            # Mock get_user_roles to return admin role
             self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin", "system_user"]
 
             mock_orchestrate_sync.return_value = (
@@ -579,21 +566,22 @@ class TestMartyBot(unittest.TestCase):
                 vaultwarden_client=self.bot.vaultwarden_client,
                 mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
-                sync_mode="TOOLS_TO_MM",  # Corrected: was fetch_remote_members=True
+                sync_mode="TOOLS_TO_MM",
                 skip_services=None,
             )
-            self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)  # Initial + summary
+            self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
             summary_call_found = False
             for call_args_tuple in self.bot.envoyer_message.call_args_list:
-                message_text = call_args_tuple[0][1]  # message_text is the second arg of the first call in the tuple
+                message_text = call_args_tuple[0][1]
                 if "Résumé de Suppression/synchronisation des droits" in message_text:
                     summary_call_found = True
                     break
             self.assertTrue(summary_call_found, "Summary message for full sync/remove not found.")
 
+        self.bot.orchestrate_group_synchronization = mock_orchestrate_sync
         asyncio.run(actual_test_logic())
 
-    @async_test  # This test was missing the async_test decorator
+    @async_test
     @patch("app.bot.orchestrate_group_synchronization")
     async def test_sync_commands_permission_denied_non_admin(self, mock_orchestrate_sync):
         commands_to_test = [
@@ -601,82 +589,72 @@ class TestMartyBot(unittest.TestCase):
             "update_user_rights_and_remove",
         ]
         non_admin_user_id = "non_admin_user_for_sync"
-        self.bot.mattermost_api_client.get_user_roles.return_value = ["system_user"]  # Not an admin
+        self.bot.mattermost_api_client.get_user_roles.return_value = ["system_user"]
 
         for command_key in commands_to_test:
             with self.subTest(command=command_key):
                 self.bot.envoyer_message.reset_mock()
-                self.bot.mattermost_api_client.get_user_roles.reset_mock()  # Reset for each subtest
+                self.bot.mattermost_api_client.get_user_roles.reset_mock()
                 mock_orchestrate_sync.reset_mock()
 
                 await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_key}", user_id=non_admin_user_id)
 
                 self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(non_admin_user_id)
-                mock_orchestrate_sync.assert_not_called()  # Orchestration should not be called
+                mock_orchestrate_sync.assert_not_called()
                 self.bot.envoyer_message.assert_called_once()
                 sent_message = self.bot.envoyer_message.call_args[0][1]
                 self.assertIn(":no_entry_sign: Accès refusé.", sent_message)
 
     @async_test
     async def test_sync_commands_orchestration_failure_admin_user(self):
-        commands_to_test = {
-            "update_all_user_rights": self.bot._handle_update_all_user_rights_command,
-            "update_user_rights_and_remove": self.bot._handle_update_user_rights_and_remove_command,
-        }
+        commands_to_test = ["update_all_user_rights", "update_user_rights_and_remove"]
         admin_user_id = "admin_user_for_fail_test"
         self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin"]
 
-        for command_key, handler_method in commands_to_test.items():
-            with self.subTest(command=command_key):
-                self.bot.envoyer_message.reset_mock()
-                self.bot.mattermost_api_client.get_user_roles.reset_mock()
-                with patch("app.bot.orchestrate_group_synchronization") as mock_orchestrate:
-                    mock_orchestrate.return_value = (False, [])  # Simulate orchestration failure
+        with patch.object(self.bot, "orchestrate_group_synchronization", return_value=(False, [])) as mock_orchestrate:
+            for command_key in commands_to_test:
+                with self.subTest(command=command_key):
+                    self.bot.envoyer_message.reset_mock()
+                    self.bot.mattermost_api_client.get_user_roles.reset_mock()
+                    mock_orchestrate.reset_mock()
 
-                    # We call the handler method directly here for testing its behavior post-permission check
-                    # The _send_test_message helper is for testing the full flow including parsing and permission.
-                    # Here, we assume permission check passed and want to test the handler's reaction to orchestrate failure.
-                    await handler_method(channel_id="test_channel", arg_string=None, user_id_who_posted=admin_user_id)
+                    await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_key}", user_id=admin_user_id)
 
                     self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
-                    mock_orchestrate.assert_called_once()  # Ensure it was called
-                    self.assertEqual(self.bot.envoyer_message.call_count, 2)  # Initial "processing" + error message
+                    mock_orchestrate.assert_called_once()
+                    self.assertEqual(self.bot.envoyer_message.call_count, 2)
                     final_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                     self.assertIn("échoué de manière critique durant l'orchestration", final_message_text)
 
     @async_test
     async def test_sync_commands_no_clients_configured_admin_user(self):
-        commands_to_test = {
-            "update_all_user_rights": self.bot._handle_update_all_user_rights_command,
-            "update_user_rights_and_remove": self.bot._handle_update_user_rights_and_remove_command,
-        }
+        commands_to_test = ["update_all_user_rights", "update_user_rights_and_remove"]
         admin_user_id = "admin_user_for_noclient_test"
         self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin"]
 
         original_auth_client = self.bot.authentik_client
-        self.bot.authentik_client = None  # Simulate Authentik client not configured
+        self.bot.authentik_client = None
 
-        for command_key, handler_method in commands_to_test.items():
+        for command_key in commands_to_test:
             with self.subTest(command=command_key):
                 self.bot.envoyer_message.reset_mock()
                 self.bot.mattermost_api_client.get_user_roles.reset_mock()
 
-                await handler_method(channel_id="test_channel", arg_string=None, user_id_who_posted=admin_user_id)
+                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_key}", user_id=admin_user_id)
 
                 self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
-                self.assertEqual(self.bot.envoyer_message.call_count, 2)  # Initial "processing" + error message
+                self.assertEqual(self.bot.envoyer_message.call_count, 2)
                 error_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
                 self.assertIn("Le bot n'est pas correctement configuré", error_message_text)
-        self.bot.authentik_client = original_auth_client  # Restore
+        self.bot.authentik_client = original_auth_client
 
     @patch.dict(os.environ, {"BW_PASSWORD": "testpassword"})
     @async_test
     async def test_handle_create_projet_calls_vaultwarden_client(self):
         project_name = "VWTestProjet"
-        # Mock other clients to return successfully to isolate Vaultwarden client call
         self.bot.authentik_client.create_group.return_value = {"name": "any_auth_group", "pk": "any_pk"}
         self.bot.outline_client.create_group.return_value = {"name": "any_outline_coll", "id": "any_outline_id"}
-        self.bot.brevo_client.get_list_by_name.return_value = None  # Simulate list does not exist
+        self.bot.brevo_client.get_list_by_name.return_value = None
         self.bot.brevo_client.create_list.return_value = {
             "name": "any_brevo_list",
             "id": "any_brevo_id",
@@ -688,17 +666,14 @@ class TestMartyBot(unittest.TestCase):
         }
         self.bot.mattermost_api_client.add_user_to_channel.return_value = True
 
-        # Mock Vaultwarden client's create_collection
-        expected_vw_collection_name = f"VW_Projet_{project_name}"  # From PERMISSIONS_MATRIX pattern
+        expected_vw_collection_name = f"VW_Projet_{project_name}"
         self.bot.vaultwarden_client.create_collection.return_value = "fake_vw_collection_id"
 
         await self._send_test_message(f"@{self.mock_config.BOT_NAME} create_projet {project_name}")
 
-        # Assert Vaultwarden client was called correctly
         self.bot.vaultwarden_client.create_collection.assert_called_once_with(expected_vw_collection_name)
 
-        # Check that the result message includes Vaultwarden success
-        self.assertEqual(self.bot.envoyer_message.call_count, 2)  # Initial and summary
+        self.assertEqual(self.bot.envoyer_message.call_count, 2)
         summary_text = self.bot.envoyer_message.call_args_list[1][0][1]
         self.assertIn(
             f"Vaultwarden Collection `{expected_vw_collection_name}`: :white_check_mark: Collection assurée (ID: fake_vw_collection_id).",
@@ -711,9 +686,10 @@ class TestMartyBot(unittest.TestCase):
         command_name = "update_user_rights_and_remove"
         arg_string = "nocodb=false"
         admin_user_id = "admin_for_skip_nocodb"
-        # Ensure this user is treated as admin
         self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin", "system_user"]
-        mock_orchestrate_sync.return_value = (True, [])  # Minimal successful result
+        mock_orchestrate_sync.return_value = (True, [])
+
+        self.bot.orchestrate_group_synchronization = mock_orchestrate_sync
 
         await self._send_test_message(
             f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}", user_id=admin_user_id
@@ -729,11 +705,9 @@ class TestMartyBot(unittest.TestCase):
             vaultwarden_client=self.bot.vaultwarden_client,
             mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
             perform_deletions=True,
-            sync_mode="TOOLS_TO_MM",  # Corrected: was fetch_remote_members=True
+            sync_mode="TOOLS_TO_MM",
             skip_services=["nocodb"],
         )
-        # Check if initial message indicates skipping nocodb
-        # The "processing..." message is the first one sent if permission passes.
         self.assertGreaterEqual(self.bot.envoyer_message.call_count, 1)
         processing_message_call = self.bot.envoyer_message.call_args_list[0][0][1]
         self.assertIn("NoCoDB ignoré", processing_message_call)
@@ -743,12 +717,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-# Tests for _handle_send_email_command
 class TestSendEmailCommand(TestMartyBot):
-    # This class inherits from TestMartyBot.
-    # If test_handle_update_user_rights_and_remove_command_with_skip_nocodb
-    # is defined in TestMartyBot and decorated, TestSendEmailCommand will inherit it correctly.
-    # The warning for TestSendEmailCommand is a consequence of the missing decorator in the parent.
 
     def setUp(self):
         super().setUp()
@@ -759,6 +728,7 @@ class TestSendEmailCommand(TestMartyBot):
     @patch("libraries.group_sync_services._map_mm_channel_to_entity_and_base_name")
     def test_handle_send_email_success(self, mock_map_channel, mock_slugify_call):
         async def actual_test_logic():
+            command_name = "send_email"
             channel_id = "admin_channel_projet_test"
             user_id = "test_user_admin"
             subject = "Test Email Subject"
@@ -792,7 +762,7 @@ class TestSendEmailCommand(TestMartyBot):
             }
             self.bot.mattermost_api_client.get_users_in_channel.return_value = [
                 {"id": user_id}
-            ]  # Corrected: "id" instead of "user_id"
+            ]
 
             brevo_list_name_pattern_from_config = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
                 "list_name_pattern"
@@ -807,7 +777,7 @@ class TestSendEmailCommand(TestMartyBot):
             self.bot.brevo_client.get_contacts_from_list.return_value = contacts_on_list
             self.bot.brevo_client.send_transactional_email.return_value = True
 
-            await self.bot._handle_send_email_command(channel_id, arg_string, user_id)
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}", user_id=user_id, channel_id=channel_id)
 
             self.assertGreaterEqual(mock_map_channel.call_count, 1)
             projet_config_slice = {"PROJET": self.mock_config.PERMISSIONS_MATRIX["PROJET"]}
@@ -817,11 +787,11 @@ class TestSendEmailCommand(TestMartyBot):
             self.bot.brevo_client.get_contacts_from_list.assert_called_once_with("brevo_list_123")
             self.bot.brevo_client.send_transactional_email.assert_called_once_with(
                 subject,
-                body,  # text_content
+                body,
                 self.mock_config.BREVO_DEFAULT_SENDER_EMAIL,
                 self.mock_config.BREVO_DEFAULT_SENDER_NAME,
                 expected_to_contacts,
-                html_content=unittest.mock.ANY,  # HTML content is now always passed
+                html_content=unittest.mock.ANY,
             )
             self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]
@@ -832,6 +802,7 @@ class TestSendEmailCommand(TestMartyBot):
     @patch("libraries.group_sync_services._map_mm_channel_to_entity_and_base_name")
     def test_handle_send_email_not_admin_channel(self, mock_map_channel):
         async def actual_test_logic():
+            command_name = "send_email"
             mock_map_channel.return_value = (None, None)
             channel_id = "some_other_channel"
             channel_display_name = "Not An Admin Channel"
@@ -841,8 +812,8 @@ class TestSendEmailCommand(TestMartyBot):
                 "name": channel_slug,
                 "display_name": channel_display_name,
             }
-            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]  # Corrected: "id"
-            await self.bot._handle_send_email_command(channel_id, "Subject /// Body", "test_user")
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Subject /// Body", user_id="test_user", channel_id=channel_id)
             self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]
             self.assertIn("Cette commande doit être lancée depuis un canal admin", last_call_args[1])
@@ -853,6 +824,7 @@ class TestSendEmailCommand(TestMartyBot):
     @patch("libraries.group_sync_services._map_mm_channel_to_entity_and_base_name")
     def test_handle_send_email_brevo_list_not_found(self, mock_map_channel):
         async def actual_test_logic():
+            command_name = "send_email"
             base_name_for_test = "NoListProjet"
             entity_key_for_test = "PROJET"
             admin_display_name = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["admin"][
@@ -867,15 +839,16 @@ class TestSendEmailCommand(TestMartyBot):
                 return (None, None)
 
             mock_map_channel.side_effect = map_channel_side_effect
+            channel_id = "admin_no_list"
             self.bot.mattermost_api_client.get_channel_by_id.return_value = {
-                "id": "admin_no_list",
+                "id": channel_id,
                 "name": admin_slug,
                 "display_name": admin_display_name,
             }
-            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]  # Corrected: "id"
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]
             self.bot.brevo_client.get_list_by_name.return_value = None
-            await self.bot._handle_send_email_command("admin_no_list", "Sujet /// Corps", "test_user")
-            self.bot.envoyer_message.assert_called_with("admin_no_list", unittest.mock.ANY)
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Sujet /// Corps", user_id="test_user", channel_id=channel_id)
+            self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]
             expected_brevo_list_name = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
                 "list_name_pattern"
@@ -888,6 +861,7 @@ class TestSendEmailCommand(TestMartyBot):
     @patch("libraries.group_sync_services._map_mm_channel_to_entity_and_base_name")
     def test_handle_send_email_no_recipients_in_list(self, mock_map_channel):
         async def actual_test_logic():
+            command_name = "send_email"
             base_name_for_test = "EmptyListProjet"
             entity_key_for_test = "PROJET"
             admin_display_name = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["admin"][
@@ -902,12 +876,13 @@ class TestSendEmailCommand(TestMartyBot):
                 return (None, None)
 
             mock_map_channel.side_effect = map_channel_side_effect
+            channel_id = "admin_empty_list"
             self.bot.mattermost_api_client.get_channel_by_id.return_value = {
-                "id": "admin_empty_list",
+                "id": channel_id,
                 "name": admin_slug,
                 "display_name": admin_display_name,
             }
-            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]  # Corrected: "id"
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]
             brevo_list_name_pattern = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
                 "list_name_pattern"
             ]
@@ -917,8 +892,8 @@ class TestSendEmailCommand(TestMartyBot):
                 "name": expected_brevo_list_name,
             }
             self.bot.brevo_client.get_contacts_from_list.return_value = []
-            await self.bot._handle_send_email_command("admin_empty_list", "Sujet /// Corps", "test_user")
-            self.bot.envoyer_message.assert_called_with("admin_empty_list", unittest.mock.ANY)
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Sujet /// Corps", user_id="test_user", channel_id=channel_id)
+            self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]
             self.assertIn(f"La liste Brevo '{expected_brevo_list_name}' ne contient aucun contact", last_call_args[1])
             self.bot.brevo_client.send_transactional_email.assert_not_called()
@@ -928,6 +903,7 @@ class TestSendEmailCommand(TestMartyBot):
     @patch("libraries.group_sync_services._map_mm_channel_to_entity_and_base_name")
     def test_handle_send_email_brevo_send_fails(self, mock_map_channel):
         async def actual_test_logic():
+            command_name = "send_email"
             base_name_for_test = "SendFailProjet"
             entity_key_for_test = "PROJET"
             admin_display_name = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["admin"][
@@ -942,12 +918,13 @@ class TestSendEmailCommand(TestMartyBot):
                 return (None, None)
 
             mock_map_channel.side_effect = map_channel_side_effect
+            channel_id = "admin_send_fail"
             self.bot.mattermost_api_client.get_channel_by_id.return_value = {
-                "id": "admin_send_fail",
+                "id": channel_id,
                 "name": admin_slug,
                 "display_name": admin_display_name,
             }
-            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]  # Corrected: "id"
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]
             brevo_list_name_pattern = self.mock_config.PERMISSIONS_MATRIX[entity_key_for_test]["brevo"][
                 "list_name_pattern"
             ]
@@ -958,8 +935,8 @@ class TestSendEmailCommand(TestMartyBot):
             }
             self.bot.brevo_client.get_contacts_from_list.return_value = [{"email": "contact@example.com"}]
             self.bot.brevo_client.send_transactional_email.return_value = False
-            await self.bot._handle_send_email_command("admin_send_fail", "Sujet /// Corps", "test_user")
-            self.bot.envoyer_message.assert_called_with("admin_send_fail", unittest.mock.ANY)
+            await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Sujet /// Corps", user_id="test_user", channel_id=channel_id)
+            self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
             last_call_args = self.bot.envoyer_message.call_args[0]
             self.assertIn("Échec de l'envoi de l'email", last_call_args[1])
             self.bot.brevo_client.send_transactional_email.assert_called_once()
@@ -968,28 +945,29 @@ class TestSendEmailCommand(TestMartyBot):
 
     def test_handle_send_email_bad_syntax(self):
         async def actual_test_logic():
+            command_name = "send_email"
             channel_id = "admin_channel_syntax"
             self.bot.mattermost_api_client.get_channel_by_id.return_value = {
                 "id": channel_id,
                 "name": "projet-syntax-admin",
                 "display_name": "Projet Syntax Admin",
             }
-            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]  # Corrected: "id"
+            self.bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "test_user"}]
             with patch(
                 "libraries.group_sync_services._map_mm_channel_to_entity_and_base_name",
                 return_value=("PROJET", "SyntaxTest"),
             ):
-                await self.bot._handle_send_email_command(channel_id, "Just subject no body", "test_user")
+                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Just subject no body", user_id="test_user", channel_id=channel_id)
                 self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
                 last_call_args = self.bot.envoyer_message.call_args[0]
                 self.assertIn("Syntaxe incorrecte.", last_call_args[1])
                 self.bot.envoyer_message.reset_mock()
-                await self.bot._handle_send_email_command(channel_id, "Subject /// ", "test_user")
+                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name} Subject /// ", user_id="test_user", channel_id=channel_id)
                 self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
                 last_call_args = self.bot.envoyer_message.call_args[0]
                 self.assertIn("Le sujet et le contenu ne peuvent pas être vides.", last_call_args[1])
                 self.bot.envoyer_message.reset_mock()
-                await self.bot._handle_send_email_command(channel_id, " /// Body", "test_user")
+                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_name}  /// Body", user_id="test_user", channel_id=channel_id)
                 self.bot.envoyer_message.assert_called_with(channel_id, unittest.mock.ANY)
                 last_call_args = self.bot.envoyer_message.call_args[0]
                 self.assertIn("Le sujet et le contenu ne peuvent pas être vides.", last_call_args[1])

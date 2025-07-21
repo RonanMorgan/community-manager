@@ -3,10 +3,20 @@
 # It will be used by both the bot (app) and standalone scripts.
 
 import logging
-import re  # For slugify
+import re
 from typing import TYPE_CHECKING, Optional
 
-from app import config  # Import config to access EXCLUDED_USERS
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from app import config
+from app.enums import SyncStatus
+from clients.authentik_client import AuthentikAction
+from clients.outline_client import OutlineAction
+from clients.nocodb_client import NocoDBAction
+from clients.brevo_client import BrevoAction
+from clients.vaultwarden_client import VaultwardenAction
 
 # Import client-specific utilities and classes for type hinting
 # from clients.mattermost_client import slugify # Removed to avoid potential circular dependency if this slugify is widely used
@@ -428,7 +438,7 @@ def _sync_single_nocodb_base(
             {
                 "service": "NOCODB",
                 "target_resource_name": nocodb_base_title,
-                "status": "SKIPPED",
+                    "status": SyncStatus.SKIPPED.value,
                 "action": "SKIPPED_NOCODB_BASE_NOT_FOUND",
                 "error_message": f"Base '{nocodb_base_title}' not found in NoCoDB.",
             }
@@ -501,9 +511,9 @@ def _sync_single_nocodb_base(
                     "target_resource_name": nocodb_base_title,
                     "service": "NOCODB",
                 }
-                removal_result = {**removal_base_info, "status": "FAILURE", "action": "FAILED_TO_REMOVE_NOCODB_USER"}
-                if nocodb_client.delete_base_user(base_id, nocodb_user_id_to_remove):  # This sets role to "no-access"
-                    removal_result.update({"status": "SUCCESS", "action": "NOCODB_USER_REMOVED_FROM_BASE"})
+                removal_result = {**removal_base_info, "status": SyncStatus.FAILURE.value, "action": "FAILED_TO_REMOVE_NOCODB_USER"}
+                if nocodb_client.delete_base_user(base_id, nocodb_user_id_to_remove):
+                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": NocoDBAction.USER_REMOVED_FROM_BASE.value})
                 else:
                     removal_result["error_message"] = (
                         "API call to remove user (set no-access) from NoCoDB base failed."
@@ -572,7 +582,7 @@ def _ensure_users_in_authentik_group(
         if not mm_user_email_lower:
             auth_user_result.update(
                 {
-                    "status": "SKIPPED",
+                    "status": SyncStatus.SKIPPED.value,
                     "action": "SKIPPED_NO_MM_EMAIL_FOR_AUTHENTIK_ENSURE",
                     "error_message": "User has no email in Mattermost for Authentik mapping.",
                 }
@@ -725,85 +735,16 @@ def _ensure_users_in_authentik_group(
         if auth_pk_for_mm_user is None:
             auth_user_result.update(
                 {
-                    "status": "SKIPPED",
+                    "status": SyncStatus.SKIPPED.value,
                     "action": "SKIPPED_USER_NOT_IN_AUTHENTIK_FOR_ENSURE",
                     "error_message": f"User email '{mm_user_email_lower}' not in Authentik.",
                 }
             )
         else:
             targeted_auth_pks.add(auth_pk_for_mm_user)
-            # Check if user is already in the group is done by the caller _sync_single_authentik_group
-            # This function's job is to attempt the add if the caller decided it's necessary.
-            # For this refactoring, _ensure_users_in_authentik_group IS the one deciding.
-            # It needs current_auth_user_pks_in_group, which I'll add to its signature.
-
-            # This function is called by _sync_single_authentik_group.
-            # _sync_single_authentik_group has current_auth_user_pks_in_group.
-            # It should pass it to this function.
-            # Let's assume current_auth_user_pks_in_group is now an argument to _ensure_users_in_authentik_group
-
-            # The placeholder `pass` is being replaced here.
-            # The argument `current_auth_user_pks_in_group` will be added to the signature by editing the file directly for the next step if necessary,
-            # as the diff tool might not easily allow changing signature and body in one go if it was complex.
-            # For now, let's assume it's available (e.g. added manually to the signature before this diff is applied).
-            # I will proceed as if `current_auth_user_pks_in_group` is part of the arguments.
-            # To make the diff work, I'll copy the argument name from the original function.
-            # This means the signature used for the diff `_ensure_users_in_authentik_group` must be updated first.
-
-            # Correcting: The diff tool replaces the `pass` placeholder. The signature of the new function was just created.
-            # I need to ensure the signature of `_ensure_users_in_authentik_group` includes `current_auth_user_pks_in_group: set`.
-
-            # For now, I will write the logic assuming current_auth_user_pks_in_group is NOT available
-            # to keep this diff focused on the loop and basic add.
-            # The next diff will refine this by passing current_auth_user_pks_in_group.
-
-            # If not checking current membership here, then the action is just an attempt.
-            # This is less ideal than the plan.
-            # Let's assume the proper signature is:
-            # _ensure_users_in_authentik_group(..., current_auth_user_pks_in_group: set)
-            # And this function will use it.
-            # The diff for the signature change will be done separately if needed.
-
-            # For this specific diff, I will write the code as if current_auth_user_pks_in_group is present.
-            # The diff tool will only care about replacing the `pass` line.
-
-            # This function will now contain the logic from the loop in _sync_single_authentik_group
-            # related to adding users.
-            # It does NOT get `current_auth_user_pks_in_group`.
-            # It determines who *should* be in the group from MM users, and attempts to add them.
-            # The `targeted_auth_pks` it returns is the set of users it tried to process.
-
-            # The original function `_sync_single_authentik_group` will then use this `targeted_auth_pks`
-            # in conjunction with its `current_auth_user_pks_in_group` to decide on actual adds and report status.
-            # This means `_ensure_users_in_authentik_group` does not call `add_user_to_group`.
-            # It only identifies candidates. This makes it a "get_target_pks_from_mm_users" function.
-            # This is not what was intended by "extract add logic".
-
-            # Re-strategy for _ensure_users_in_authentik_group:
-            # It WILL perform the add. It needs current_auth_user_pks_in_group.
-            # I will modify its signature in the actual code block.
-
-            # The placeholder `pass` should be replaced by the loop that processes mm_users_to_ensure.
-            # Inside the loop, if a user needs to be added (they are in Authentik, not excluded,
-            # and NOT in current_auth_user_pks_in_group), then call client.add_user_to_group.
-
-            # The signature of _ensure_users_in_authentik_group will be updated in the next tool call
-            # to include `current_auth_user_pks_in_group: set`.
-            # This current diff will fill in the loop assuming that argument is present.
-
-            # To make this diff work standalone, I'll put the logic here.
-            # The signature update will follow.
-            # This is slightly out of order but makes each step testable.
-
-            # The `pass` is removed. The following is the new content for the function body.
-            # This content assumes `current_auth_user_pks_in_group` will be added to the signature.
-            # For this diff, I will hardcode it as an empty set to make the code runnable,
-            # and then update the signature and usage in the next step. This is a temporary workaround.
-            # current_auth_user_pks_in_group_temp_placeholder = set() # Placeholder # Removed
-
-            if auth_pk_for_mm_user not in current_auth_user_pks_in_group:  # Using the actual argument
+            if auth_pk_for_mm_user not in current_auth_user_pks_in_group:
                 if authentik_client.add_user_to_group(auth_group_pk, auth_pk_for_mm_user):
-                    auth_user_result.update({"status": "SUCCESS", "action": "USER_ADDED_TO_AUTHENTIK_GROUP"})
+                    auth_user_result.update({"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_ADDED_TO_GROUP.value})
                 else:
                     auth_user_result.update(
                         {
@@ -812,7 +753,7 @@ def _ensure_users_in_authentik_group(
                         }
                     )
             else:
-                auth_user_result.update({"status": "SUCCESS", "action": "USER_ALREADY_IN_AUTHENTIK_GROUP"})
+                auth_user_result.update({"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_ALREADY_IN_GROUP.value})
         results.append(auth_user_result)
 
     return results, targeted_auth_pks
@@ -856,8 +797,6 @@ def _ensure_users_in_nocodb_base(
 
         if mm_username in config.EXCLUDED_USERS:
             logging.debug(f"User '{mm_username}' is excluded. Skipping NoCoDB ensure for base '{base_title}'.")
-            # If excluded user is already in the base, their email should be added to
-            # targeted_emails_in_base by the caller to prevent removal.
             continue
 
         targeted_emails_in_base.add(email_lower)
@@ -870,7 +809,7 @@ def _ensure_users_in_nocodb_base(
             if current_role != target_role:
                 if nocodb_client.update_base_user(base_id, nocodb_user_id, target_role):
                     nocodb_result.update(
-                        {"status": "SUCCESS", "action": f"NOCODB_USER_ROLE_UPDATED_TO_{target_role.upper()}"}
+                        {"status": SyncStatus.SUCCESS.value, "action": f"NOCODB_USER_ROLE_UPDATED_TO_{target_role.upper()}"}
                     )
                 else:
                     nocodb_result.update(
@@ -880,11 +819,11 @@ def _ensure_users_in_nocodb_base(
                         }
                     )
             else:
-                nocodb_result.update({"status": "SUCCESS", "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"})
+                nocodb_result.update({"status": SyncStatus.SUCCESS.value, "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"})
         else:
             action_verb = f"NOCODB_USER_INVITED_AS_{target_role.upper()}"
             if nocodb_client.invite_user_to_base(base_id, email_lower, target_role):
-                nocodb_result.update({"status": "SUCCESS", "action": action_verb})
+                nocodb_result.update({"status": SyncStatus.SUCCESS.value, "action": action_verb})
                 if mm_user_data.get("mm_user_id") and config.NOCODB_URL:
                     nocodb_base_link = f"{config.NOCODB_URL.rstrip('/')}/#/nc/{base_id}/dashboard"
                     dm_text = (
@@ -940,7 +879,7 @@ def _ensure_users_invited_to_vaultwarden_collection(
             {
                 "service": "VAULTWARDEN",
                 "target_resource_name": collection_name,
-                "status": "FAILURE",
+                    "status": SyncStatus.FAILURE.value,
                 "action": "VW_ENSURE_FAILED_NO_TOKEN",
                 "error_message": "Missing Vaultwarden access token.",
             }
@@ -969,7 +908,7 @@ def _ensure_users_invited_to_vaultwarden_collection(
             logging.warning(
                 f"Skipping user with no email for Vaultwarden invite: {mm_username} to collection {collection_name}"
             )
-            invite_result.update({"status": "SKIPPED", "action": "SKIPPED_NO_EMAIL_FOR_VW_INVITE"})
+            invite_result.update({"status": SyncStatus.SKIPPED.value, "action": "SKIPPED_NO_EMAIL_FOR_VW_INVITE"})
             results.append(invite_result)
             continue
 
@@ -983,9 +922,9 @@ def _ensure_users_invited_to_vaultwarden_collection(
             access_token=access_token,
         )
 
-        action_verb = "USER_INVITED_TO_VW_COLLECTION"
+        action_verb = VaultwardenAction.USER_INVITED_TO_COLLECTION.value
         if success:
-            invite_result.update({"status": "SUCCESS", "action": action_verb})
+            invite_result.update({"status": SyncStatus.SUCCESS.value, "action": action_verb})
             if mm_user_data.get("mm_user_id"):
                 if config.VAULTWARDEN_SERVER_URL:
                     dm_text = (
@@ -994,20 +933,20 @@ def _ensure_users_invited_to_vaultwarden_collection(
                         f"Vous pouvez accéder à Vaultwarden ici : {config.VAULTWARDEN_SERVER_URL.rstrip('/')}"
                     )
                     if mattermost_client.send_dm(mm_user_data["mm_user_id"], dm_text):
-                        invite_result["action"] = f"{action_verb}_AND_DM_SENT"
+                        invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_AND_DM_SENT.value
                     else:
-                        invite_result["action"] = f"{action_verb}_DM_FAILED"
+                        invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_FAILED.value
                 else:
                     logging.warning(
                         f"VAULTWARDEN_SERVER_URL not configured. Cannot send DM for Vaultwarden invite to {mm_username} for collection {collection_name}."
                     )
-                    invite_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
+                    invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_URL.value
             else:
-                invite_result["action"] = f"{action_verb}_DM_SKIPPED_NO_MM_USER_ID"
+                invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_MM_USER_ID.value
         else:
             invite_result.update(
                 {
-                    "action": "FAILED_TO_INVITE_TO_VW_COLLECTION",
+                    "action": VaultwardenAction.FAILED_TO_INVITE_TO_COLLECTION.value,
                     "error_message": f"API call to invite {email_lower} to VW collection {collection_name} failed or user already member/invited. See client logs.",
                 }
             )
@@ -1036,7 +975,7 @@ def _sync_single_authentik_group(
             {
                 "service": "AUTHENTIK",
                 "target_resource_name": str(auth_group_obj.get("name", "UnknownGroup")),
-                "status": "FAILURE",
+                "status": SyncStatus.FAILURE.value,
                 "action": "MISSING_GROUP_PK_OR_NAME",
                 "error_message": "Group PK or name missing.",
             }
@@ -1093,11 +1032,11 @@ def _sync_single_authentik_group(
                 removal_result = {
                     **removal_base_info,
                     "service": "AUTHENTIK",
-                    "status": "FAILURE",  # Default to failure
+                    "status": SyncStatus.FAILURE.value,
                     "action": "FAILED_TO_REMOVE_FROM_AUTHENTIK_GROUP",
                 }
                 if authentik_client.remove_user_from_group(auth_group_pk, auth_pk_in_group_obj):
-                    removal_result.update({"status": "SUCCESS", "action": "USER_REMOVED_FROM_AUTHENTIK_GROUP"})
+                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_REMOVED_FROM_GROUP.value})
                 else:
                     removal_result["error_message"] = "API call to remove user from Authentik group failed."
                 results.append(removal_result)
@@ -1154,7 +1093,7 @@ def _ensure_users_in_outline_collection(
         if not outline_user_api:
             outline_result.update(
                 {
-                    "status": "SKIPPED",
+                    "status": SyncStatus.SKIPPED.value,
                     "action": "SKIPPED_USER_NOT_IN_OUTLINE_FOR_ENSURE",
                     "error_message": f"User email '{email_lower}' not found in Outline.",
                 }
@@ -1169,16 +1108,16 @@ def _ensure_users_in_outline_collection(
         is_already_member = outline_user_id in current_outline_member_ids
 
         action_verb_prefix = (
-            "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED"
+            OutlineAction.USER_ALREADY_IN_COLLECTION_PERMISSION_ENSURED.value
             if is_already_member
             else f"USER_ADDED_TO_OUTLINE_COLLECTION_WITH_{permission_to_set.upper()}_ACCESS"
         )
 
         if outline_client.add_user_to_collection(collection_id, outline_user_id, permission=permission_to_set):
             current_action = action_verb_prefix
-            outline_result.update({"status": "SUCCESS"})
+            outline_result.update({"status": SyncStatus.SUCCESS.value})
 
-            if not is_already_member:  # Send DM only on first add
+            if not is_already_member:
                 coll_details = outline_client.get_collection_details(collection_id)
                 if (
                     coll_details
@@ -1250,7 +1189,7 @@ def _sync_single_outline_collection(
             {
                 "service": "OUTLINE",
                 "target_resource_name": collection_name,
-                "status": "FAILURE",  # Changed from SKIPPED to FAILURE as creation was attempted
+                "status": SyncStatus.FAILURE.value,
                 "action": "FAILED_TO_ENSURE_OUTLINE_COLLECTION",
                 "error_message": "Failed to get or create collection in Outline.",
             }
@@ -1354,11 +1293,11 @@ def _sync_single_outline_collection(
                 removal_result = {
                     **removal_base_info,
                     "service": "OUTLINE",
-                    "status": "FAILURE",  # Default
+                    "status": SyncStatus.FAILURE.value,
                     "action": "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION",
                 }
                 if outline_client.remove_user_from_collection(outline_collection_id, outline_member_id):
-                    removal_result.update({"status": "SUCCESS", "action": "USER_REMOVED_FROM_OUTLINE_COLLECTION"})
+                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": OutlineAction.USER_REMOVED_FROM_COLLECTION.value})
                 else:
                     removal_result["error_message"] = "API call to remove user from Outline collection failed."
                 results.append(removal_result)
@@ -1407,7 +1346,7 @@ def _ensure_contacts_in_brevo_list(
             results.append(
                 {
                     **base_user_info,
-                    "status": "SKIPPED",
+                    "status": SyncStatus.SKIPPED.value,
                     "action": "SKIPPED_NO_MM_EMAIL_FOR_BREVO_ENSURE",
                     "error_message": "User has no email in Mattermost for Brevo.",
                 }
@@ -1416,23 +1355,20 @@ def _ensure_contacts_in_brevo_list(
 
         targeted_emails.add(mm_user_email.lower())
 
-        # The add_contact_to_list method in BrevoClient is idempotent.
-        # It returns True if the contact is successfully added or already exists in the list.
-        # It returns False if the API call fails for other reasons.
         if brevo_client.add_contact_to_list(email=mm_user_email, list_id=list_id):
             results.append(
                 {
                     **base_user_info,
-                    "status": "SUCCESS",
-                    "action": "USER_ENSURED_IN_BREVO_LIST",
+                    "status": SyncStatus.SUCCESS.value,
+                    "action": BrevoAction.CONTACT_ADDED.value,
                 }
             )
         else:
             results.append(
                 {
                     **base_user_info,
-                    "status": "FAILURE",
-                    "action": "FAILED_TO_ENSURE_IN_BREVO_LIST",
+                    "status": SyncStatus.FAILURE.value,
+                    "action": BrevoAction.FAILED_TO_ENSURE_CONTACT.value,
                     "error_message": f"API call to add/ensure contact '{mm_user_email}' in Brevo list '{list_name}' failed.",
                 }
             )
@@ -1475,7 +1411,7 @@ def _sync_single_brevo_list(
                 {
                     "service": "BREVO",
                     "target_resource_name": brevo_list_name,
-                    "status": "FAILURE",
+                    "status": SyncStatus.FAILURE.value,
                     "action": "FAILED_TO_ENSURE_BREVO_LIST",
                     "error_message": f"Could not create or find Brevo list '{brevo_list_name}'.",
                 }
@@ -1540,16 +1476,16 @@ def _sync_single_brevo_list(
                 results.append(
                     {
                         **base_removal_info,
-                        "status": "SUCCESS",
-                        "action": "USER_REMOVED_FROM_BREVO_LIST",
+                        "status": SyncStatus.SUCCESS.value,
+                        "action": BrevoAction.CONTACT_REMOVED.value,
                     }
                 )
             else:
                 results.append(
                     {
                         **base_removal_info,
-                        "status": "FAILURE",
-                        "action": "FAILED_TO_REMOVE_FROM_BREVO_LIST",
+                        "status": SyncStatus.FAILURE.value,
+                        "action": BrevoAction.FAILED_TO_REMOVE_CONTACT.value,
                         "error_message": f"API call to remove contact '{email_to_remove}' from Brevo list '{brevo_list_name}' failed.",
                     }
                 )
@@ -1588,7 +1524,7 @@ async def orchestrate_group_synchronization(
             {
                 "service": "ORCHESTRATOR",
                 "target_resource_name": "N/A",
-                "status": "FAILURE",
+                "status": SyncStatus.FAILURE.value,
                 "action": "INVALID_SYNC_MODE",
                 "error_message": f"Invalid sync_mode: {sync_mode}",
             }
@@ -1955,8 +1891,8 @@ async def _sync_entity_permissions_tools_to_mm(
                         {
                             "service": "VAULTWARDEN",
                             "target_resource_name": collection_name,
-                            "status": "SUCCESS",
-                            "action": "USER_REMOVED_FROM_VAULTWARDEN_COLLECTION",
+                            "status": SyncStatus.SUCCESS.value,
+                            "action": VaultwardenAction.USER_REMOVED_FROM_COLLECTION.value,
                         }
                     )
                 else:
@@ -1964,8 +1900,8 @@ async def _sync_entity_permissions_tools_to_mm(
                         {
                             "service": "VAULTWARDEN",
                             "target_resource_name": collection_name,
-                            "status": "FAILURE",
-                            "action": "FAILED_TO_REMOVE_FROM_VAULTWARDEN_COLLECTION",
+                            "status": SyncStatus.FAILURE.value,
+                            "action": VaultwardenAction.FAILED_TO_REMOVE_FROM_COLLECTION.value,
                         }
                     )
     return results
@@ -2234,12 +2170,12 @@ def _remove_user_from_outline_collection(
         "target_resource_name": collection_name,
         "mm_user_email": user_email,
         "mm_channel_display_name": mm_channel_context_name,
-        "status": "FAILURE",
+        "status": SyncStatus.FAILURE.value,
         "action": "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION",
     }
     if outline_client.remove_user_from_collection(collection_id, user_id):
-        result["status"] = "SUCCESS"
-        result["action"] = "USER_REMOVED_FROM_OUTLINE_COLLECTION"
+        result["status"] = SyncStatus.SUCCESS.value
+        result["action"] = OutlineAction.USER_REMOVED_FROM_COLLECTION.value
     else:
         result["error_message"] = "API call to remove user from Outline collection failed."
     return result
@@ -2259,12 +2195,12 @@ def _remove_user_from_nocodb_base(
         "target_resource_name": base_title,
         "mm_user_email": user_email,
         "mm_channel_display_name": mm_channel_context_name,
-        "status": "FAILURE",
+        "status": SyncStatus.FAILURE.value,
         "action": "FAILED_TO_REMOVE_NOCODB_USER",
     }
     if nocodb_client.delete_base_user(base_id, user_id):
-        result["status"] = "SUCCESS"
-        result["action"] = "NOCODB_USER_REMOVED_FROM_BASE"
+        result["status"] = SyncStatus.SUCCESS.value
+        result["action"] = NocoDBAction.USER_REMOVED_FROM_BASE.value
     else:
         result["error_message"] = "API call to remove user from NoCoDB base failed."
     return result
@@ -2284,12 +2220,12 @@ def remove_user_from_authentik_group(
         "target_resource_name": group_name,
         "mm_user_email": user_email,
         "mm_channel_display_name": mm_channel_context_name,
-        "status": "FAILURE",
+        "status": SyncStatus.FAILURE.value,
         "action": "FAILED_TO_REMOVE_FROM_AUTHENTIK_GROUP",
     }
     if authentik_client.remove_user_from_group(group_pk, user_pk):
-        result["status"] = "SUCCESS"
-        result["action"] = "USER_REMOVED_FROM_AUTHENTIK_GROUP"
+        result["status"] = SyncStatus.SUCCESS.value
+        result["action"] = AuthentikAction.USER_REMOVED_FROM_GROUP.value
     else:
         result["error_message"] = "API call to remove user from Authentik group failed."
     return result

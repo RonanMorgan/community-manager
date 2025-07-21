@@ -1,9 +1,14 @@
 import requests
-import logging  # Added logging
-import json  # Added json
-from typing import Optional  # Added for type hinting
+import logging
+import json
+from typing import Optional
+from enum import Enum
 
-# Removed direct import of config, will be passed during instantiation
+
+class AuthentikAction(Enum):
+    USER_ADDED_TO_GROUP = "USER_ADDED_TO_AUTHENTIK_GROUP"
+    USER_ALREADY_IN_GROUP = "USER_ALREADY_IN_AUTHENTIK_GROUP"
+    USER_REMOVED_FROM_GROUP = "USER_REMOVED_FROM_AUTHENTIK_GROUP"
 
 
 class AuthentikClient:
