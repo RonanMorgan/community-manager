@@ -1,5 +1,11 @@
 import requests
 import logging
+from enum import Enum
+
+
+class NocoDBAction(Enum):
+    USER_REMOVED_FROM_BASE = "NOCODB_USER_REMOVED_FROM_BASE"
+
 
 # Configure logging for the client
 logger = logging.getLogger(__name__)
