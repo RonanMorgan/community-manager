@@ -101,7 +101,7 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
                 logging.info(
                     f"Group synchronization task (for rights removal) orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
-                await self.bot._format_and_send_sync_results(
+                await self.bot.result_manager.format_and_send_sync_results(
                     channel_id, initial_post_id, detailed_results, command_name="Suppression/synchronisation"
                 )
 

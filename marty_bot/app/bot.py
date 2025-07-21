@@ -35,12 +35,13 @@ else:
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.mattermost_client import MattermostClient
-from clients.nocodb_client import NocoDBClient  # Added NocoDBClient
-from clients.vaultwarden_client import VaultwardenClient  # Added VaultwardenClient
+from clients.nocodb_client import NocoDBClient
+from clients.vaultwarden_client import VaultwardenClient
 from clients.client_factory import create_clients
 # Import orchestration function for sync command
 from libraries.group_sync_services import orchestrate_group_synchronization
 from app.commands.command_factory import CommandFactory
+from app.result_manager import ResultManager
 
 
 class MartyBot:
@@ -48,7 +49,6 @@ class MartyBot:
         self.config = config_obj
 
         # Ensure logging is configured based on the instance's config for future logs from this instance
-        # This will apply to loggers obtained after this point if they inherit from root.
         log_format = "%(asctime)s - %(levelname)s - %(message)s"
         log_level = logging.INFO
         if self.config.DEBUG:
@@ -56,11 +56,10 @@ class MartyBot:
             log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
 
         # Get root logger and set its level. Remove existing handlers before adding new one.
-        # This is to avoid duplicate log messages if basicConfig was called before.
         root_logger = logging.getLogger()
-        for handler in root_logger.handlers[:]:  # Iterate over a copy
+        for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
-        logging.basicConfig(level=log_level, format=log_format)  # Re-apply basicConfig with new settings
+        logging.basicConfig(level=log_level, format=log_format)
 
         if self.config.DEBUG:
             logging.debug("DEBUG mode is enabled for MartyBot instance. Verbose logging active.")
@@ -75,128 +74,19 @@ class MartyBot:
         self.nocodb_client = clients.get("nocodb")
         self.vaultwarden_client = clients.get("vaultwarden")
 
-        self.websocket = None  # Represents the active WebSocket connection object
+        self.websocket = None
 
         # For graceful shutdown
         self.shutdown_event = asyncio.Event()
 
         # Reconnection parameters
         self.MAX_RECONNECT_ATTEMPTS = 5
-        self.INITIAL_RECONNECT_DELAY = 5  # seconds
-        self.MAX_RECONNECT_DELAY = 60  # seconds
+        self.INITIAL_RECONNECT_DELAY = 5
+        self.MAX_RECONNECT_DELAY = 60
 
         self.command_factory = CommandFactory(self)
+        self.result_manager = ResultManager(self)
         self.orchestrate_group_synchronization = orchestrate_group_synchronization
-
-    async def _format_and_send_sync_results(
-        self,
-        channel_id: str,
-        initial_post_id: str | None,
-        detailed_results: list[dict],
-        command_name: str = "synchronisation",
-    ):
-        """Helper function to format and send detailed synchronization results."""
-        if not detailed_results:
-            final_summary_message = f":information_source: Processus de {command_name} terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
-            await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
-            return
-
-        total_success_ops = 0
-        total_problem_ops = 0
-        action_summary = {}  # Pour compter les types d'actions
-
-        for result in detailed_results:
-            user_mm_name = result.get("mm_username", "Utilisateur inconnu")
-            service_name = result.get("service", "ServiceInconnu").upper()
-            target_resource = result.get("target_resource_name", "RessourceInconnue")
-            action = result.get("action", "AUCUNE_ACTION")
-            status = result.get("status", "ECHEC")
-            error_msg = result.get("error_message")
-
-            action_summary[action] = action_summary.get(action, 0) + 1
-
-            icon = ":white_check_mark:" if status == "SUCCESS" else ":x:"
-            if (
-                status == "SKIPPED" and action != "SKIPPED_NO_MM_EMAIL"
-            ):  # SKIPPED_NO_MM_EMAIL n'est pas un problème en soi
-                icon = ":warning:"
-
-            user_line = f"{icon} **Utilisateur :** `{user_mm_name}`"
-            if result.get("mm_user_email") and result.get("mm_user_email") != "NoEmailProvided":
-                user_line += f" ({result.get('mm_user_email')})"
-
-            service_line = f"**Service :** `{service_name}`"
-            resource_line = f"**Ressource :** `{target_resource}`"
-            action_line = f"**Action :** `{action}`"
-            message_parts = [user_line, service_line, resource_line, action_line]
-
-            if status == "SUCCESS":
-                total_success_ops += 1
-                # Descriptions spécifiques par action
-                if action == "USER_ADDED_TO_AUTHENTIK_GROUP":
-                    message_parts.append("Ajouté avec succès au groupe Authentik.")
-                elif action == "USER_ALREADY_IN_AUTHENTIK_GROUP":
-                    message_parts.append("Déjà membre du groupe Authentik.")
-                elif action == "USER_REMOVED_FROM_AUTHENTIK_GROUP":
-                    message_parts.append("Supprimé avec succès du groupe Authentik.")
-                elif action.startswith("USER_ADDED_TO_OUTLINE_COLLECTION_WITH_") and action.endswith("_AND_DM_SENT"):
-                    permission = action.split("_WITH_")[1].split("_ACCESS")[0]
-                    message_parts.append(
-                        f"Ajouté à la collection Outline (permission {permission.lower()}) et MP envoyé."
-                    )
-                elif action.startswith("USER_ADDED_TO_OUTLINE_COLLECTION_WITH_") and action.endswith("_DM_FAILED"):
-                    permission = action.split("_WITH_")[1].split("_ACCESS")[0]
-                    message_parts.append(
-                        f"Ajouté à la collection Outline (permission {permission.lower()}), mais échec de l'envoi du MP."
-                    )
-                elif action.startswith("USER_ADDED_TO_OUTLINE_COLLECTION_WITH_"):  # No DM part
-                    permission = action.split("_WITH_")[1].split("_ACCESS")[0]
-                    message_parts.append(f"Ajouté à la collection Outline (permission {permission.lower()}).")
-                elif action == "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED":
-                    message_parts.append("Déjà membre de la collection Outline, permission assurée.")
-                elif action == "USER_REMOVED_FROM_OUTLINE_COLLECTION":
-                    message_parts.append("Supprimé avec succès de la collection Outline.")
-                elif action == "NOCODB_USER_REMOVED_FROM_BASE":
-                    message_parts.append("Supprimé avec succès de la base NoCoDB.")
-                # ... autres actions SUCCESS ...
-            elif status == "SKIPPED":
-                message_parts.append(f"Ignoré. Raison : {error_msg if error_msg else 'Non spécifiée'}")
-                if action != "SKIPPED_NO_MM_EMAIL":  # Ne pas compter comme un problème si juste pas d'email
-                    total_problem_ops += 1
-            else:  # FAILURE
-                total_problem_ops += 1
-                message_parts.append(f"ÉCHEC. Raison : {error_msg if error_msg else 'Non spécifiée'}")
-
-            full_user_report_message = "\n".join(message_parts)
-            await asyncio.to_thread(
-                self.envoyer_message, channel_id, full_user_report_message, thread_id=initial_post_id
-            )
-
-        # Construction du message de résumé final
-        summary_lines = [f"### :checkered_flag: Résumé de {command_name} des droits :"]
-        summary_lines.append(f"- Opérations réussies : {total_success_ops}")
-        if total_problem_ops > 0:
-            summary_lines.append(f"- Problèmes/omissions : {total_problem_ops}")
-
-        summary_lines.append("\n**Détail des actions :**")
-        for act, count in sorted(action_summary.items()):
-            summary_lines.append(f"- `{act}` : {count} fois")
-
-        if total_problem_ops > 0 and total_success_ops > 0:
-            summary_lines.insert(1, f":warning: {command_name.capitalize()} partiellement terminée.")
-        elif total_problem_ops > 0:
-            summary_lines.insert(1, f":x: {command_name.capitalize()} terminée avec des problèmes/omissions.")
-        elif total_success_ops > 0:
-            summary_lines.insert(1, f":rocket: {command_name.capitalize()} terminée avec succès.")
-        else:  # No ops or only skips like NO_MM_EMAIL
-            summary_lines.insert(
-                1,
-                f":information_source: {command_name.capitalize()} terminée. Peu ou pas d'opérations significatives effectuées.",
-            )
-
-        final_summary_message = "\n".join(summary_lines)
-        if final_summary_message:
-            await asyncio.to_thread(self.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
 
     async def _create_resources_for_entity(
         self,
