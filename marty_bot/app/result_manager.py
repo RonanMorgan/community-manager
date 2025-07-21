@@ -81,6 +81,31 @@ class ResultManager:
                     message_parts.append("Supprimé avec succès de la collection Outline.")
                 elif action == NocoDBAction.USER_REMOVED_FROM_BASE.value:
                     message_parts.append("Supprimé avec succès de la base NoCoDB.")
+                elif action in [a.value for a in NocoDBAction if "UPDATED_TO" in a.name]:
+                    role = action.split("_UPDATED_TO_")[1]
+                    message_parts.append(f"Rôle mis à jour avec succès à '{role.lower()}' dans la base NoCoDB.")
+                elif action == NocoDBAction.USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE.value:
+                    message_parts.append("Déjà membre de la base NoCoDB avec le bon rôle.")
+                elif "INVITED_AS" in action and "DM_SENT" in action:
+                    role = action.split("_INVITED_AS_")[1].split("_AND_DM_SENT")[0]
+                    message_parts.append(f"Invité avec succès à la base NoCoDB (rôle: {role.lower()}) et MP envoyé.")
+                elif "INVITED_AS" in action and "DM_FAILED" in action:
+                    role = action.split("_INVITED_AS_")[1].split("_DM_FAILED")[0]
+                    message_parts.append(f"Invité à la base NoCoDB (rôle: {role.lower()}), mais échec de l'envoi du MP.")
+                elif "INVITED_AS" in action:
+                    role = action.split("_INVITED_AS_")[1]
+                    message_parts.append(f"Invité avec succès à la base NoCoDB (rôle: {role.lower()}).")
+                elif action == BrevoAction.CONTACT_ADDED.value:
+                    message_parts.append("Contact ajouté/assuré dans la liste Brevo.")
+                elif action == BrevoAction.CONTACT_REMOVED.value:
+                    message_parts.append("Contact supprimé de la liste Brevo.")
+                elif action == VaultwardenAction.USER_INVITED_TO_COLLECTION_AND_DM_SENT.value:
+                    message_parts.append("Invité à la collection Vaultwarden et MP envoyé.")
+                elif action == VaultwardenAction.USER_INVITED_TO_COLLECTION.value:
+                    message_parts.append("Invité à la collection Vaultwarden.")
+                elif action == VaultwardenAction.USER_REMOVED_FROM_COLLECTION.value:
+                    message_parts.append("Supprimé de la collection Vaultwarden.")
+
             elif status == SyncStatus.SKIPPED.value:
                 message_parts.append(f"Ignoré. Raison : {error_msg if error_msg else 'Non spécifiée'}")
                 if action != "SKIPPED_NO_MM_EMAIL":
