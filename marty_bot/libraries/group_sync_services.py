@@ -24,7 +24,13 @@ from libraries.services.authentik import (
     get_all_authentik_groups_and_user_map,
     _sync_single_authentik_group,
     remove_user_from_authentik_group,
+    _map_auth_group_to_entity_and_base_name,
 )
+from libraries.services.outline import _map_outline_collection_to_entity_and_base_name
+from libraries.services.vaultwarden import _map_vaultwarden_collection_to_entity_and_base_name
+from libraries.services.brevo import _map_brevo_list_to_entity_and_base_name
+from libraries.services.nocodb import _map_nocodb_base_to_entity_and_base_name
+from libraries.services.mattermost import _map_mm_channel_to_entity_and_base_name
 
 # Import client-specific utilities and classes for type hinting
 # from clients.mattermost_client import slugify # Removed to avoid potential circular dependency if this slugify is widely used
@@ -971,180 +977,8 @@ async def _sync_entity_permissions_tools_to_mm(
     return results
 
 
-def _map_auth_group_to_entity_and_base_name(
-    auth_group_name: str, permissions_matrix: dict
-) -> tuple[Optional[str], Optional[str]]:
-    """
-    Attempts to map an Authentik group name to an entity key and base_name from the PERMISSIONS_MATRIX.
-    Returns (None, None) if no unambiguous match is found.
-    Prioritizes admin patterns if a name could ambiguously match both standard and admin.
-    """
-    # Check admin patterns first to give them precedence in ambiguity
-    for entity_key, entity_cfg in permissions_matrix.items():
-        if entity_cfg.get("admin"):
-            adm_pattern = entity_cfg.get("admin", {}).get("authentik_group_name_pattern")
-            if adm_pattern:
-                base_name = _extract_base_name(auth_group_name, adm_pattern)
-                if base_name is not None:
-                    return entity_key, base_name
-
-    # Then check standard patterns
-    for entity_key, entity_cfg in permissions_matrix.items():
-        std_pattern = entity_cfg.get("standard", {}).get("authentik_group_name_pattern")
-        if std_pattern:
-            base_name = _extract_base_name(auth_group_name, std_pattern)
-            if base_name is not None:
-                # Before returning, ensure this wasn't primarily an admin group from another pattern
-                # This check is imperfect if patterns are very complex or similar across entity types.
-                # A more robust solution might involve checking if formatting the extracted base_name
-                # with other admin patterns would yield the same auth_group_name.
-                # For now, this assumes that if it matched an admin pattern above, it was handled.
-                return entity_key, base_name
-    return None, None
 
 
-def _map_outline_collection_to_entity_and_base_name(
-    collection_name: str, permissions_matrix: dict
-) -> tuple[Optional[str], Optional[str]]:
-    """
-    Attempts to map an Outline collection name to an entity key and base_name from the PERMISSIONS_MATRIX.
-    """
-    for entity_key, entity_cfg in permissions_matrix.items():
-        outline_cfg = entity_cfg.get("outline")
-        if outline_cfg:
-            pattern = outline_cfg.get("collection_name_pattern")
-            if pattern:
-                base_name = _extract_base_name(collection_name, pattern)
-                if base_name is not None:
-                    return entity_key, base_name
-    return None, None
-
-
-def _map_vaultwarden_collection_to_entity_and_base_name(
-    collection_name: str, permissions_matrix: dict
-) -> tuple[Optional[str], Optional[str]]:
-    """
-    Attempts to map a Vaultwarden collection name to an entity key and base_name from the PERMISSIONS_MATRIX.
-    """
-    for entity_key, entity_cfg in permissions_matrix.items():
-        vaultwarden_cfg = entity_cfg.get("vaultwarden")
-        if vaultwarden_cfg:
-            pattern = vaultwarden_cfg.get("collection_name_pattern")
-            if pattern:
-                base_name = _extract_base_name(collection_name, pattern)
-                if base_name is not None:
-                    return entity_key, base_name
-    return None, None
-
-
-def _map_brevo_list_to_entity_and_base_name(
-    list_name: str, permissions_matrix: dict
-) -> tuple[Optional[str], Optional[str]]:
-    """
-    Attempts to map a Brevo list name to an entity key and base_name from the PERMISSIONS_MATRIX.
-    """
-    for entity_key, entity_cfg in permissions_matrix.items():
-        brevo_cfg = entity_cfg.get("brevo")
-        if brevo_cfg:
-            pattern = brevo_cfg.get("list_name_pattern")
-            if pattern:
-                base_name = _extract_base_name(list_name, pattern)
-                if base_name is not None:
-                    return entity_key, base_name
-    return None, None
-
-
-def _map_nocodb_base_to_entity_and_base_name(
-    base_title: str, permissions_matrix: dict
-) -> tuple[Optional[str], Optional[str]]:
-    """
-    Attempts to map a NoCoDB base title to an entity key and base_name from the PERMISSIONS_MATRIX.
-    """
-    for entity_key, entity_cfg in permissions_matrix.items():
-        nocodb_cfg = entity_cfg.get("nocodb")
-        if nocodb_cfg:
-            pattern = nocodb_cfg.get("base_title_pattern")
-            if pattern:
-                base_name = _extract_base_name(base_title, pattern)
-                if base_name is not None:
-                    return entity_key, base_name
-    return None, None
-
-
-def _map_mm_channel_to_entity_and_base_name(
-    mm_channel_slug: str, mm_channel_display_name: str, permissions_matrix: dict
-) -> tuple[Optional[str], Optional[str]]:
-    """
-    Attempts to map a Mattermost channel (slug or display name) to an entity key and base_name.
-    """
-    # Try matching with channel display name first, as it's often more descriptive
-    for entity_key, entity_cfg in permissions_matrix.items():
-        if entity_cfg.get("admin"):
-            mm_adm_pattern = entity_cfg.get("admin", {}).get("mattermost_channel_name_pattern")
-            if mm_adm_pattern:
-                base_name = _extract_base_name(mm_channel_display_name, mm_adm_pattern)
-                if base_name is not None:
-                    return entity_key, base_name
-        std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
-        if std_pattern:
-            base_name = _extract_base_name(mm_channel_display_name, std_pattern)
-            if base_name is not None:
-                return entity_key, base_name
-
-    # Fallback to matching with channel slug if display name didn't yield a match
-    # (Patterns are usually based on display name conventions, but slug might work for simple cases)
-    for entity_key, entity_cfg in permissions_matrix.items():
-        if entity_cfg.get("admin"):
-            mm_adm_pattern = entity_cfg.get("admin", {}).get("mattermost_channel_name_pattern")
-            # Slugifying the pattern to compare with slug might be needed if patterns are complex
-            # For simple "{base_name}" or "prefix_{base_name}" it might work directly if base_name is slug-compatible
-            if (
-                mm_adm_pattern
-                and slugify(mm_adm_pattern.format(base_name="test-slug"))
-                == mm_adm_pattern.format(base_name="test-slug").lower()
-            ):  # Simple pattern check
-                base_name = _extract_base_name(
-                    mm_channel_slug, mm_adm_pattern.lower()
-                )  # Compare with lowercased pattern
-                if base_name is not None:
-                    return entity_key, base_name
-        std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
-        if (
-            std_pattern
-            and slugify(std_pattern.format(base_name="test-slug")) == std_pattern.format(base_name="test-slug").lower()
-        ):
-            base_name = _extract_base_name(mm_channel_slug, std_pattern.lower())
-            if base_name is not None:
-                return entity_key, base_name
-
-    return None, None
-
-
-def _extract_base_name(actual_name: str, pattern_with_placeholder: str) -> Optional[str]:
-    """
-    Extracts the base_name from an actual_name given a pattern string like "prefix_{base_name}_suffix".
-    Returns the extracted base_name (can be an empty string), or None if the actual_name doesn't match
-    the pattern or if {base_name} is not in the pattern.
-    """
-    placeholder = "{base_name}"
-    if placeholder not in pattern_with_placeholder:
-        return None
-
-    parts = pattern_with_placeholder.split(placeholder)
-    prefix = parts[0]
-    suffix = parts[1] if len(parts) > 1 else ""
-
-    if actual_name.startswith(prefix) and actual_name.endswith(suffix):
-        if len(actual_name) < len(prefix) + len(suffix):
-            return None
-
-        if suffix:
-            base_name_part = actual_name[len(prefix) : -len(suffix)]
-        else:
-            base_name_part = actual_name[len(prefix) :]
-
-        return base_name_part
-    return None
 
 
 

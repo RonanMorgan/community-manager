@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from app import config
 from app.enums import SyncStatus
@@ -322,3 +322,38 @@ def remove_user_from_authentik_group(
     else:
         result["error_message"] = "API call to remove user from Authentik group failed."
     return result
+
+
+from .mattermost import _extract_base_name
+
+
+def _map_auth_group_to_entity_and_base_name(
+    auth_group_name: str, permissions_matrix: dict
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Attempts to map an Authentik group name to an entity key and base_name from the PERMISSIONS_MATRIX.
+    Returns (None, None) if no unambiguous match is found.
+    Prioritizes admin patterns if a name could ambiguously match both standard and admin.
+    """
+    # Check admin patterns first to give them precedence in ambiguity
+    for entity_key, entity_cfg in permissions_matrix.items():
+        if entity_cfg.get("admin"):
+            adm_pattern = entity_cfg.get("admin", {}).get("authentik_group_name_pattern")
+            if adm_pattern:
+                base_name = _extract_base_name(auth_group_name, adm_pattern)
+                if base_name is not None:
+                    return entity_key, base_name
+
+    # Then check standard patterns
+    for entity_key, entity_cfg in permissions_matrix.items():
+        std_pattern = entity_cfg.get("standard", {}).get("authentik_group_name_pattern")
+        if std_pattern:
+            base_name = _extract_base_name(auth_group_name, std_pattern)
+            if base_name is not None:
+                # Before returning, ensure this wasn't primarily an admin group from another pattern
+                # This check is imperfect if patterns are very complex or similar across entity types.
+                # A more robust solution might involve checking if formatting the extracted base_name
+                # with other admin patterns would yield the same auth_group_name.
+                # For now, this assumes that if it matched an admin pattern above, it was handled.
+                return entity_key, base_name
+    return None, None

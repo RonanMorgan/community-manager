@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from app import config
 from app.enums import SyncStatus
@@ -186,3 +186,23 @@ def _sync_single_vaultwarden_collection_members(
     # Vaultwarden sync is additive only, no removal logic based on MM channel membership.
     logging.info(f"Finished Vaultwarden collection member sync for '{collection_name}'. Total results: {len(results)}")
     return results
+
+
+from .mattermost import _extract_base_name
+
+
+def _map_vaultwarden_collection_to_entity_and_base_name(
+    collection_name: str, permissions_matrix: dict
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Attempts to map a Vaultwarden collection name to an entity key and base_name from the PERMISSIONS_MATRIX.
+    """
+    for entity_key, entity_cfg in permissions_matrix.items():
+        vaultwarden_cfg = entity_cfg.get("vaultwarden")
+        if vaultwarden_cfg:
+            pattern = vaultwarden_cfg.get("collection_name_pattern")
+            if pattern:
+                base_name = _extract_base_name(collection_name, pattern)
+                if base_name is not None:
+                    return entity_key, base_name
+    return None, None

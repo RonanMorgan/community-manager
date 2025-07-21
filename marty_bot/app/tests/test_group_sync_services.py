@@ -5,10 +5,12 @@ from unittest.mock import patch, MagicMock, mock_open
 from libraries.group_sync_services import (
     sync_entity_permissions,
     orchestrate_group_synchronization,
-    _map_auth_group_to_entity_and_base_name,
+)
+from libraries.services.mattermost import (
     _map_mm_channel_to_entity_and_base_name,
     _extract_base_name,
 )
+from libraries.services.authentik import _map_auth_group_to_entity_and_base_name
 from app import config as app_config
 import asyncio  # Needed for async_test
 from clients.mattermost_client import MattermostClient, slugify

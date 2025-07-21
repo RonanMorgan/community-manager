@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from app import config
 from app.enums import SyncStatus
@@ -241,3 +241,23 @@ def _remove_user_from_nocodb_base(
     else:
         result["error_message"] = "API call to remove user from NoCoDB base failed."
     return result
+
+
+from .mattermost import _extract_base_name
+
+
+def _map_nocodb_base_to_entity_and_base_name(
+    base_title: str, permissions_matrix: dict
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Attempts to map a NoCoDB base title to an entity key and base_name from the PERMISSIONS_MATRIX.
+    """
+    for entity_key, entity_cfg in permissions_matrix.items():
+        nocodb_cfg = entity_cfg.get("nocodb")
+        if nocodb_cfg:
+            pattern = nocodb_cfg.get("base_title_pattern")
+            if pattern:
+                base_name = _extract_base_name(base_title, pattern)
+                if base_name is not None:
+                    return entity_key, base_name
+    return None, None
