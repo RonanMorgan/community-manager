@@ -1,13 +1,20 @@
 print("<<<<<<<<<< SCRIPT EXECUTED >>>>>>>>>>")
 import json
 import re  # Import re for regular expressions
-import asyncio
-import logging
-import threading  # For logging current thread name in start()
+import os  # IMPORT MANQUANT !
+
+# import threading # No longer used
 import requests
 
+# import os # No longer used
+import asyncio
+import logging
+import markdown2  # For send_email Markdown to HTML conversion
 
-import marty_bot.config as config
+# import signal  # No longer used directly in MartyBot class after removing signal handlers
+import threading  # For logging current thread name in start()
+
+import config
 from app.websocket_handler import WebsocketHandler
 
 # Configure basic logging based on DEBUG status
@@ -24,8 +31,12 @@ else:
 
 
 # Import client classes
+from clients.authentik_client import AuthentikClient
+from clients.outline_client import OutlineClient
+from clients.mattermost_client import MattermostClient
+from clients.nocodb_client import NocoDBClient
+from clients.vaultwarden_client import VaultwardenClient
 from clients.client_factory import create_clients
-
 # Import orchestration function for sync command
 from libraries.group_sync_services import orchestrate_group_synchronization
 from app.commands.command_factory import CommandFactory
@@ -75,6 +86,7 @@ class MartyBot:
         self.command_factory = CommandFactory(self)
         self.result_manager = ResultManager(self)
         self.orchestrate_group_synchronization = orchestrate_group_synchronization
+
 
     # _handle_create_projet_command, _handle_create_antenne_command, _handle_create_pole_command
     # are now simplified by the lambdas in self.commands, directly calling _execute_batch_create_command.
@@ -186,6 +198,7 @@ class MartyBot:
         elif text_after_mention is None or text_after_mention.strip() == "":
             message = f"Bonjour ! Vous m'avez mentionné. Essayez `{self.bot_name_mention} help` pour une liste des commandes."
             await asyncio.to_thread(self.envoyer_message, channel_id, message)
+
 
     def start(self):
         logging.info(f"Initializing Marty Bot instance for dedicated thread: {threading.current_thread().name}")

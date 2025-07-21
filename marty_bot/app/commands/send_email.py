@@ -96,13 +96,12 @@ class SendEmailCommand(BaseCommand):
             if admin_cfg:
                 admin_pattern = admin_cfg.get("mattermost_channel_name_pattern")
                 if admin_pattern:
-                    # We need to check if current_channel_info['name'] (slug) or ['display_name'] matches a
-                    # *potential* admin channel. This requires trying to extract a base_name and re-formatting,
-                    # or having a direct match. For simplicity, we'll assume the channel name is relatively standard.
+                    # We need to check if current_channel_info['name'] (slug) or ['display_name'] matches a *potential* admin channel
+                    # This requires trying to extract a base_name and re-formatting, or having a direct match.
+                    # For simplicity, we'll assume the channel name is relatively standard.
                     # A robust way is to use the _map_mm_channel_to_entity_and_base_name
-                    # but that function itself might need adjustment if it only maps from base_name to channel,
-                    # not channel to base_name. Let's try to extract base_name from current admin channel
-                    # assuming it ends with " Admin" or similar.
+                    # but that function itself might need adjustment if it only maps from base_name to channel, not channel to base_name.
+                    # Let's try to extract base_name from current admin channel assuming it ends with " Admin" or similar.
                     # This part is tricky and might need refinement based on exact naming conventions.
 
                     # Attempt with display_name:
@@ -121,20 +120,17 @@ class SendEmailCommand(BaseCommand):
 
         if not entity_key_found or not base_name_found:
             logging.warning(
-                f"Channel {channel_id} ('{current_channel_info.get('display_name')}') "
-                "is not recognized as a configured admin channel for any entity."
+                f"Channel {channel_id} ('{current_channel_info.get('display_name')}') is not recognized as a configured admin channel for any entity."
             )
             await asyncio.to_thread(
                 self.bot.envoyer_message,
                 channel_id,
-                ":x: Erreur: Cette commande doit être lancée depuis un canal admin "
-                "d'une entité configurée (projet, pôle, antenne).",
+                ":x: Erreur: Cette commande doit être lancée depuis un canal admin d'une entité configurée (projet, pôle, antenne).",
             )
             return
 
         logging.info(
-            f"Command 'send_email' validated for entity '{base_name_found}' (type: {entity_key_found}) "
-            f"from admin channel '{current_channel_info.get('display_name')}'."
+            f"Command 'send_email' validated for entity '{base_name_found}' (type: {entity_key_found}) from admin channel '{current_channel_info.get('display_name')}'."
         )
 
         # 2. Récupérer la liste Brevo du canal standard
@@ -157,9 +153,7 @@ class SendEmailCommand(BaseCommand):
 
         if not brevo_list_obj or not brevo_list_obj.get("id"):
             await asyncio.to_thread(
-                self.bot.envoyer_message,
-                channel_id,
-                f":x: Erreur: Liste Brevo '{target_brevo_list_name}' non trouvée.",
+                self.bot.envoyer_message, channel_id, f":x: Erreur: Liste Brevo '{target_brevo_list_name}' non trouvée."
             )
             return
 
@@ -205,13 +199,10 @@ class SendEmailCommand(BaseCommand):
         )
 
         if email_sent_successfully:
-            feedback_msg = (
-                f":white_check_mark: Email avec sujet '{subject}' envoyé (ou tentative d'envoi) à "
-                f"{len(to_contacts)} destinataires de la liste '{target_brevo_list_name}'."
-            )
+            feedback_msg = f":white_check_mark: Email avec sujet '{subject}' envoyé (ou tentative d'envoi) à {len(to_contacts)} destinataires de la liste '{target_brevo_list_name}'."
         else:
             feedback_msg = (
-                f":x: Échec de l'envoi de l'email avec sujet '{subject}' via Brevo. " "Vérifiez les logs du serveur."
+                f":x: Échec de l'envoi de l'email avec sujet '{subject}' via Brevo. Vérifiez les logs du serveur."
             )
 
         await asyncio.to_thread(self.bot.envoyer_message, channel_id, feedback_msg)

@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 
-
 async def create_resources_for_entity(
     base_name: str,
     entity_key: str,
@@ -24,7 +23,9 @@ async def create_resources_for_entity(
         item_results_log.append(msg)
         return item_results_log
 
-    item_results_log.append(f"--- Création pour {item_type_display} **`{base_name}`** (entité: *{entity_key}*) ---")
+    item_results_log.append(
+        f"--- Création pour {item_type_display} **`{base_name}`** (entité: *{entity_key}*) ---"
+    )
 
     # Standard resources
     standard_config = entity_config.get("standard")
@@ -141,7 +142,9 @@ async def create_resources_for_entity(
     # Brevo List (unique per entity)
     brevo_config = entity_config.get("brevo")
     if brevo_config:
-        brevo_list_pattern = brevo_config.get("list_name_pattern", "mm_list_{base_name}")
+        brevo_list_pattern = brevo_config.get(
+            "list_name_pattern", "mm_list_{base_name}"
+        )
         brevo_list_name = brevo_list_pattern.format(base_name=base_name)
         folder_name_from_matrix = brevo_config.get("folder_name")
         target_folder_id = 1
@@ -157,18 +160,12 @@ async def create_resources_for_entity(
                     target_folder_id = fetched_folder_id
                     brevo_msg += f" (Dossier: '{folder_name_from_matrix}', ID: {target_folder_id})"
                 else:
-                    brevo_msg += (
-                        f" (Dossier: '{folder_name_from_matrix}' introuvable, utilise défaut ID: {target_folder_id})"
-                    )
+                    brevo_msg += f" (Dossier: '{folder_name_from_matrix}' introuvable, utilise défaut ID: {target_folder_id})"
                     logging.warning(
-                        f"Brevo folder '{folder_name_from_matrix}' not found for list '{brevo_list_name}'. "
-                        f"Using default folder ID {target_folder_id}."
+                        f"Brevo folder '{folder_name_from_matrix}' not found for list '{brevo_list_name}'. Using default folder ID {target_folder_id}."
                     )
             except Exception as e:
-                brevo_msg += (
-                    f" (Erreur recherche dossier '{folder_name_from_matrix}', "
-                    f"utilise défaut ID: {target_folder_id}): {e}"
-                )
+                brevo_msg += f" (Erreur recherche dossier '{folder_name_from_matrix}', utilise défaut ID: {target_folder_id}): {e}"
                 logging.error(f"Error fetching Brevo folder ID for '{folder_name_from_matrix}': {e}")
         elif clients.get("brevo"):
             brevo_msg += f" (Dossier par défaut ID: {target_folder_id})"
@@ -228,7 +225,9 @@ async def create_resources_for_entity(
     # Vaultwarden Collection (unique per entity)
     vaultwarden_config = entity_config.get("vaultwarden")
     if vaultwarden_config:
-        vw_coll_pattern = vaultwarden_config.get("collection_name_pattern", "Shared - {base_name}")
+        vw_coll_pattern = vaultwarden_config.get(
+            "collection_name_pattern", "Shared - {base_name}"
+        )
         vw_coll_name = vw_coll_pattern.format(base_name=base_name)
 
         vw_msg = f"  - Vaultwarden Collection `{vw_coll_name}`: "
@@ -240,7 +239,9 @@ async def create_resources_for_entity(
                 )
             else:
                 try:
-                    collection_id = await asyncio.to_thread(clients.get("vaultwarden").create_collection, vw_coll_name)
+                    collection_id = await asyncio.to_thread(
+                        clients.get("vaultwarden").create_collection, vw_coll_name
+                    )
                     if collection_id:
                         vw_msg += f":white_check_mark: Collection assurée (ID: {collection_id})."
                     else:

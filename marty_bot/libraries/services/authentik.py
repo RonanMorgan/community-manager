@@ -196,9 +196,7 @@ def _ensure_users_in_authentik_group(
             targeted_auth_pks.add(auth_pk_for_mm_user)
             if auth_pk_for_mm_user not in current_auth_user_pks_in_group:
                 if authentik_client.add_user_to_group(auth_group_pk, auth_pk_for_mm_user):
-                    auth_user_result.update(
-                        {"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_ADDED_TO_GROUP.value}
-                    )
+                    auth_user_result.update({"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_ADDED_TO_GROUP.value})
                 else:
                     auth_user_result.update(
                         {
@@ -207,9 +205,7 @@ def _ensure_users_in_authentik_group(
                         }
                     )
             else:
-                auth_user_result.update(
-                    {"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_ALREADY_IN_GROUP.value}
-                )
+                auth_user_result.update({"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_ALREADY_IN_GROUP.value})
         results.append(auth_user_result)
 
     return results, targeted_auth_pks
@@ -296,9 +292,7 @@ def _sync_single_authentik_group(
                     "action": "FAILED_TO_REMOVE_FROM_AUTHENTIK_GROUP",
                 }
                 if authentik_client.remove_user_from_group(auth_group_pk, auth_pk_in_group_obj):
-                    removal_result.update(
-                        {"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_REMOVED_FROM_GROUP.value}
-                    )
+                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_REMOVED_FROM_GROUP.value})
                 else:
                     removal_result["error_message"] = "API call to remove user from Authentik group failed."
                 results.append(removal_result)
@@ -365,59 +359,20 @@ def _map_auth_group_to_entity_and_base_name(
     return None, None
 
 
-def _sync_authentik_for_entity(
-    authentik_client,
-    mattermost_client,
-    base_name,
-    config,
-    all_authentik_groups_by_name,
-    email_to_authentik_user_pk_map,
-    std_mm_users,
-    admin_mm_users,
-    mm_users_for_services,
-    log_channel_name,
-    perform_deletions,
-    entity_key,
-):
+def _sync_authentik_for_entity(authentik_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
     results = []
-    std_auth_group_name = (
-        config["standard"].get("authentik_group_name_pattern", "{base_name}").format(base_name=base_name)
-    )
+    std_auth_group_name = config["standard"].get("authentik_group_name_pattern", "{base_name}").format(base_name=base_name)
     std_auth_group_obj = all_authentik_groups_by_name.get(std_auth_group_name)
     if not std_auth_group_obj:
-        std_auth_group_obj = authentik_client.get_group_by_name(std_auth_group_name) or authentik_client.create_group(
-            std_auth_group_name
-        )
+        std_auth_group_obj = authentik_client.get_group_by_name(std_auth_group_name) or authentik_client.create_group(std_auth_group_name)
     if std_auth_group_obj:
-        results.extend(
-            _sync_single_authentik_group(
-                authentik_client,
-                std_auth_group_obj,
-                std_mm_users,
-                email_to_authentik_user_pk_map,
-                log_channel_name,
-                perform_deletions,
-            )
-        )
+        results.extend(_sync_single_authentik_group(authentik_client, std_auth_group_obj, std_mm_users, email_to_authentik_user_pk_map, log_channel_name, perform_deletions))
 
     if config.get("admin"):
-        adm_auth_group_name = (
-            config["admin"].get("authentik_group_name_pattern", "{base_name} Admin").format(base_name=base_name)
-        )
+        adm_auth_group_name = config["admin"].get("authentik_group_name_pattern", "{base_name} Admin").format(base_name=base_name)
         adm_auth_group_obj = all_authentik_groups_by_name.get(adm_auth_group_name)
         if not adm_auth_group_obj:
-            adm_auth_group_obj = authentik_client.get_group_by_name(
-                adm_auth_group_name
-            ) or authentik_client.create_group(adm_auth_group_name)
+            adm_auth_group_obj = authentik_client.get_group_by_name(adm_auth_group_name) or authentik_client.create_group(adm_auth_group_name)
         if adm_auth_group_obj:
-            results.extend(
-                _sync_single_authentik_group(
-                    authentik_client,
-                    adm_auth_group_obj,
-                    admin_mm_users,
-                    email_to_authentik_user_pk_map,
-                    log_channel_name,
-                    perform_deletions,
-                )
-            )
+            results.extend(_sync_single_authentik_group(authentik_client, adm_auth_group_obj, admin_mm_users, email_to_authentik_user_pk_map, log_channel_name, perform_deletions))
     return results

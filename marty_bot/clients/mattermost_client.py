@@ -1,8 +1,8 @@
 import requests
 import json
+import re
 import logging  # Added logging
 from libraries.services.mattermost import slugify
-
 
 # Removed direct import of config
 class MattermostClient:

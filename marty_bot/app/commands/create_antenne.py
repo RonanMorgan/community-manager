@@ -29,6 +29,4 @@ class CreateAntenneCommand(BaseCommand):
 
     @staticmethod
     def get_help():
-        return (
-            "Crée les ressources pour une ou plusieurs antennes. Usage: create_antenne <NomAntenne1> [NomAntenne2 ...]"
-        )
+        return "Crée les ressources pour une ou plusieurs antennes. Usage: create_antenne <NomAntenne1> [NomAntenne2 ...]"

@@ -29,14 +29,13 @@ def _sync_single_nocodb_base(
     nocodb_base_obj = nocodb_client.get_base_by_title(nocodb_base_title)
     if not nocodb_base_obj or not nocodb_base_obj.get("id"):
         logging.warning(  # This is an important warning, so kept as WARNING.
-            f"NoCoDB base '{nocodb_base_title}' not found. Skipping sync. "
-            "It should be created by 'create_antenne/pole' command."
+            f"NoCoDB base '{nocodb_base_title}' not found. Skipping sync. It should be created by 'create_antenne/pole' command."
         )
         return [
             {
                 "service": "NOCODB",
                 "target_resource_name": nocodb_base_title,
-                "status": SyncStatus.SKIPPED.value,
+                    "status": SyncStatus.SKIPPED.value,
                 "action": "SKIPPED_NOCODB_BASE_NOT_FOUND",
                 "error_message": f"Base '{nocodb_base_title}' not found in NoCoDB.",
             }
@@ -109,15 +108,9 @@ def _sync_single_nocodb_base(
                     "target_resource_name": nocodb_base_title,
                     "service": "NOCODB",
                 }
-                removal_result = {
-                    **removal_base_info,
-                    "status": SyncStatus.FAILURE.value,
-                    "action": "FAILED_TO_REMOVE_NOCODB_USER",
-                }
+                removal_result = {**removal_base_info, "status": SyncStatus.FAILURE.value, "action": "FAILED_TO_REMOVE_NOCODB_USER"}
                 if nocodb_client.delete_base_user(base_id, nocodb_user_id_to_remove):
-                    removal_result.update(
-                        {"status": SyncStatus.SUCCESS.value, "action": NocoDBAction.USER_REMOVED_FROM_BASE.value}
-                    )
+                    removal_result.update({"status": SyncStatus.SUCCESS.value, "action": NocoDBAction.USER_REMOVED_FROM_BASE.value})
                 else:
                     removal_result["error_message"] = (
                         "API call to remove user (set no-access) from NoCoDB base failed."
@@ -184,10 +177,7 @@ def _ensure_users_in_nocodb_base(
             if current_role != target_role:
                 if nocodb_client.update_base_user(base_id, nocodb_user_id, target_role):
                     nocodb_result.update(
-                        {
-                            "status": SyncStatus.SUCCESS.value,
-                            "action": f"NOCODB_USER_ROLE_UPDATED_TO_{target_role.upper()}",
-                        }
+                        {"status": SyncStatus.SUCCESS.value, "action": f"NOCODB_USER_ROLE_UPDATED_TO_{target_role.upper()}"}
                     )
                 else:
                     nocodb_result.update(
@@ -197,9 +187,7 @@ def _ensure_users_in_nocodb_base(
                         }
                     )
             else:
-                nocodb_result.update(
-                    {"status": SyncStatus.SUCCESS.value, "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"}
-                )
+                nocodb_result.update({"status": SyncStatus.SUCCESS.value, "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"})
         else:
             action_verb = f"NOCODB_USER_INVITED_AS_{target_role.upper()}"
             if nocodb_client.invite_user_to_base(base_id, email_lower, target_role):
@@ -275,33 +263,10 @@ def _map_nocodb_base_to_entity_and_base_name(
     return None, None
 
 
-def _sync_nocodb_for_entity(
-    nocodb_client,
-    mattermost_client,
-    base_name,
-    config,
-    all_authentik_groups_by_name,
-    email_to_authentik_user_pk_map,
-    std_mm_users,
-    admin_mm_users,
-    mm_users_for_services,
-    log_channel_name,
-    perform_deletions,
-    entity_key,
-):
+def _sync_nocodb_for_entity(nocodb_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
     if entity_key not in ["ANTENNE", "POLES"]:
         return []
     nocodb_base_title_pattern = config.get("base_title_pattern", "nocodb_{base_name}")
     default_permission = config.get("default_access", "viewer")
     admin_permission = config.get("admin_access", "owner")
-    return _sync_single_nocodb_base(
-        nocodb_client,
-        mattermost_client,
-        nocodb_base_title_pattern,
-        base_name,
-        mm_users_for_services,
-        default_permission,
-        admin_permission,
-        log_channel_name,
-        perform_deletions,
-    )
+    return _sync_single_nocodb_base(nocodb_client, mattermost_client, nocodb_base_title_pattern, base_name, mm_users_for_services, default_permission, admin_permission, log_channel_name, perform_deletions)

@@ -7,7 +7,6 @@ from clients.nocodb_client import NocoDBClient
 from clients.vaultwarden_client import VaultwardenClient
 from clients.brevo_client import BrevoClient
 
-
 def create_clients() -> dict:
     """
     Initializes and returns a dictionary of API clients.
@@ -48,10 +47,7 @@ def create_clients() -> dict:
         except ValueError as e:
             logging.warning(f"Failed to initialize MattermostClient: {e}")
     else:
-        logging.warning(
-            "Mattermost URL, Bot Token, or Team ID not fully configured. "
-            "Mattermost API operations may fail or be disabled."
-        )
+        logging.warning("Mattermost URL, Bot Token, or Team ID not fully configured. Mattermost API operations may fail or be disabled.")
 
     if config.BREVO_API_URL and config.BREVO_API_KEY:
         try:
@@ -71,12 +67,7 @@ def create_clients() -> dict:
     else:
         logging.warning("NocoDB URL or Token not configured. NocoDB features will be disabled.")
 
-    if (
-        config.VAULTWARDEN_ORGANIZATION_ID
-        and config.VAULTWARDEN_SERVER_URL
-        and config.VAULTWARDEN_API_USERNAME
-        and config.VAULTWARDEN_API_PASSWORD
-    ):
+    if config.VAULTWARDEN_ORGANIZATION_ID and config.VAULTWARDEN_SERVER_URL and config.VAULTWARDEN_API_USERNAME and config.VAULTWARDEN_API_PASSWORD:
         try:
             clients["vaultwarden"] = VaultwardenClient(
                 organization_id=config.VAULTWARDEN_ORGANIZATION_ID,

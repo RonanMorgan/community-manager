@@ -512,9 +512,9 @@ class TestBrevoClient(unittest.TestCase):
         ]
 
         # Expected: all contacts from page 1 and page 2
-        expected_contacts = [{"email": f"user{i}@example.com", "id": i} for i in range(internal_limit)] + [
-            {"email": "finaluser@example.com", "id": internal_limit}
-        ]
+        expected_contacts = [
+            {"email": f"user{i}@example.com", "id": i} for i in range(internal_limit)
+        ] + [{"email": "finaluser@example.com", "id": internal_limit}]
 
         # Use self.client which is already set up
         result_contacts = self.client.get_contacts_from_list(list_id)

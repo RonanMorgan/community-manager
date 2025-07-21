@@ -916,9 +916,7 @@ permissions:
 
     @patch("libraries.services.authentik.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_authentik_excluded_user_not_removed_if_not_in_mm(
-        self, mock_config_module_in_service, mock_service_config_authentik
-    ):
+    def test_sync_single_group_authentik_excluded_user_not_removed_if_not_in_mm(self, mock_config_module_in_service, mock_service_config_authentik):
         excluded_auth_username = "excluded_from_removal"
         mock_config_module_in_service.EXCLUDED_USERS = {excluded_auth_username}
         mock_service_config_authentik.EXCLUDED_USERS = {excluded_auth_username}
@@ -1560,7 +1558,9 @@ permissions:
             perform_deletions=True,
         )
 
-        self.mock_brevo_client.get_contacts_from_list.assert_called_once_with(existing_list_obj["id"])
+        self.mock_brevo_client.get_contacts_from_list.assert_called_once_with(
+            existing_list_obj["id"]
+        )
         self.mock_brevo_client.remove_contact_from_list.assert_called_once_with(
             email="remove@example.com", list_id=existing_list_obj["id"]
         )
@@ -1576,9 +1576,7 @@ permissions:
 
     @patch("libraries.services.brevo.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_brevo_list_excluded_user_not_added_or_removed(
-        self, mock_lib_config_brevo, mock_service_config_brevo
-    ):
+    def test_sync_brevo_list_excluded_user_not_added_or_removed(self, mock_lib_config_brevo, mock_service_config_brevo):
         excluded_username = "excluded_brevo_user"
         mock_lib_config_brevo.EXCLUDED_USERS = {excluded_username}
         mock_service_config_brevo.EXCLUDED_USERS = {excluded_username}
@@ -1629,7 +1627,7 @@ permissions:
         # Assuming _sync_single_brevo_list is globally available or imported for these tests.
         # For now, let's assume it's directly callable or defined in this file for testing.
         # If it's in group_sync_services, we'd call it as:
-        from libraries.group_sync_services import _sync_single_brevo_list as actual_sync_function
+        from libraries.services.brevo import _sync_single_brevo_list as actual_sync_function
 
         return actual_sync_function(
             brevo_client=mock_brevo_client,
@@ -1642,9 +1640,7 @@ permissions:
     # --- Tests for NocoDB base synchronization ---
     @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")  # To mock EXCLUDED_USERS and NOCODB_URL
-    def test_sync_nocodb_base_creation_and_user_invite_with_dm(
-        self, mock_lib_config_nocodb, mock_service_config_nocodb
-    ):
+    def test_sync_nocodb_base_creation_and_user_invite_with_dm(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
         mock_lib_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"  # Mock NOCODB_URL for DM link
         mock_service_config_nocodb.EXCLUDED_USERS = set()
@@ -1958,7 +1954,7 @@ permissions:
     @patch("libraries.group_sync_services.config")
     def test_sync_nocodb_base_not_found(self, mock_lib_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         self.mock_nocodb_client.get_base_by_title.return_value = None  # Simulate base not found
 
@@ -2145,7 +2141,7 @@ permissions:
     def test_sync_vaultwarden_invite_fails_no_dm(self, mock_lib_config_vw):
         mock_lib_config_vw.EXCLUDED_USERS = set()
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.group_sync_services import _sync_single_vaultwarden_collection_members
+        from libraries.services.vaultwarden import _sync_single_vaultwarden_collection_members
 
         collection_name = "VWCollectionInviteFail"
         mm_users_for_services = {
