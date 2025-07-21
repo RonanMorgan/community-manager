@@ -1,7 +1,7 @@
 import logging
 from typing import TYPE_CHECKING, Optional
 
-from app import config
+import config
 from app.enums import SyncStatus
 from clients.nocodb_client import NocoDBAction
 

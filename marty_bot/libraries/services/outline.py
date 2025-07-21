@@ -2,7 +2,7 @@ import logging
 from typing import TYPE_CHECKING, Optional
 from .mattermost import _extract_base_name
 
-from app import config
+import config
 from app.enums import SyncStatus
 from clients.outline_client import OutlineAction
 
