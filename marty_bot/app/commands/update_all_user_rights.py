@@ -55,15 +55,18 @@ class UpdateAllUserRightsCommand(BaseCommand):
             logging.info(
                 "Calling 'orchestrate_group_synchronization' with sync_mode='TOOLS_TO_MM' for rights removal..."
             )
+            clients = {
+                "authentik": self.bot.authentik_client,
+                "mattermost": self.bot.mattermost_api_client,
+                "outline": self.bot.outline_client,
+                "brevo": self.bot.brevo_client,
+                "nocodb": self.bot.nocodb_client,
+                "vaultwarden": self.bot.vaultwarden_client,
+            }
             orchestration_success, detailed_results = await self.bot.orchestrate_group_synchronization(
-                authentik_client=self.bot.authentik_client,
-                mattermost_client=self.bot.mattermost_api_client,
-                outline_client=self.bot.outline_client,
-                brevo_client=self.bot.brevo_client,
-                nocodb_client=self.bot.nocodb_client,
-                vaultwarden_client=self.bot.vaultwarden_client,
+                clients=clients,
                 mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
-                perform_deletions=False,  # MM_TO_TOOLS with perform_deletions=False is upsert
+                perform_deletions=False,
                 sync_mode="MM_TO_TOOLS",
                 skip_services=None,
             )
