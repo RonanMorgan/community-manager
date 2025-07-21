@@ -18,15 +18,3 @@ repos:
     hooks:
       - id: flake8
         args: ["--config=marty_bot/.flake8"]
-
-  - repo: https://github.com/PyCQA/autoflake
-    rev: v2.3.1
-    hooks:
-      - id: autoflake
-        args: ["--in-place","--remove-all-unused-imports", "--recursive", "--remove-unused-variables", "."]
-
-  - repo: https://github.com/pre-commit/mirrors-isort
-    rev: v5.10.1
-    hooks:
-      - id: isort
-        args: ["--profile", "black"]
