@@ -1592,11 +1592,14 @@ permissions:
         )
 
     # --- Tests for NocoDB base synchronization ---
+    @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")  # To mock EXCLUDED_USERS and NOCODB_URL
-    def test_sync_nocodb_base_creation_and_user_invite_with_dm(self, mock_lib_config_nocodb):
+    def test_sync_nocodb_base_creation_and_user_invite_with_dm(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
         mock_lib_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"  # Mock NOCODB_URL for DM link
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        mock_service_config_nocodb.EXCLUDED_USERS = set()
+        mock_service_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         base_title_pattern = "test_nocodb_{base_name}"
         entity_base_name = "MyNocoAntenne"
@@ -1690,11 +1693,14 @@ permissions:
             elif res["mm_user_email"] == "admin@nocodb.com":
                 self.assertEqual(res["action"], f"NOCODB_USER_INVITED_AS_{admin_perm.upper()}_AND_DM_SENT")
 
+    @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_nocodb_base_invite_dm_fails(self, mock_lib_config_nocodb):
+    def test_sync_nocodb_base_invite_dm_fails(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
         mock_lib_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        mock_service_config_nocodb.EXCLUDED_USERS = set()
+        mock_service_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         base_title_pattern = "dm_fail_nocodb_{base_name}"
         entity_base_name = "NocoDMFail"
@@ -1757,13 +1763,16 @@ permissions:
         self.assertEqual(results[0]["action"], "NOCODB_USER_INVITED_AS_VIEWER_DM_SKIPPED_NO_URL")
         self.mock_mattermost_client.send_dm.assert_not_called()
 
+    @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_nocodb_base_user_update_and_removal(self, mock_lib_config_nocodb):
+    def test_sync_nocodb_base_user_update_and_removal(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
         mock_lib_config_nocodb.NOCODB_URL = (
             "https://test-nocodb.example.com"  # For consistency, though not strictly needed for removal/update tests
         )
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        mock_service_config_nocodb.EXCLUDED_USERS = set()
+        mock_service_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         base_title_pattern = "upd_rem_nocodb_{base_name}"
         entity_base_name = "NocoAntenneTwo"
@@ -1827,11 +1836,13 @@ permissions:
         self.assertIn("NOCODB_USER_INVITED_AS_OWNER_AND_DM_SENT", actions)
         self.assertIn("NOCODB_USER_REMOVED_FROM_BASE", actions)
 
+    @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_nocodb_base_excluded_user_handling(self, mock_lib_config_nocodb):
+    def test_sync_nocodb_base_excluded_user_handling(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         excluded_username = "excluded_nc_user"
         mock_lib_config_nocodb.EXCLUDED_USERS = {excluded_username}
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        mock_service_config_nocodb.EXCLUDED_USERS = {excluded_username}
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         base_title_pattern = "excl_nocodb_{base_name}"
         entity_base_name = "NocoAntenneExcl"
