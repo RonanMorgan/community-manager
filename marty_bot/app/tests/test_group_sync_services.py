@@ -676,10 +676,15 @@ permissions:
         self.mock_mattermost_client.send_dm.assert_not_called()
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
+    @patch("services.outline.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_outline_dm_skipped_no_outline_url(self, mock_config_module_in_service):
+    def test_sync_outline_dm_skipped_no_outline_url(
+        self, mock_config_module_in_service, mock_config_module_in_outline_service
+    ):
         mock_config_module_in_service.EXCLUDED_USERS = set()
-        mock_config_module_in_service.OUTLINE_URL = None  # Simulate OUTLINE_URL not set
+        mock_config_module_in_service.OUTLINE_URL = None
+        mock_config_module_in_outline_service.EXCLUDED_USERS = set()
+        mock_config_module_in_outline_service.OUTLINE_URL = None
         base_name = "DMNoUrlProject"
         entity_key = "PROJET"
         mock_entity_config = {
