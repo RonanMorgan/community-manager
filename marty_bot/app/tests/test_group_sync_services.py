@@ -2292,6 +2292,37 @@ permissions:
         self.assertEqual(result["action"], "FAILED_TO_REMOVE_NOCODB_USER")
         self.mock_nocodb_client.delete_base_user.assert_called_once_with("base_id", "user_id")
 
+    def test_sync_entity_permissions_with_nocodb_and_deletions(self):
+        from libraries.group_sync_services import sync_entity_permissions
+
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
+        self.mock_nocodb_client.get_base_by_title.return_value = {"id": "base_id"}
+        self.mock_nocodb_client.list_base_users.return_value = []
+        sync_entity_permissions(
+            clients=clients,
+            mm_team_id=self.mm_team_id,
+            entity_key="ANTENNE",
+            base_name="TestAntenne",
+            entity_config={
+                "standard": {},
+                "nocodb": {
+                    "base_title_pattern": "nocodb_{base_name}",
+                    "default_access": "viewer",
+                },
+            },
+            all_authentik_groups_by_name={},
+            email_to_authentik_user_pk_map={},
+            perform_deletions=True,
+        )
+        self.mock_nocodb_client.list_base_users.assert_called_once_with("base_id")
+
 
 if __name__ == "__main__":
     unittest.main()

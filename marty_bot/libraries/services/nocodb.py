@@ -263,13 +263,10 @@ def _map_nocodb_base_to_entity_and_base_name(
     return None, None
 
 
-def _sync_nocodb_for_entity(nocodb_client, mattermost_client, base_name, config, *args):
-    if args[8] not in ["ANTENNE", "POLES"]:  # entity_key is the 9th argument
+def _sync_nocodb_for_entity(nocodb_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
+    if entity_key not in ["ANTENNE", "POLES"]:
         return []
     nocodb_base_title_pattern = config.get("base_title_pattern", "nocodb_{base_name}")
     default_permission = config.get("default_access", "viewer")
     admin_permission = config.get("admin_access", "owner")
-    mm_users_for_services = args[5]
-    log_channel_name = args[6]
-    perform_deletions = args[7]
     return _sync_single_nocodb_base(nocodb_client, mattermost_client, nocodb_base_title_pattern, base_name, mm_users_for_services, default_permission, admin_permission, log_channel_name, perform_deletions)

@@ -219,9 +219,6 @@ def _map_brevo_list_to_entity_and_base_name(
     return None, None
 
 
-def _sync_brevo_for_entity(brevo_client, mattermost_client, base_name, config, *args):
+def _sync_brevo_for_entity(brevo_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
     brevo_list_name = config.get("list_name_pattern", "mm_{base_name}").format(base_name=base_name)
-    std_mm_users = args[3]  # std_mm_users is the 4th argument after config
-    log_channel_name = args[6]
-    perform_deletions = args[7]
     return _sync_single_brevo_list(brevo_client, brevo_list_name, std_mm_users, log_channel_name, perform_deletions)

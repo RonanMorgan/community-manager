@@ -208,8 +208,6 @@ def _map_vaultwarden_collection_to_entity_and_base_name(
     return None, None
 
 
-def _sync_vaultwarden_for_entity(vaultwarden_client, mattermost_client, base_name, config, *args):
+def _sync_vaultwarden_for_entity(vaultwarden_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
     vw_collection_name = config.get("collection_name_pattern", "Shared - {base_name}").format(base_name=base_name)
-    mm_users_for_services = args[5]
-    log_channel_name = args[6]
     return _sync_single_vaultwarden_collection_members(vaultwarden_client, mattermost_client, vw_collection_name, mm_users_for_services, log_channel_name)
