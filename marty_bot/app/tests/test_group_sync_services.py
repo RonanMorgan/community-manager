@@ -1730,11 +1730,14 @@ permissions:
         self.assertEqual(results[0]["action"], "NOCODB_USER_INVITED_AS_VIEWER_DM_FAILED")
         self.mock_mattermost_client.send_dm.assert_called_once()
 
+    @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")
-    def test_sync_nocodb_base_invite_dm_skipped_no_url(self, mock_lib_config_nocodb):
+    def test_sync_nocodb_base_invite_dm_skipped_no_url(self, mock_lib_config_nocodb, mock_service_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
         mock_lib_config_nocodb.NOCODB_URL = None  # Simulate NOCODB_URL not being set
-        from libraries.group_sync_services import _sync_single_nocodb_base
+        mock_service_config_nocodb.EXCLUDED_USERS = set()
+        mock_service_config_nocodb.NOCODB_URL = None
+        from libraries.services.nocodb import _sync_single_nocodb_base
 
         base_title_pattern = "dm_skip_nocodb_{base_name}"
         entity_base_name = "NocoDMSkip"
