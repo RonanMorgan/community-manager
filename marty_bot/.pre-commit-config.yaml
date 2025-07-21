@@ -1,19 +1,20 @@
 repos:
--   repo: https://github.com/pre-commit/pre-commit-hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
-    -   id: trailing-whitespace
-    -   id: end-of-file-fixer
-    -   id: check-yaml
-    -   id: check-added-large-files
--   repo: https://github.com/psf/black
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+
+  - repo: https://github.com/psf/black
     rev: 24.4.2
     hooks:
-    -   id: black
-        args: ["--line-length=119"] # Ensure args is a list of strings
--   repo: https://github.com/PyCQA/flake8
+      - id: black
+        args: ["--line-length=119"]
+
+  - repo: https://github.com/PyCQA/flake8
     rev: 7.1.0
     hooks:
-    -   id: flake8
-        # Explicitly tell flake8 to use the .flake8 config file, path relative to repo root.
+      - id: flake8
         args: ["--config=marty_bot/.flake8"]

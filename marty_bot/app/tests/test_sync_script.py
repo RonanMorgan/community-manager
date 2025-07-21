@@ -1,29 +1,28 @@
-import unittest
-from unittest.mock import patch, MagicMock
-import logging
-import sys
-import os
 import json
+import logging
+import os
+import sys
+import unittest
+from unittest.mock import MagicMock, patch
 
 # Adjust path to import from the project root directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-
-# Client classes for type hinting and MagicMock spec
-from clients.authentik_client import AuthentikClient
-from clients.mattermost_client import MattermostClient
-from clients.outline_client import OutlineClient
-from clients.brevo_client import BrevoClient
-from clients.nocodb_client import NocoDBClient
-from clients.vaultwarden_client import VaultwardenClient  # Added
 
 import asyncio  # For async_test helper
 
 # Functions/modules to be tested
 import scripts.sync_mm_authentik_groups as script_module
-from libraries.group_sync_services import (
+
+# Client classes for type hinting and MagicMock spec
+from clients.authentik_client import AuthentikClient
+from clients.brevo_client import BrevoClient
+from clients.mattermost_client import MattermostClient
+from clients.nocodb_client import NocoDBClient
+from clients.outline_client import OutlineClient
+from clients.vaultwarden_client import VaultwardenClient  # Added
+from libraries.group_sync_services import (  # sync_entity_permissions removed as it's not directly used by these tests after refactor
     get_all_authentik_groups_and_user_map,
     orchestrate_group_synchronization,
-    # sync_entity_permissions removed as it's not directly used by these tests after refactor
 )
 
 
@@ -493,7 +492,9 @@ class TestVaultwardenSync(unittest.TestCase):
     @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services._get_mm_users_for_entity")
     @patch("libraries.group_sync_services._map_vaultwarden_collection_to_entity_and_base_name")
-    def test_sync_vaultwarden_removes_user(self, mock_map_collection, mock_get_users, mock_get_auth_groups, mock_auth_client_class):
+    def test_sync_vaultwarden_removes_user(
+        self, mock_map_collection, mock_get_users, mock_get_auth_groups, mock_auth_client_class
+    ):
         # Arrange
         mock_auth_instance = mock_auth_client_class.return_value
         mock_auth_instance.get_groups_with_users.return_value = ([], {})
@@ -508,8 +509,16 @@ class TestVaultwardenSync(unittest.TestCase):
                 "users": [{"id": "user1-pk"}, {"id": "user2-pk"}],
             }
         ]
-        mock_vw_client.get_collections.return_value = (0, json.dumps([{"id": "coll1", "name": "projet-test", "organizationId": "test-org-id"}]), "")
-        mock_vw_client.get_members.return_value = (0, json.dumps([{"id": "user1-pk", "email": "user1@test.com"}, {"id": "user2-pk", "email": "user2@test.com"}]), "")
+        mock_vw_client.get_collections.return_value = (
+            0,
+            json.dumps([{"id": "coll1", "name": "projet-test", "organizationId": "test-org-id"}]),
+            "",
+        )
+        mock_vw_client.get_members.return_value = (
+            0,
+            json.dumps([{"id": "user1-pk", "email": "user1@test.com"}, {"id": "user2-pk", "email": "user2@test.com"}]),
+            "",
+        )
         mock_vw_client.get_name_from_collections.return_value = "projet-test"
         mock_vw_client.get_email_from_members.side_effect = ["user1@test.com", "user2@test.com"]
         mock_map_collection.return_value = ("PROJET", "test")

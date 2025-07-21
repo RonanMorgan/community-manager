@@ -1,8 +1,9 @@
-import requests
-import logging
 import json
-from typing import Optional
+import logging
 from enum import Enum
+from typing import Optional
+
+import requests
 
 
 class AuthentikAction(Enum):
@@ -383,8 +384,9 @@ class AuthentikClient:
 
 
 if __name__ == "__main__":
-    from dotenv import load_dotenv
     import os
+
+    from dotenv import load_dotenv
 
     load_dotenv()
     auth_url = os.getenv("AUTHENTIK_URL")

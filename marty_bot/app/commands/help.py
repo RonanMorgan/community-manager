@@ -1,5 +1,6 @@
-from .base_command import BaseCommand
 import asyncio
+
+from .base_command import BaseCommand
 
 
 class HelpCommand(BaseCommand):

@@ -149,7 +149,6 @@ def _sync_single_brevo_list(
         logging.info(f"Performing deletions for Brevo list '{brevo_list_name}' (ID: {brevo_list_id}).")
         current_contacts_in_brevo_list = []
         offset = 0
-        limit = 50
         while True:
             page_contacts = brevo_client.get_contacts_from_list(brevo_list_id)
             if page_contacts:
@@ -219,6 +218,19 @@ def _map_brevo_list_to_entity_and_base_name(
     return None, None
 
 
-def _sync_brevo_for_entity(brevo_client, mattermost_client, base_name, config, all_authentik_groups_by_name, email_to_authentik_user_pk_map, std_mm_users, admin_mm_users, mm_users_for_services, log_channel_name, perform_deletions, entity_key):
+def _sync_brevo_for_entity(
+    brevo_client,
+    mattermost_client,
+    base_name,
+    config,
+    all_authentik_groups_by_name,
+    email_to_authentik_user_pk_map,
+    std_mm_users,
+    admin_mm_users,
+    mm_users_for_services,
+    log_channel_name,
+    perform_deletions,
+    entity_key,
+):
     brevo_list_name = config.get("list_name_pattern", "mm_{base_name}").format(base_name=base_name)
     return _sync_single_brevo_list(brevo_client, brevo_list_name, std_mm_users, log_channel_name, perform_deletions)

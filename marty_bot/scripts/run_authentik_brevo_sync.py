@@ -10,8 +10,8 @@ project_root = os.path.dirname(current_script_dir)  # marty_bot/
 sys.path.insert(0, project_root)
 
 try:
-    from libraries.authentik_brevo_sync import sync_authentik_users_to_brevo_list
     from dotenv import load_dotenv
+    from libraries.authentik_brevo_sync import sync_authentik_users_to_brevo_list
 except ImportError as e:
     logging.basicConfig(level=logging.ERROR)
     logging.error(

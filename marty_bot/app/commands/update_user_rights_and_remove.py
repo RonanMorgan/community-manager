@@ -1,6 +1,8 @@
-from .base_command import BaseCommand
 import asyncio
 import logging
+
+from .base_command import BaseCommand
+
 
 class UpdateUserRightsAndRemoveCommand(BaseCommand):
     @property
@@ -53,7 +55,11 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
             )
         initial_post_id = await asyncio.to_thread(self.bot.envoyer_message, channel_id, initial_message_text)
 
-        if not self.bot.authentik_client or not self.bot.mattermost_api_client or not self.bot.config.MATTERMOST_TEAM_ID:
+        if (
+            not self.bot.authentik_client
+            or not self.bot.mattermost_api_client
+            or not self.bot.config.MATTERMOST_TEAM_ID
+        ):
             error_msg = (
                 ":warning: **Erreur :** Le bot n'est pas correctement configuré pour cette opération. "
                 "Client Authentik, client API Mattermost, ou ID d'équipe Mattermost manquant. "
@@ -117,8 +123,12 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
                 ":boom: Une erreur serveur inattendue s'est produite lors de la tentative "
                 "d'exécution de la suppression/synchronisation des droits. Veuillez consulter les logs du serveur."
             )
-            await asyncio.to_thread(self.bot.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id)
+            await asyncio.to_thread(
+                self.bot.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id
+            )
 
     @staticmethod
     def get_help():
-        return "Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes. Nécessite les droits admin."
+        return (
+            "Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes. Nécessite les droits admin."
+        )

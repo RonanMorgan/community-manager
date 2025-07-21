@@ -1,16 +1,16 @@
 import logging
-import sys
 import os
+import sys
 
 # Adjust path to import from the app directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import config
 from clients.authentik_client import AuthentikClient
-from clients.mattermost_client import MattermostClient
-from clients.outline_client import OutlineClient
 from clients.brevo_client import BrevoClient
+from clients.mattermost_client import MattermostClient
 from clients.nocodb_client import NocoDBClient
+from clients.outline_client import OutlineClient
 from clients.vaultwarden_client import VaultwardenClient  # Import VaultwardenClient
 
 # Import the orchestrator function

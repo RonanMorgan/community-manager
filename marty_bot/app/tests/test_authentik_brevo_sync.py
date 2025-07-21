@@ -1,6 +1,6 @@
+import os
 import unittest
 from unittest.mock import patch
-import os
 
 # Assuming the script is in marty_bot.libraries.authentik_brevo_sync
 from libraries.authentik_brevo_sync import sync_authentik_users_to_brevo_list

@@ -1,9 +1,10 @@
-import subprocess
 import json
-import os
 import logging
-import requests
+import os
+import subprocess
 from enum import Enum
+
+import requests
 
 
 class VaultwardenAction(Enum):
@@ -458,11 +459,9 @@ class VaultwardenClient:
         if not self._sync_vault():
             logging.warning("Vault sync failed before listing collections. Proceeding, but data might be stale.")
 
-        logging.debug(
-            f"Attempting to find Vaultwarden collection by using 'bw list collections'."
-        )
+        logging.debug("Attempting to find Vaultwarden collection by using 'bw list collections'.")
 
-        return self._run_bw_command(["list", "org-collections","--organizationid", self.organization_id])
+        return self._run_bw_command(["list", "org-collections", "--organizationid", self.organization_id])
 
     def get_members(self) -> tuple[int, str, str]:
         if not self._get_session():
@@ -471,20 +470,15 @@ class VaultwardenClient:
         if not self._sync_vault():
             logging.warning("Vault sync failed before listing members. Proceeding, but data might be stale.")
 
-        logging.debug(
-            f"Attempting to find Vaultwarden collection by using 'bw list collections'."
-        )
+        logging.debug("Attempting to find Vaultwarden collection by using 'bw list collections'.")
 
-        return self._run_bw_command(["list", "org-members","--organizationid", self.organization_id])
+        return self._run_bw_command(["list", "org-members", "--organizationid", self.organization_id])
 
     def get_name_from_collections(self, collection_id: str, sout_list: str) -> str:
         try:
             collections = json.loads(sout_list)
             for collection in collections:
-                if (
-                    collection.get("id") == collection_id
-                    and collection.get("organizationId") == self.organization_id
-                ):
+                if collection.get("id") == collection_id and collection.get("organizationId") == self.organization_id:
                     coll_name = collection.get("name")
                     if coll_name:
                         logging.info(
@@ -505,9 +499,7 @@ class VaultwardenClient:
         try:
             users = json.loads(sout_list)
             for user in users:
-                if (
-                    user.get("id") == user_id
-                ):
+                if user.get("id") == user_id:
                     email = user.get("email")
                     if email:
                         logging.info(

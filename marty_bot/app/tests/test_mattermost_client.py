@@ -1,10 +1,11 @@
-import unittest
-from unittest.mock import patch, Mock
-import requests
 import json  # Added import for json
+import unittest
+from unittest.mock import Mock, patch
 
+import requests
 from clients.mattermost_client import MattermostClient
 from libraries.services.mattermost import slugify
+
 
 class TestMattermostClient(unittest.TestCase):
 

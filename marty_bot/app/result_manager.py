@@ -1,9 +1,10 @@
 import asyncio
+
 from app.enums import SyncStatus
 from clients.authentik_client import AuthentikAction
-from clients.outline_client import OutlineAction
-from clients.nocodb_client import NocoDBAction
 from clients.brevo_client import BrevoAction
+from clients.nocodb_client import NocoDBAction
+from clients.outline_client import OutlineAction
 from clients.vaultwarden_client import VaultwardenAction
 
 
@@ -21,7 +22,9 @@ class ResultManager:
         """Helper function to format and send detailed synchronization results."""
         if not detailed_results:
             final_summary_message = f":information_source: Processus de {command_name} terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
-            await asyncio.to_thread(self.bot.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
+            await asyncio.to_thread(
+                self.bot.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id
+            )
             return
 
         total_success_ops = 0
@@ -64,9 +67,7 @@ class ResultManager:
                     OutlineAction.USER_ADDED_TO_COLLECTION_WITH_READ_WRITE_ACCESS_AND_DM_SENT.value,
                 ]:
                     permission = "lecture" if "READ_ACCESS" in action else "lecture/écriture"
-                    message_parts.append(
-                        f"Ajouté à la collection Outline (permission {permission}) et MP envoyé."
-                    )
+                    message_parts.append(f"Ajouté à la collection Outline (permission {permission}) et MP envoyé.")
                 elif action in [
                     OutlineAction.USER_ADDED_TO_COLLECTION_WITH_READ_ACCESS_DM_FAILED.value,
                     OutlineAction.USER_ADDED_TO_COLLECTION_WITH_READ_WRITE_ACCESS_DM_FAILED.value,
@@ -91,7 +92,9 @@ class ResultManager:
                     message_parts.append(f"Invité avec succès à la base NoCoDB (rôle: {role.lower()}) et MP envoyé.")
                 elif "INVITED_AS" in action and "DM_FAILED" in action:
                     role = action.split("_INVITED_AS_")[1].split("_DM_FAILED")[0]
-                    message_parts.append(f"Invité à la base NoCoDB (rôle: {role.lower()}), mais échec de l'envoi du MP.")
+                    message_parts.append(
+                        f"Invité à la base NoCoDB (rôle: {role.lower()}), mais échec de l'envoi du MP."
+                    )
                 elif "INVITED_AS" in action:
                     role = action.split("_INVITED_AS_")[1]
                     message_parts.append(f"Invité avec succès à la base NoCoDB (rôle: {role.lower()}).")
@@ -142,4 +145,6 @@ class ResultManager:
 
         final_summary_message = "\n".join(summary_lines)
         if final_summary_message:
-            await asyncio.to_thread(self.bot.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id)
+            await asyncio.to_thread(
+                self.bot.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id
+            )

@@ -1,8 +1,9 @@
-import requests
 import json
-import re
 import logging  # Added logging
+
+import requests
 from libraries.services.mattermost import slugify
+
 
 # Removed direct import of config
 class MattermostClient:
@@ -530,8 +531,9 @@ class MattermostClient:
 
 
 if __name__ == "__main__":
-    from dotenv import load_dotenv
     import os
+
+    from dotenv import load_dotenv
 
     load_dotenv()
     # Setup basic logging for script direct execution

@@ -1,7 +1,9 @@
-from .base_command import BaseCommand
 import asyncio
 import logging
+
 import markdown2
+
+from .base_command import BaseCommand
 
 
 class SendEmailCommand(BaseCommand):
@@ -84,10 +86,10 @@ class SendEmailCommand(BaseCommand):
         base_name_found = None
         admin_channel_name_slug = current_channel_info.get("name")
 
-        from libraries.group_sync_services import (
+        from libraries.group_sync_services import (  # For slugify if needed by map
             _map_mm_channel_to_entity_and_base_name,
             slugify,
-        )  # For slugify if needed by map
+        )
 
         # We need to iterate through PERMISSIONS_MATRIX to find which entity this admin channel belongs to
         # This is a bit reversed from the usual mapping.
@@ -153,7 +155,9 @@ class SendEmailCommand(BaseCommand):
 
         if not brevo_list_obj or not brevo_list_obj.get("id"):
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, f":x: Erreur: Liste Brevo '{target_brevo_list_name}' non trouvée."
+                self.bot.envoyer_message,
+                channel_id,
+                f":x: Erreur: Liste Brevo '{target_brevo_list_name}' non trouvée.",
             )
             return
 

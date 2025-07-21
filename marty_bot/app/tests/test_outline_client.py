@@ -1,7 +1,8 @@
 import unittest
-from unittest.mock import patch, Mock
-from clients.outline_client import OutlineClient  # Import the class
+from unittest.mock import Mock, patch
+
 import requests  # For requests.exceptions.RequestException
+from clients.outline_client import OutlineClient  # Import the class
 
 
 class TestOutlineClient(unittest.TestCase):

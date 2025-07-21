@@ -1,8 +1,8 @@
-import unittest
-from unittest.mock import patch, Mock
-import requests
 import logging  # Added for client logging visibility if needed during tests
+import unittest
+from unittest.mock import Mock, patch
 
+import requests
 from clients.authentik_client import AuthentikClient
 
 
