@@ -332,8 +332,6 @@ def remove_user_from_authentik_group(
 
 from .mattermost import _extract_base_name
 
-import config
-
 
 def _map_auth_group_to_entity_and_base_name(
     auth_group_name: str, permissions_matrix: dict

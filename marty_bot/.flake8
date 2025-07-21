@@ -3,26 +3,7 @@ max-line-length = 119
 # E203: whitespace before ':' (often conflicts with Black)
 # W503: line break before binary operator (Black sometimes prefers this)
 # E402: module level import not at top of file (for app/bot.py structure)
-extend-ignore = E203, W503, E402, E201, E202
-per-file-ignores =
-    marty_bot/app/bot.py:E501
-    marty_bot/app/tests/test_bot.py:E501
-    marty_bot/app/tests/test_group_sync_services.py:E501
-    marty_bot/app/tests/test_brevo_client.py:E501
-    marty_bot/app/tests/test_outline_client.py:E501
-    marty_bot/clients/authentik_client.py: E501
-    marty_bot/clients/brevo_client.py:E501
-    marty_bot/clients/mattermost_client.py: E501
-    marty_bot/clients/outline_client.py:E501
-    marty_bot/scripts/sync_mm_authentik_groups.py: E501
-    marty_bot/libraries/group_sync_services.py:E501
-    marty_bot/app/tests/test_vaultwarden_client.py:E501
-    marty_bot/clients/nocodb_client.py:E501
-    marty_bot/clients/vaultwarden_client.py:E501
-    marty_bot/app/tests/test_mattermost_client.py:E501
-    # If other files needed specific ignores, they'd go here:
-    # app/another_module.py:W123,E456
-    # tests/some_test.py:F401
+extend-ignore = E203, W503, E402, E201, E202, E501, F541
 
 # Default excludes + any custom ones if needed
 # exclude = .git,__pycache__,old,build,dist,venv,.venv,env

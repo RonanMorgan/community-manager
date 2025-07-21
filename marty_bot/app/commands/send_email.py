@@ -211,8 +211,7 @@ class SendEmailCommand(BaseCommand):
             )
         else:
             feedback_msg = (
-                f":x: Échec de l'envoi de l'email avec sujet '{subject}' via Brevo. "
-                "Vérifiez les logs du serveur."
+                f":x: Échec de l'envoi de l'email avec sujet '{subject}' via Brevo. " "Vérifiez les logs du serveur."
             )
 
         await asyncio.to_thread(self.bot.envoyer_message, channel_id, feedback_msg)
