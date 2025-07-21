@@ -2,6 +2,10 @@ from .base_command import BaseCommand
 
 
 class CreateAntenneCommand(BaseCommand):
+    @property
+    def command_name(self):
+        return "create_antenne"
+
     async def execute(self, channel_id, arg_string, user_id_who_posted):
         await self.bot._execute_batch_create_command(
             channel_id, arg_string, "antenne", "ANTENNE", user_id_who_posted

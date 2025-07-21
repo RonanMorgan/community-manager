@@ -18,15 +18,12 @@ class CommandFactory:
                 module = importlib.import_module(module_name)
                 for name, cls in inspect.getmembers(module, inspect.isclass):
                     if issubclass(cls, BaseCommand) and cls is not BaseCommand:
-                        command_name = self._get_command_name(filename)
-                        if command_name == "help":
-                            commands[command_name] = cls(self.bot, self)
-                        else:
-                            commands[command_name] = cls(self.bot)
+                        # Instantiate the command to get its name
+                        instance = cls(self.bot)
+                        command_name = instance.command_name
+                        if command_name:
+                            commands[command_name] = instance
         return commands
-
-    def _get_command_name(self, filename):
-        return filename[:-3]
 
     def get_command(self, command_name):
         return self.commands.get(command_name)

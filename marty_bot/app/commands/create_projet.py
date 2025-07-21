@@ -2,6 +2,10 @@ from .base_command import BaseCommand
 
 
 class CreateProjetCommand(BaseCommand):
+    @property
+    def command_name(self):
+        return "create_projet"
+
     async def execute(self, channel_id, arg_string, user_id_who_posted):
         await self.bot._execute_batch_create_command(
             channel_id, arg_string, "projet", "PROJET", user_id_who_posted
