@@ -4,6 +4,7 @@ import os
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
+from libraries.services.vaultwarden import VaultwardenService
 
 import asyncio  # For async_test helper
 
@@ -18,9 +19,7 @@ from clients.nocodb_client import NocoDBClient
 from clients.outline_client import OutlineClient
 from clients.vaultwarden_client import VaultwardenClient  # Added
 from libraries.group_sync_services import (  # sync_entity_permissions removed as it's not directly used by these tests after refactor
-    get_all_authentik_groups_and_user_map,
     orchestrate_group_synchronization,
-    differential_sync,
 )
 
 # Adjust path to import from the project root directory
@@ -141,23 +140,6 @@ class TestSyncLogic(unittest.TestCase):
         _, mm_client, _, _, _, _ = script_module.initialize_clients()  # Unpack 6
         self.assertIsNone(mm_client)
         MockScriptMMClient.assert_not_called()
-
-    def test_library_get_all_authentik_groups_and_user_map(self):
-        mock_groups_data = [{"name": "group1"}]
-        mock_email_map_data = {"email@example.com": "pk1"}
-        self.mock_auth_client_instance.get_groups_with_users.return_value = (
-            mock_groups_data,
-            mock_email_map_data,
-        )
-        groups, email_map = get_all_authentik_groups_and_user_map(self.mock_auth_client_instance)
-        self.mock_auth_client_instance.get_groups_with_users.assert_called_once()
-        self.assertEqual(groups, mock_groups_data)
-        self.assertEqual(email_map, mock_email_map_data)
-
-    def test_library_get_all_authentik_groups_no_client(self):
-        groups, email_map = get_all_authentik_groups_and_user_map(None)
-        self.assertEqual(groups, [])
-        self.assertEqual(email_map, {})
 
     @patch("libraries.group_sync_services.config")
     @async_test  # Added decorator
@@ -355,20 +337,15 @@ class TestSyncLogic(unittest.TestCase):
         mock_orchestrate_lib.assert_not_called()
 
 
-from libraries.services.vaultwarden import VaultwardenService
-
 class TestVaultwardenDifferentialSync(unittest.TestCase):
     @async_test
     async def test_differential_sync_removes_user(self):
         # Arrange
+
         mock_vw_client = MagicMock(spec=VaultwardenClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
         mm_team_id = "test-team-id"
-        permissions_matrix = {
-            "PROJET": {
-                "vaultwarden": {"collection_name_pattern": "projet-{base_name}"}
-            }
-        }
+        permissions_matrix = {"PROJET": {"vaultwarden": {"collection_name_pattern": "projet-{base_name}"}}}
 
         # Mock Vaultwarden client methods
         mock_vw_client.get_collections_details.return_value = [
@@ -381,10 +358,16 @@ class TestVaultwardenDifferentialSync(unittest.TestCase):
             }
         ]
         mock_vw_client.get_collections.return_value = (0, json.dumps([{"id": "coll1", "name": "projet-test"}]), "")
-        mock_vw_client.get_members.return_value = (0, json.dumps([
-            {"id": "user-to-keep-id", "email": "keep@test.com"},
-            {"id": "user-to-remove-id", "email": "remove@test.com"},
-        ]), "")
+        mock_vw_client.get_members.return_value = (
+            0,
+            json.dumps(
+                [
+                    {"id": "user-to-keep-id", "email": "keep@test.com"},
+                    {"id": "user-to-remove-id", "email": "remove@test.com"},
+                ]
+            ),
+            "",
+        )
         mock_vw_client.get_name_from_collections.return_value = "projet-test"
         mock_vw_client.get_email_from_members.side_effect = ["keep@test.com", "remove@test.com"]
         mock_vw_client.update_collection.return_value = True

@@ -5,7 +5,7 @@ import config
 from app.enums import SyncStatus
 from clients.brevo_client import BrevoAction
 from .base import SyncService
-from .mattermost import _extract_base_name, _get_mm_users_for_entity
+from .mattermost import _extract_base_name
 
 if TYPE_CHECKING:
     from clients.brevo_client import BrevoClient
@@ -118,7 +118,7 @@ def _sync_single_brevo_list(
         mm_channel_display_name_for_log,
     )
     results.extend(add_results)
-    target_emails_in_list = mm_targeted_emails
+    # target_emails_in_list = mm_targeted_emails
 
     # if perform_deletions:
     #    logging.info(f"Performing deletions for Brevo list '{brevo_list_name}' (ID: {brevo_list_id}).")

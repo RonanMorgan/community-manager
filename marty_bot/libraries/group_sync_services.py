@@ -5,8 +5,6 @@
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING
-
 import config
 from app.enums import SyncStatus
 from libraries.services.authentik import (
@@ -19,53 +17,22 @@ from libraries.services.brevo import BrevoService
 from libraries.services.nocodb import NocoDBService
 from libraries.services.outline import OutlineService
 from libraries.services.vaultwarden import VaultwardenService
-
-
-def get_all_authentik_groups_and_user_map(authentik_client: "AuthentikClient"):
-    """
-    Fetches all Authentik groups and constructs a user email-to-PK map.
-    Uses the get_groups_with_users method from AuthentikClient.
-    """
-    logging.info("Fetching all Authentik groups and constructing user email-to-PK map...")
-    if not authentik_client:
-        logging.error("Authentik client not provided to get_all_authentik_groups_and_user_map.")
-        return [], {}
-
-    groups, email_map = authentik_client.get_groups_with_users()
-
-    if not groups:
-        logging.warning("No Authentik groups found or an error occurred during fetching.")
-    if not email_map:
-        logging.warning("Authentik user email-to-PK map is empty or could not be constructed.")
-
-    return groups, email_map
-
-
 from libraries.services.brevo import _sync_brevo_for_entity
 from libraries.services.mattermost import (
-    _extract_base_name,
     _map_mm_channel_to_entity_and_base_name,
 )
 from libraries.services.nocodb import (
-    _map_nocodb_base_to_entity_and_base_name,
-    _remove_user_from_nocodb_base,
     _sync_nocodb_for_entity,
 )
 from libraries.services.outline import (
-    _map_outline_collection_to_entity_and_base_name,
-    _remove_user_from_outline_collection,
     _sync_outline_for_entity,
 )
 from libraries.services.vaultwarden import (
-    _map_vaultwarden_collection_to_entity_and_base_name,
     _sync_vaultwarden_for_entity,
 )
 from libraries.utils import check_clients
 
-if TYPE_CHECKING:
-    from clients.mattermost_client import MattermostClient
-
-from libraries.services.mattermost import _get_mm_users_for_entity, slugify
+from libraries.services.mattermost import slugify
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 

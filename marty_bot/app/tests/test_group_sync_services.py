@@ -1400,13 +1400,11 @@ permissions:
 
     # --- New tests for orchestrate_group_synchronization ---
     @patch("libraries.group_sync_services.sync_entity_permissions")
-    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
     @async_test  # Added decorator
     async def test_orchestrate_sync_fetch_remote_false_discover_via_mm_no_deletions(
         self,
         mock_lib_config,
-        mock_get_all_auth_groups_and_map,
         mock_sync_entity_permissions_call,
     ):
         # This test will now test sync_mode="MM_TO_TOOLS"
