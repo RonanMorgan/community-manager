@@ -7,28 +7,13 @@ import os
 import sys
 import config
 from app.enums import SyncStatus
-from libraries.services.authentik import (
-    _map_auth_group_to_entity_and_base_name,
-    _sync_authentik_for_entity,
-)
-
 from libraries.services.authentik import AuthentikService
 from libraries.services.brevo import BrevoService
 from libraries.services.nocodb import NocoDBService
 from libraries.services.outline import OutlineService
 from libraries.services.vaultwarden import VaultwardenService
-from libraries.services.brevo import _sync_brevo_for_entity
 from libraries.services.mattermost import (
     _map_mm_channel_to_entity_and_base_name,
-)
-from libraries.services.nocodb import (
-    _sync_nocodb_for_entity,
-)
-from libraries.services.outline import (
-    _sync_outline_for_entity,
-)
-from libraries.services.vaultwarden import (
-    _sync_vaultwarden_for_entity,
 )
 from libraries.utils import check_clients
 
@@ -95,39 +80,49 @@ def sync_entity_permissions(
 
     email_to_authentik_user_pk_map = {}
     # Service-specific logic
+    authentik_service = AuthentikService(
+        clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id
+    )
+    outline_service = OutlineService(clients.get("outline"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
+    brevo_service = BrevoService(clients.get("brevo"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
+    nocodb_service = NocoDBService(clients.get("nocodb"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
+    vaultwarden_service = VaultwardenService(
+        clients.get("vaultwarden"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id
+    )
+
     service_registry = {
         "authentik": {
-            "client": clients.get("authentik"),
-            "sync_function": _sync_authentik_for_entity,
+            "instance": authentik_service,
+            "sync_function": authentik_service._sync_authentik_for_entity,
             "config": {"standard": std_config, "admin": admin_config},
         },
         "outline": {
-            "client": clients.get("outline"),
-            "sync_function": _sync_outline_for_entity,
+            "instance": outline_service,
+            "sync_function": outline_service._sync_outline_for_entity,
             "config": entity_config.get("outline"),
         },
         "brevo": {
-            "client": clients.get("brevo"),
-            "sync_function": _sync_brevo_for_entity,
+            "instance": brevo_service,
+            "sync_function": brevo_service._sync_brevo_for_entity,
             "config": entity_config.get("brevo"),
         },
         "nocodb": {
-            "client": clients.get("nocodb"),
-            "sync_function": _sync_nocodb_for_entity,
+            "instance": nocodb_service,
+            "sync_function": nocodb_service._sync_nocodb_for_entity,
             "config": entity_config.get("nocodb"),
         },
         "vaultwarden": {
-            "client": clients.get("vaultwarden"),
-            "sync_function": _sync_vaultwarden_for_entity,
+            "instance": vaultwarden_service,
+            "sync_function": vaultwarden_service._sync_vaultwarden_for_entity,
             "config": entity_config.get("vaultwarden"),
         },
     }
 
     for service_name, service_data in service_registry.items():
-        if service_name not in skip_services and service_data["client"] and service_data["config"]:
+        if service_name not in skip_services and service_data["instance"].client and service_data["config"]:
             results.extend(
                 service_data["sync_function"](
-                    service_data["client"],
+                    service_data["instance"].client,
                     mattermost_client,
                     base_name,
                     service_data["config"],
@@ -186,6 +181,9 @@ async def orchestrate_group_synchronization(
 
     all_auth_groups_by_name = {}
     entities_to_process = {}
+    authentik_service = AuthentikService(
+        clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id
+    )
 
     if sync_mode == "WITH_AUTHENTIK":
         logging.info("Sync Mode: WITH_AUTHENTIK. Discovering entities from Authentik groups...")
@@ -203,7 +201,7 @@ async def orchestrate_group_synchronization(
             logging.info("No Authentik groups found to process for WITH_AUTHENTIK. Synchronization might be limited.")
 
         for auth_group_name_iter in all_auth_groups_by_name.keys():
-            found_entity_key_auth, current_base_name_auth = _map_auth_group_to_entity_and_base_name(
+            found_entity_key_auth, current_base_name_auth = authentik_service._map_auth_group_to_entity_and_base_name(
                 auth_group_name_iter, config.PERMISSIONS_MATRIX
             )
             if found_entity_key_auth and current_base_name_auth:
