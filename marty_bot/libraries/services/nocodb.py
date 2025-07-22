@@ -74,56 +74,6 @@ class NocoDBService(SyncService):
         results.extend(add_update_results)
         target_nocodb_user_emails.update(mm_targeted_emails)
 
-        # if perform_deletions:
-        #    for existing_email_lower, nocodb_user_obj in current_nocodb_users_map.items():
-        #        nocodb_user_id_to_remove = nocodb_user_obj["id"]
-        #        username_for_log = nocodb_user_obj.get("firstname", "") + " " + nocodb_user_obj.get("lastname", "")
-        #        if not username_for_log.strip():
-        #            username_for_log = existing_email_lower
-
-        #        is_excluded = False
-        #        for mm_email, mm_data in mm_users_for_permission.items():
-        #            if mm_email == existing_email_lower and mm_data.get("username") in config.EXCLUDED_USERS:
-        #                is_excluded = True
-        #                break
-        #        if existing_email_lower in target_nocodb_user_emails and any(
-        #            mm_data.get("username") in config.EXCLUDED_USERS
-        #            for mm_data in mm_users_for_permission.values()
-        #            if mm_data.get("email") == existing_email_lower
-        #        ):
-        #            is_excluded = True
-
-        #        if not is_excluded and existing_email_lower not in target_nocodb_user_emails:
-        #            removal_base_info = {
-        #                "mm_username": username_for_log,
-        #                "mm_user_email": existing_email_lower,
-        #                "mm_channel_display_name": mm_channel_context_name,
-        #                "target_resource_name": nocodb_base_title,
-        #                "service": "NOCODB",
-        #            }
-        #            removal_result = {
-        #                **removal_base_info,
-        #                "status": SyncStatus.FAILURE.value,
-        #                "action": "FAILED_TO_REMOVE_NOCODB_USER",
-        #            }
-        #            if nocodb_client.delete_base_user(base_id, nocodb_user_id_to_remove):
-        #                removal_result.update(
-        #                    {
-        #                        "status": SyncStatus.SUCCESS.value,
-        #                        "action": NocoDBAction.USER_REMOVED_FROM_BASE.value,
-        #                    }
-        #                )
-        #            else:
-        #                removal_result["error_message"] = (
-        #                    "API call to remove user (set no-access) from NoCoDB base failed."
-        #                )
-        #            results.append(removal_result)
-        #        elif is_excluded:
-        #            logging.debug(
-        #                f"User '{username_for_log}' ({existing_email_lower}) is in NoCoDB base "
-        #                f"'{nocodb_base_title}' and is excluded from sync-based removal."
-        #            )
-
         logging.debug(f"Finished NoCoDB base sync for '{nocodb_base_title}'. Total results: {len(results)}")
         return results
 

@@ -22,9 +22,6 @@ from libraries.services.mattermost import slugify
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
-# Helper function to determine Outline permission (REMOVED as logic is now in _sync_single_outline_collection)
-# def _determine_outline_permission(auth_group_name: str, mm_channel_type: str) -> str:
-#     ...
 async def orchestrate_group_synchronization(
     clients: dict,
     mm_team_id: str,
