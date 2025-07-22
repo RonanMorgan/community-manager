@@ -302,6 +302,9 @@ class AuthentikService(SyncService):
             mm_user_emails = {user["email"].lower() for user in mm_users_for_this_group if "email" in user}
 
             auth_users = group.get("users_obj", [])
+            auth_user_emails = {user.get("email", "").lower() for user in auth_users if user.get("email")}
+
+            # Remove users from Authentik group if they are not in Mattermost
             for user in auth_users:
                 user_email = user.get("email", "").lower()
                 if user_email and user_email not in mm_user_emails:
@@ -317,4 +320,21 @@ class AuthentikService(SyncService):
                             base_name,
                         )
                     )
+
+            # Add users to Authentik group if they are in Mattermost but not in Authentik
+            missing_mm_users = [
+                user for user in mm_users_for_this_group if user.get("email", "").lower() not in auth_user_emails
+            ]
+            if missing_mm_users:
+                add_results, _ = self._ensure_users_in_authentik_group(
+                    self.client,
+                    group.get("pk"),
+                    group.get("name"),
+                    missing_mm_users,
+                    email_to_authentik_user_pk_map,
+                    base_name,
+                    set(),
+                )
+                results.extend(add_results)
+
         return results

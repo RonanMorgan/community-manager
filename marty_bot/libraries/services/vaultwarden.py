@@ -283,19 +283,22 @@ class VaultwardenService(SyncService):
             mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
 
             vaultwarden_users_by_collection = collection.get("users", [])
+            vaultwarden_user_emails = set()
             users_to_keep = []
+
             for user in vaultwarden_users_by_collection:
                 user_id = user.get("id")
-
                 user_email = None
                 if rc_user_list == 0:
                     user_email = self.client.get_email_from_members(user_id, sout_user_list)
                 else:
-                    logging.error(f"Failed to list collections using 'bw list collections': {err_user_list.strip()}")
+                    logging.error(f"Failed to list collections using 'bw list members': {err_user_list.strip()}")
+                if user_email:
+                    vaultwarden_user_emails.add(user_email)
+                    if user_email in mm_user_emails:
+                        users_to_keep.append(user)
 
-                if user_email and user_email in mm_user_emails:
-                    users_to_keep.append(user)
-
+            # Remove users from Vaultwarden collection if they are not in Mattermost
             if len(users_to_keep) != len(vaultwarden_users_by_collection):
                 payload = {
                     "users": users_to_keep,
@@ -321,4 +324,25 @@ class VaultwardenService(SyncService):
                             "action": VaultwardenAction.FAILED_TO_REMOVE_FROM_COLLECTION.value,
                         }
                     )
+
+            # Add users to Vaultwarden collection if they are in Mattermost but not in Vaultwarden
+            missing_mm_users_for_services = {
+                email: data
+                for email, data in mm_users_for_services.items()
+                if email not in vaultwarden_user_emails
+            }
+            if missing_mm_users_for_services:
+                access_token = self.client._get_api_token()
+                results.extend(
+                    self._ensure_users_invited_to_vaultwarden_collection(
+                        self.client,
+                        self.mattermost_client,
+                        collection_id,
+                        collection_name,
+                        missing_mm_users_for_services,
+                        base_name,
+                        access_token,
+                    )
+                )
+
         return results

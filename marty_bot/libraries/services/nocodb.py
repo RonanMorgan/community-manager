@@ -274,6 +274,9 @@ class NocoDBService(SyncService):
             mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
 
             nocodb_users = self.client.list_base_users(base_id)
+            nocodb_user_emails = {user.get("email", "").lower() for user in nocodb_users if user.get("email")}
+
+            # Remove users from NocoDB base if they are not in Mattermost
             for user in nocodb_users:
                 user_email = user.get("email", "").lower()
                 if user_email and user_email not in mm_user_emails:
@@ -287,4 +290,27 @@ class NocoDBService(SyncService):
                             base_name,
                         )
                     )
+
+            # Add users to NocoDB base if they are in Mattermost but not in NocoDB
+            missing_mm_users_for_permission = {
+                email: data
+                for email, data in mm_users_for_services.items()
+                if email not in nocodb_user_emails
+            }
+            if missing_mm_users_for_permission:
+                default_permission = entity_config.get("nocodb", {}).get("default_access", "viewer")
+                admin_permission = entity_config.get("nocodb", {}).get("admin_access", "owner")
+                add_results, _ = self._ensure_users_in_nocodb_base(
+                    self.client,
+                    self.mattermost_client,
+                    base_id,
+                    base_title,
+                    missing_mm_users_for_permission,
+                    default_permission,
+                    admin_permission,
+                    {},
+                    base_name,
+                )
+                results.extend(add_results)
+
         return results

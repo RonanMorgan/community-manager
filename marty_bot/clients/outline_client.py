@@ -408,6 +408,25 @@ class OutlineClient:
             logging.error(f"Error decoding JSON from Outline users.info response for ID '{user_id}': {e}")
             return None
 
+    def get_collection_members_with_details(self, collection_id: str) -> list[dict] | None:
+        """
+        Retrieves full user details for all members of a specific collection.
+        :param collection_id: The ID of the collection.
+        :return: A list of user detail dictionaries if successful, None otherwise.
+        """
+        member_ids = self.get_collection_members(collection_id)
+        if member_ids is None:
+            return None  # Error occurred during member ID fetching
+
+        member_details = []
+        for user_id in member_ids:
+            user_details = self.get_user_by_id(user_id)
+            if user_details:
+                member_details.append(user_details)
+            else:
+                logging.warning(f"Could not fetch details for user ID '{user_id}' in collection '{collection_id}'.")
+        return member_details
+
     def remove_user_from_collection(self, collection_id: str, user_id: str) -> bool:
         """
         Removes a user from an Outline collection.
