@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional
 import config
 from app.enums import SyncStatus
 from clients.nocodb_client import NocoDBAction
-from .base import SyncService
+from .base import Service as SyncService
 from .mattermost import _extract_base_name, _get_mm_users_for_entity
 
 if TYPE_CHECKING:
@@ -268,20 +268,24 @@ class NocoDBService(SyncService):
                         return entity_key, base_name
         return None, None
 
-    def _sync_nocodb_for_entity(
+    async def group_sync(
         self,
-        nocodb_client,
-        mattermost_client,
         base_name,
-        config,
+        entity_config,
         all_authentik_groups_by_name,
         email_to_authentik_user_pk_map,
-        std_mm_users,
-        admin_mm_users,
+        std_mm_users_in_channel,
+        adm_mm_users_in_channel,
         mm_users_for_services,
-        log_channel_name,
+        std_mm_channel_name_for_log,
         entity_key,
     ):
+        nocodb_client = self.client
+        mattermost_client = self.mattermost_client
+        config = entity_config.get("nocodb")
+        if not config:
+            return []
+        log_channel_name = std_mm_channel_name_for_log
         if entity_key not in ["ANTENNE", "POLES"]:
             return []
         nocodb_base_title_pattern = config.get("base_title_pattern", "nocodb_{base_name}")

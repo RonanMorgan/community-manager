@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional
 import config
 from app.enums import SyncStatus
 from clients.brevo_client import BrevoAction
-from .base import SyncService
+from .base import Service as SyncService
 from .mattermost import _extract_base_name
 
 if TYPE_CHECKING:
@@ -191,20 +191,24 @@ class BrevoService(SyncService):
                         return entity_key, base_name
         return None, None
 
-    def _sync_brevo_for_entity(
+    async def group_sync(
         self,
-        brevo_client,
-        mattermost_client,
         base_name,
-        config,
+        entity_config,
         all_authentik_groups_by_name,
         email_to_authentik_user_pk_map,
-        std_mm_users,
-        admin_mm_users,
+        std_mm_users_in_channel,
+        adm_mm_users_in_channel,
         mm_users_for_services,
-        log_channel_name,
+        std_mm_channel_name_for_log,
         entity_key,
     ):
+        brevo_client = self.client
+        config = entity_config.get("brevo")
+        if not config:
+            return []
+        std_mm_users = std_mm_users_in_channel
+        log_channel_name = std_mm_channel_name_for_log
         brevo_list_name = config.get("list_name_pattern", "mm_{base_name}").format(base_name=base_name)
         return self._sync_single_brevo_list(brevo_client, brevo_list_name, std_mm_users, log_channel_name)
 
