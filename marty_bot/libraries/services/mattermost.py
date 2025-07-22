@@ -1,9 +1,5 @@
-import logging
 import re
-from typing import TYPE_CHECKING, Optional
-
-if TYPE_CHECKING:
-    from clients.mattermost_client import MattermostClient
+from typing import Optional
 
 
 def slugify(text: str) -> str:

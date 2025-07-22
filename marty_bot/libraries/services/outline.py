@@ -317,9 +317,7 @@ class OutlineService(SyncService):
                 continue
 
             entity_config = self.permissions_matrix.get(entity_key, {})
-            mm_users_for_services, _, _ = self.get_mm_users_for_entity(
-                base_name, entity_config, mm_channel_members
-            )
+            mm_users_for_services, _, _ = self.get_mm_users_for_entity(base_name, entity_config, mm_channel_members)
 
             mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
 
@@ -343,9 +341,7 @@ class OutlineService(SyncService):
 
             # Add users to Outline collection if they are in Mattermost but not in Outline
             missing_mm_users_for_permission = {
-                email: data
-                for email, data in mm_users_for_services.items()
-                if email not in outline_user_emails
+                email: data for email, data in mm_users_for_services.items() if email not in outline_user_emails
             }
             if missing_mm_users_for_permission:
                 default_permission = entity_config.get("outline", {}).get("default_access", "read")

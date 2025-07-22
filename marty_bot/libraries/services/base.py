@@ -1,5 +1,3 @@
-import logging
-
 from libraries.services.mattermost import slugify
 
 

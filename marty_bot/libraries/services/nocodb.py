@@ -268,9 +268,7 @@ class NocoDBService(SyncService):
                 continue
 
             entity_config = self.permissions_matrix.get(entity_key, {})
-            mm_users_for_services, _, _ = self.get_mm_users_for_entity(
-                base_name, entity_config, mm_channel_members
-            )
+            mm_users_for_services, _, _ = self.get_mm_users_for_entity(base_name, entity_config, mm_channel_members)
             mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
 
             nocodb_users = self.client.list_base_users(base_id)
@@ -293,9 +291,7 @@ class NocoDBService(SyncService):
 
             # Add users to NocoDB base if they are in Mattermost but not in NocoDB
             missing_mm_users_for_permission = {
-                email: data
-                for email, data in mm_users_for_services.items()
-                if email not in nocodb_user_emails
+                email: data for email, data in mm_users_for_services.items() if email not in nocodb_user_emails
             }
             if missing_mm_users_for_permission:
                 default_permission = entity_config.get("nocodb", {}).get("default_access", "viewer")

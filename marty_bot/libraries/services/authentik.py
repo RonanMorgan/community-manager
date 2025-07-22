@@ -294,9 +294,7 @@ class AuthentikService(SyncService):
             if admin_cfg and _extract_base_name(group.get("name"), admin_cfg.get("authentik_group_name_pattern", "")):
                 is_admin_group = True
 
-            _, std_mm_users, adm_mm_users = self.get_mm_users_for_entity(
-                base_name, entity_config, mm_channel_members
-            )
+            _, std_mm_users, adm_mm_users = self.get_mm_users_for_entity(base_name, entity_config, mm_channel_members)
 
             mm_users_for_this_group = adm_mm_users if is_admin_group else std_mm_users
             mm_user_emails = {user["email"].lower() for user in mm_users_for_this_group if "email" in user}

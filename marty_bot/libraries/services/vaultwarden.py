@@ -277,9 +277,7 @@ class VaultwardenService(SyncService):
                 continue
 
             entity_config = self.permissions_matrix.get(entity_key, {})
-            mm_users_for_services, _, _ = self.get_mm_users_for_entity(
-                base_name, entity_config, mm_channel_members
-            )
+            mm_users_for_services, _, _ = self.get_mm_users_for_entity(base_name, entity_config, mm_channel_members)
             mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
 
             vaultwarden_users_by_collection = collection.get("users", [])
@@ -327,9 +325,7 @@ class VaultwardenService(SyncService):
 
             # Add users to Vaultwarden collection if they are in Mattermost but not in Vaultwarden
             missing_mm_users_for_services = {
-                email: data
-                for email, data in mm_users_for_services.items()
-                if email not in vaultwarden_user_emails
+                email: data for email, data in mm_users_for_services.items() if email not in vaultwarden_user_emails
             }
             if missing_mm_users_for_services:
                 access_token = self.client._get_api_token()
