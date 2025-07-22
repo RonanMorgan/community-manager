@@ -80,12 +80,10 @@ def _sync_single_brevo_list(
     brevo_list_name: str,
     mm_users_in_channel: list[dict],
     mm_channel_display_name_for_log: str,
-    perform_deletions: bool,
 ) -> list[dict]:
     results = []
     logging.info(
         f"Starting Brevo list sync for '{brevo_list_name}' based on MM channel '{mm_channel_display_name_for_log}'. "
-        f"Deletions: {perform_deletions}"
     )
 
     if not brevo_client:
@@ -122,54 +120,54 @@ def _sync_single_brevo_list(
     results.extend(add_results)
     target_emails_in_list = mm_targeted_emails
 
-    if perform_deletions:
-        logging.info(f"Performing deletions for Brevo list '{brevo_list_name}' (ID: {brevo_list_id}).")
-        current_contacts_in_brevo_list = []
-        offset = 0
-        while True:
-            page_contacts = brevo_client.get_contacts_from_list(brevo_list_id)
-            if page_contacts:
-                current_contacts_in_brevo_list.extend(page_contacts)
-                if len(page_contacts) < 50:
-                    break
-                offset += 50
-            else:
-                logging.warning(
-                    f"Could not fetch contacts from Brevo list '{brevo_list_name}' (ID: {brevo_list_id}) for deletion check, or list is empty."
-                )
-                break
+    # if perform_deletions:
+    #    logging.info(f"Performing deletions for Brevo list '{brevo_list_name}' (ID: {brevo_list_id}).")
+    #    current_contacts_in_brevo_list = []
+    #    offset = 0
+    #    while True:
+    #        page_contacts = brevo_client.get_contacts_from_list(brevo_list_id)
+    #        if page_contacts:
+    #            current_contacts_in_brevo_list.extend(page_contacts)
+    #            if len(page_contacts) < 50:
+    #                break
+    #            offset += 50
+    #        else:
+    #            logging.warning(
+    #                f"Could not fetch contacts from Brevo list '{brevo_list_name}' (ID: {brevo_list_id}) for deletion check, or list is empty."
+    #            )
+    #            break
 
-        current_emails_in_brevo_list = {
-            contact.get("email", "").lower() for contact in current_contacts_in_brevo_list if contact.get("email")
-        }
-        emails_to_remove = current_emails_in_brevo_list - target_emails_in_list
+    #    current_emails_in_brevo_list = {
+    #        contact.get("email", "").lower() for contact in current_contacts_in_brevo_list if contact.get("email")
+    #    }
+    #    emails_to_remove = current_emails_in_brevo_list - target_emails_in_list
 
-        for email_to_remove in emails_to_remove:
-            mm_username_for_log = "UnknownUser (removed)"
-            base_removal_info = {
-                "mm_username": mm_username_for_log,
-                "mm_user_email": email_to_remove,
-                "mm_channel_display_name": mm_channel_display_name_for_log,
-                "target_resource_name": brevo_list_name,
-                "service": "BREVO",
-            }
-            if brevo_client.remove_contact_from_list(email=email_to_remove, list_id=brevo_list_id):
-                results.append(
-                    {
-                        **base_removal_info,
-                        "status": SyncStatus.SUCCESS.value,
-                        "action": BrevoAction.CONTACT_REMOVED.value,
-                    }
-                )
-            else:
-                results.append(
-                    {
-                        **base_removal_info,
-                        "status": SyncStatus.FAILURE.value,
-                        "action": BrevoAction.FAILED_TO_REMOVE_CONTACT.value,
-                        "error_message": f"API call to remove contact '{email_to_remove}' from Brevo list '{brevo_list_name}' failed.",
-                    }
-                )
+    #    for email_to_remove in emails_to_remove:
+    #        mm_username_for_log = "UnknownUser (removed)"
+    #        base_removal_info = {
+    #            "mm_username": mm_username_for_log,
+    #            "mm_user_email": email_to_remove,
+    #            "mm_channel_display_name": mm_channel_display_name_for_log,
+    #            "target_resource_name": brevo_list_name,
+    #            "service": "BREVO",
+    #        }
+    #        if brevo_client.remove_contact_from_list(email=email_to_remove, list_id=brevo_list_id):
+    #            results.append(
+    #                {
+    #                    **base_removal_info,
+    #                    "status": SyncStatus.SUCCESS.value,
+    #                    "action": BrevoAction.CONTACT_REMOVED.value,
+    #                }
+    #            )
+    #        else:
+    #            results.append(
+    #                {
+    #                    **base_removal_info,
+    #                    "status": SyncStatus.FAILURE.value,
+    #                    "action": BrevoAction.FAILED_TO_REMOVE_CONTACT.value,
+    #                    "error_message": f"API call to remove contact '{email_to_remove}' from Brevo list '{brevo_list_name}' failed.",
+    #                }
+    #            )
 
     logging.info(f"Finished Brevo list sync for '{brevo_list_name}'. Total results: {len(results)}")
     return results
@@ -200,11 +198,10 @@ def _sync_brevo_for_entity(
     admin_mm_users,
     mm_users_for_services,
     log_channel_name,
-    perform_deletions,
     entity_key,
 ):
     brevo_list_name = config.get("list_name_pattern", "mm_{base_name}").format(base_name=base_name)
-    return _sync_single_brevo_list(brevo_client, brevo_list_name, std_mm_users, log_channel_name, perform_deletions)
+    return _sync_single_brevo_list(brevo_client, brevo_list_name, std_mm_users, log_channel_name)
 
 
 class BrevoService(SyncService):

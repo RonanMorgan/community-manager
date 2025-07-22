@@ -20,6 +20,7 @@ from clients.vaultwarden_client import VaultwardenClient  # Added
 from libraries.group_sync_services import (  # sync_entity_permissions removed as it's not directly used by these tests after refactor
     get_all_authentik_groups_and_user_map,
     orchestrate_group_synchronization,
+    differential_sync,
 )
 
 # Adjust path to import from the project root directory
@@ -216,8 +217,7 @@ class TestSyncLogic(unittest.TestCase):
         success, detailed_results = await orchestrate_group_synchronization(
             clients=clients,
             mm_team_id=mock_team_id,
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, expected_detailed_results)
@@ -292,8 +292,7 @@ class TestSyncLogic(unittest.TestCase):
         success, detailed_results = await orchestrate_group_synchronization(
             clients=clients,
             mm_team_id=mock_team_id,
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, expected_detailed_results)
@@ -342,8 +341,7 @@ class TestSyncLogic(unittest.TestCase):
         success, detailed_results = await orchestrate_group_synchronization(
             clients=clients,
             mm_team_id=mock_team_id,
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, [])
@@ -368,8 +366,7 @@ class TestSyncLogic(unittest.TestCase):
         success_auth, results_auth = await orchestrate_group_synchronization(
             clients=clients,
             mm_team_id="team_id",
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
         self.assertTrue(success_auth)
         self.assertEqual(results_auth, [])
@@ -386,8 +383,7 @@ class TestSyncLogic(unittest.TestCase):
         success_mm, results_mm = await orchestrate_group_synchronization(
             clients=clients_mm,
             mm_team_id="team_id",
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
         self.assertFalse(success_mm)
         self.assertEqual(results_mm, [])
@@ -404,8 +400,7 @@ class TestSyncLogic(unittest.TestCase):
         success_team, results_team = await orchestrate_group_synchronization(
             clients=clients_team,
             mm_team_id=None,
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
         self.assertFalse(success_team)
         self.assertEqual(results_team, [])
@@ -461,8 +456,7 @@ class TestSyncLogic(unittest.TestCase):
         mock_orchestrate_lib.assert_called_once_with(
             clients=clients,
             mm_team_id="script_team_id",
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
             skip_services=None,
         )
 
@@ -592,11 +586,9 @@ class TestVaultwardenSync(unittest.TestCase):
             "vaultwarden": mock_vw_client,
         }
         success, results = asyncio.run(
-            orchestrate_group_synchronization(
+            differential_sync(
                 clients=clients,
                 mm_team_id=mm_team_id,
-                perform_deletions=True,
-                sync_mode="TOOLS_TO_MM",
             )
         )
 

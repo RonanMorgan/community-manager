@@ -9,12 +9,16 @@ from typing import TYPE_CHECKING
 
 import config
 from app.enums import SyncStatus
-from clients.vaultwarden_client import VaultwardenAction
 from libraries.services.authentik import (
     _map_auth_group_to_entity_and_base_name,
     _sync_authentik_for_entity,
-    remove_user_from_authentik_group,
 )
+
+from libraries.services.authentik import AuthentikService
+from libraries.services.brevo import BrevoService
+from libraries.services.nocodb import NocoDBService
+from libraries.services.outline import OutlineService
+from libraries.services.vaultwarden import VaultwardenService
 
 
 def get_all_authentik_groups_and_user_map(authentik_client: "AuthentikClient"):
@@ -35,6 +39,8 @@ def get_all_authentik_groups_and_user_map(authentik_client: "AuthentikClient"):
         logging.warning("Authentik user email-to-PK map is empty or could not be constructed.")
 
     return groups, email_map
+
+
 from libraries.services.brevo import _sync_brevo_for_entity
 from libraries.services.mattermost import (
     _extract_base_name,
@@ -74,7 +80,6 @@ def sync_entity_permissions(
     entity_key: str,
     entity_config: dict,
     all_authentik_groups_by_name: dict,
-    perform_deletions: bool,
     skip_services: list[str] | None = None,
 ) -> list[dict]:
     """
@@ -84,7 +89,7 @@ def sync_entity_permissions(
     skip_services = skip_services or []
     mattermost_client = clients.get("mattermost")
 
-    logging.info(f"Processing sync for entity '{base_name}' (type: {entity_key}, deletions: {perform_deletions})")
+    logging.info(f"Processing sync for entity '{base_name}' (type: {entity_key})")
 
     # Common user and channel data preparation
     std_config = entity_config.get("standard", {})
@@ -165,7 +170,6 @@ def sync_entity_permissions(
                     adm_mm_users_in_channel,
                     mm_users_for_services,
                     std_mm_channel_name_for_log,
-                    perform_deletions,
                     entity_key,
                 )
             )
@@ -177,7 +181,6 @@ def sync_entity_permissions(
 async def orchestrate_group_synchronization(
     clients: dict,
     mm_team_id: str,
-    perform_deletions: bool = True,
     sync_mode: str = "WITH_AUTHENTIK",
     skip_services: list[str] | None = None,
 ) -> tuple[bool, list[dict]]:
@@ -189,8 +192,7 @@ async def orchestrate_group_synchronization(
     vaultwarden_client = clients.get("vaultwarden")
     skip_services = skip_services or []
     logging.info(
-        f"Starting group synchronization task (async)... "
-        f"(Perform Deletions: {perform_deletions}, Sync Mode: {sync_mode}, Skip Services: {skip_services})"
+        f"Starting group synchronization task (async)... " f"(Sync Mode: {sync_mode}, Skip Services: {skip_services})"
     )
     detailed_results = []
 
@@ -219,7 +221,7 @@ async def orchestrate_group_synchronization(
     entities_to_process = {}
 
     if sync_mode == "WITH_AUTHENTIK":
-        logging.info("Sync Mode: FULL_SYNC. Discovering entities from Authentik groups...")
+        logging.info("Sync Mode: WITH_AUTHENTIK. Discovering entities from Authentik groups...")
         all_auth_groups_list = []
         if authentik_client:
             all_auth_groups_list, _ = authentik_client.get_groups_with_users()
@@ -227,11 +229,11 @@ async def orchestrate_group_synchronization(
                 logging.info("No Authentik groups found or an error occurred during fetching for discovery.")
             all_auth_groups_by_name = {g["name"]: g for g in all_auth_groups_list}
         else:
-            logging.warning("Authentik client not available for FULL_SYNC discovery.")
+            logging.warning("Authentik client not available for WITH_AUTHENTIK discovery.")
             all_auth_groups_by_name = {}
 
         if not all_auth_groups_list and authentik_client:
-            logging.info("No Authentik groups found to process for FULL_SYNC. Synchronization might be limited.")
+            logging.info("No Authentik groups found to process for WITH_AUTHENTIK. Synchronization might be limited.")
 
         for auth_group_name_iter in all_auth_groups_by_name.keys():
             found_entity_key_auth, current_base_name_auth = _map_auth_group_to_entity_and_base_name(
@@ -243,7 +245,7 @@ async def orchestrate_group_synchronization(
                     entities_to_process[entity_tuple] = config.PERMISSIONS_MATRIX[found_entity_key_auth]
             else:
                 logging.debug(
-                    f"Authentik group '{auth_group_name_iter}' did not map to a known entity pattern for FULL_SYNC."
+                    f"Authentik group '{auth_group_name_iter}' did not map to a known entity pattern for WITH_AUTHENTIK."
                 )
 
     elif sync_mode == "MM_TO_TOOLS":
@@ -292,8 +294,7 @@ async def orchestrate_group_synchronization(
         base_name,
     ), entity_config_to_use in entities_to_process.items():
         logging.info(
-            f"Orchestrating sync for entity: {entity_key}, base_name: {base_name}, "
-            f"sync_mode: {sync_mode}, perform_deletions: {perform_deletions}"
+            f"Orchestrating sync for entity: {entity_key}, base_name: {base_name}, " f"sync_mode: {sync_mode}"
         )
         entity_sync_results = sync_entity_permissions(
             clients,
@@ -302,26 +303,18 @@ async def orchestrate_group_synchronization(
             entity_key,
             entity_config_to_use,
             all_auth_groups_by_name,
-            perform_deletions,
             skip_services=skip_services,
         )
         detailed_results.extend(entity_sync_results)
 
     log_msg = (
         f"Synchronization task completed. Mode: {sync_mode}, "
-        f"deletions: {perform_deletions}, skip_services: {skip_services}). "
-        f"Processed {len(entities_to_process) if sync_mode != 'TOOLS_TO_MM' else 'N/A (TOOLS_TO_MM)'} unique entities. "
+        f"skip_services: {skip_services}). "
+        f"Processed {len(entities_to_process)} unique entities. "
         f"Total individual operations/results reported: {len(detailed_results)}."
     )
     logging.info(log_msg)
     return True, detailed_results
-
-
-from libraries.services.authentik import AuthentikService
-from libraries.services.brevo import BrevoService
-from libraries.services.nocodb import NocoDBService
-from libraries.services.outline import OutlineService
-from libraries.services.vaultwarden import VaultwardenService
 
 
 async def differential_sync(
@@ -366,5 +359,3 @@ async def differential_sync(
     )
     logging.info(log_msg)
     return True, detailed_results
-
-

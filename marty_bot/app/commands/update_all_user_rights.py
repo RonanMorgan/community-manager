@@ -80,7 +80,6 @@ class UpdateAllUserRightsCommand(BaseCommand):
             ) = await orchestrate_group_synchronization(
                 clients=clients,
                 mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
-                perform_deletions=False,
                 sync_mode="MM_TO_TOOLS",
                 skip_services=None,
             )

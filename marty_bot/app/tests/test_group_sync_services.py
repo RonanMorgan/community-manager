@@ -341,7 +341,6 @@ class TestGroupSyncServices(unittest.TestCase):
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-            perform_deletions=True,
             skip_services=None,
         )
 
@@ -591,7 +590,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-            perform_deletions=True,
             skip_services=None,
         )
 
@@ -710,7 +708,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-            perform_deletions=True,
             skip_services=None,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
@@ -796,7 +793,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-            perform_deletions=True,
             skip_services=None,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
@@ -890,7 +886,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_by_name_fixture,
-            perform_deletions=False,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
         self.assertEqual(
@@ -978,7 +973,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_by_name_fixture,
-            perform_deletions=False,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
         self.assertEqual(
@@ -988,7 +982,7 @@ permissions:
         self.mock_mattermost_client.send_dm.assert_not_called()
 
     @patch("libraries.group_sync_services.config")
-    def test_sync_single_group_authentik_user_removed_if_not_in_mm(self, mock_config_module_in_service):
+    def test_sync_single_group_authentik_user_kept(self, mock_config_module_in_service):
         mock_config_module_in_service.EXCLUDED_USERS = set()
         auth_user_pk_to_remove = "auth_pk_to_remove"
         auth_user_obj_to_remove = {
@@ -1016,10 +1010,7 @@ permissions:
             "users": [auth_user_pk_to_remove, auth_user_pk_to_keep],
             "users_obj": [auth_user_obj_to_remove, auth_user_obj_to_keep],
         }
-        email_to_pk_map = {
-            "removeme@example.com": auth_user_pk_to_remove,
-            "keepme@example.com": auth_user_pk_to_keep,
-        }
+
         mm_channel_for_removal_test = {
             "id": "mm_chan_removal",
             "display_name": current_auth_group_name,
@@ -1052,24 +1043,12 @@ permissions:
             base_name="",
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            perform_deletions=True,
             skip_services=None,
         )
 
-        self.mock_authentik_client.remove_user_from_group.assert_any_call(
-            current_auth_group_pk, auth_user_pk_to_remove
-        )
+        self.mock_authentik_client.remove_user_from_group.assert_not_called()
         self.mock_authentik_client.add_user_to_group.assert_not_called()
-        removal_action_found = any(
-            r["service"] == "AUTHENTIK"
-            and r["action"] == "USER_REMOVED_FROM_AUTHENTIK_GROUP"
-            and r["mm_username"] == "removeme_user"
-            for r in results
-        )
-        self.assertTrue(
-            removal_action_found,
-            "USER_REMOVED_FROM_AUTHENTIK_GROUP action not found for 'removeme_user'",
-        )
+
         kept_action_found = any(
             r["service"] == "AUTHENTIK"
             and r["action"] == "USER_ALREADY_IN_GROUP"
@@ -1135,7 +1114,6 @@ permissions:
             base_name="",
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            perform_deletions=True,
             skip_services=None,
         )
         self.mock_authentik_client.remove_user_from_group.assert_not_called()
@@ -1230,7 +1208,6 @@ permissions:
             base_name=base_name_for_test,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            perform_deletions=True,
             skip_services=None,
         )
 
@@ -1336,7 +1313,6 @@ permissions:
             base_name=base_name_for_test,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            perform_deletions=True,
             skip_services=None,
         )
         self.mock_outline_client.add_user_to_collection.assert_not_called()
@@ -1512,7 +1488,6 @@ permissions:
                     base_name=base_name_from_case,
                     entity_config=mock_entity_config,
                     all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-                    perform_deletions=True,
                     skip_services=None,
                 )
 
@@ -1633,7 +1608,7 @@ permissions:
         mock_get_all_auth_groups_and_map,
         mock_sync_entity_permissions_call,
     ):
-        # This test will now test sync_mode="FULL_SYNC"
+        # This test will now test sync_mode="WITH_AUTHENTIK"
         self.mock_authentik_client.reset_mock()
         self.mock_mattermost_client.reset_mock()
         self.mock_outline_client.reset_mock()
@@ -1690,7 +1665,7 @@ permissions:
                 },  # Also not directly used if discovery is Auth only
             },
         }
-        mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_FULL_SYNC"}]
+        mock_sync_entity_permissions_call.return_value = [{"status": "SUCCESS", "action": "MOCKED_WITH_AUTHENTIK"}]
 
         clients = {
             "authentik": self.mock_authentik_client,
@@ -1768,7 +1743,6 @@ permissions:
             brevo_list_name,
             mm_users,
             mm_channel_name_log,
-            perform_deletions=False,
         )
 
         self.mock_brevo_client.get_lists.assert_called_once_with(name=brevo_list_name)
@@ -1810,7 +1784,6 @@ permissions:
             brevo_list_name,
             mm_users_in_channel,
             "MMChannelForBrevoRemoval",
-            perform_deletions=True,
         )
 
         self.mock_brevo_client.get_contacts_from_list.assert_called_once_with(existing_list_obj["id"])
@@ -1853,7 +1826,6 @@ permissions:
             brevo_list_name,
             mm_users_in_channel,
             "MMChannelForBrevoExcluded",
-            perform_deletions=True,
         )
 
         # "normal_user" should be added because they are in the MM channel and not excluded.
@@ -1879,7 +1851,6 @@ permissions:
         brevo_list_name,
         mm_users,
         mm_channel_name_log,
-        perform_deletions,
     ):
         """Helper to call the static _sync_single_brevo_list method for testing."""
         # This method is part of the Test class, so it can access self.
@@ -1896,7 +1867,6 @@ permissions:
             brevo_list_name=brevo_list_name,
             mm_users_in_channel=mm_users,
             mm_channel_display_name_for_log=mm_channel_name_log,
-            perform_deletions=perform_deletions,
         )
 
     # --- Tests for NocoDB base synchronization ---
@@ -1949,7 +1919,6 @@ permissions:
             default_perm,
             admin_perm,
             mm_channel_context,
-            perform_deletions=False,
         )
         self.mock_nocodb_client.get_base_by_title.assert_called_once_with(nocodb_base_title)
         self.mock_nocodb_client.list_base_users.assert_called_once_with("nc_base_id_123")
@@ -2162,7 +2131,6 @@ permissions:
             "viewer",
             "owner",
             "NocoDBUpdateRemoveChannel",
-            perform_deletions=True,
         )
 
         # Check update for user1
@@ -2235,7 +2203,6 @@ permissions:
             "viewer",
             "owner",
             "NocoDBExclChannel",
-            perform_deletions=True,
         )
 
         # Normal user should be invited
@@ -2335,7 +2302,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name={},
-            perform_deletions=True,
             skip_services=["nocodb"],
         )
         # Assert that NoCoDB client methods were NOT called
@@ -2501,7 +2467,6 @@ permissions:
         self.mock_mattermost_client.send_dm.assert_not_called()  # No DM if invite failed
 
 
-
 if __name__ == "__main__":
     unittest.main()
 
@@ -2532,7 +2497,9 @@ class TestAuthentikService(unittest.TestCase):
             mock_remove_user.return_value = {"status": "SUCCESS"}
             from libraries.services.authentik import AuthentikService
 
-            service = AuthentikService(mock_authentik_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id)
+            service = AuthentikService(
+                mock_authentik_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id
+            )
             results = await service.differential_sync()
 
             mock_remove_user.assert_called_once_with(

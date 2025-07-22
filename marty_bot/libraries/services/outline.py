@@ -148,7 +148,6 @@ def _sync_single_outline_collection(
     default_permission: str,
     admin_permission: str,
     mm_channel_context_name: str,  # For logging/reporting context
-    perform_deletions: bool,
 ) -> list[dict]:
     results = []
     # Attempt to get or create the Outline collection.
@@ -216,70 +215,70 @@ def _sync_single_outline_collection(
     target_outline_ids_for_collection.update(mm_targeted_outline_ids)
 
     # Removal logic: Only if perform_deletions is True
-    if perform_deletions:
-        for outline_member_id in list(current_outline_member_ids):  # Iterate over a copy
-            mm_user_details_for_this_outline_member = outline_id_to_mm_user_map.get(outline_member_id)
+    # if perform_deletions:
+    #    for outline_member_id in list(current_outline_member_ids):  # Iterate over a copy
+    #        mm_user_details_for_this_outline_member = outline_id_to_mm_user_map.get(outline_member_id)
 
-            is_excluded_member = False
-            if (
-                mm_user_details_for_this_outline_member  # Check if we have MM details for this Outline ID
-                and mm_user_details_for_this_outline_member.get("username") in config.EXCLUDED_USERS
-            ):
-                is_excluded_member = True
-            # If mm_user_details_for_this_outline_member is None, it means this Outline user
-            # was not found in any of the source Mattermost channels for this entity.
-            # If they are not excluded, they are a candidate for removal.
+    #        is_excluded_member = False
+    #        if (
+    #            mm_user_details_for_this_outline_member  # Check if we have MM details for this Outline ID
+    #            and mm_user_details_for_this_outline_member.get("username") in config.EXCLUDED_USERS
+    #        ):
+    #            is_excluded_member = True
+    #        # If mm_user_details_for_this_outline_member is None, it means this Outline user
+    #        # was not found in any of the source Mattermost channels for this entity.
+    #        # If they are not excluded, they are a candidate for removal.
 
-            if is_excluded_member:
-                logging.info(
-                    f"Outline user '{mm_user_details_for_this_outline_member.get('username')}' (ID: {outline_member_id}) "
-                    f"is excluded and already in collection '{collection_name}'. Will not be removed by sync."
-                )
-                # Ensure they are not accidentally removed if they weren't processed in the add loop
-                # (e.g. not in any MM channel but should remain in Outline due to exclusion)
-                target_outline_ids_for_collection.add(outline_member_id)
-                continue  # Skip to next member
+    #        if is_excluded_member:
+    #            logging.info(
+    #                f"Outline user '{mm_user_details_for_this_outline_member.get('username')}' (ID: {outline_member_id}) "
+    #                f"is excluded and already in collection '{collection_name}'. Will not be removed by sync."
+    #            )
+    # Ensure they are not accidentally removed if they weren't processed in the add loop
+    # (e.g. not in any MM channel but should remain in Outline due to exclusion)
+    #            target_outline_ids_for_collection.add(outline_member_id)
+    #            continue  # Skip to next member
 
-            if outline_member_id not in target_outline_ids_for_collection:
-                # This Outline user was a member but is no longer in the target set from Mattermost users
-                # AND is not an excluded user who should remain.
-                username_for_log = f"OutlineUser_{outline_member_id}"  # Default if no MM mapping
-                user_email_for_log = "N/A"  # Default
-                if mm_user_details_for_this_outline_member:  # We have MM details for this user
-                    username_for_log = mm_user_details_for_this_outline_member.get("username", username_for_log)
-                    user_email_for_log = mm_user_details_for_this_outline_member.get("email", "N/A")
-                else:  # No MM details, try to get email from Outline directly for logging
-                    outline_user_obj = outline_client.get_user_by_id(
-                        outline_member_id
-                    )  # Assumes get_user_by_id exists
-                    if outline_user_obj:
-                        user_email_for_log = outline_user_obj.get("email", "N/A")
-                        username_for_log = outline_user_obj.get(
-                            "name", username_for_log
-                        )  # Outline 'name' might be display name
+    #        if outline_member_id not in target_outline_ids_for_collection:
+    # This Outline user was a member but is no longer in the target set from Mattermost users
+    # AND is not an excluded user who should remain.
+    #            username_for_log = f"OutlineUser_{outline_member_id}"  # Default if no MM mapping
+    #            user_email_for_log = "N/A"  # Default
+    #            if mm_user_details_for_this_outline_member:  # We have MM details for this user
+    #                username_for_log = mm_user_details_for_this_outline_member.get("username", username_for_log)
+    #                user_email_for_log = mm_user_details_for_this_outline_member.get("email", "N/A")
+    #            else:  # No MM details, try to get email from Outline directly for logging
+    #                outline_user_obj = outline_client.get_user_by_id(
+    #                    outline_member_id
+    #                )  # Assumes get_user_by_id exists
+    #                if outline_user_obj:
+    #                    user_email_for_log = outline_user_obj.get("email", "N/A")
+    #                    username_for_log = outline_user_obj.get(
+    #                        "name", username_for_log
+    #                    )  # Outline 'name' might be display name
 
-                removal_base_info = {
-                    "mm_username": username_for_log,  # Best effort username
-                    "mm_user_email": user_email_for_log,  # Best effort email
-                    "mm_channel_display_name": mm_channel_context_name,  # Context of the sync operation
-                    "target_resource_name": collection_name,
-                }
-                removal_result = {
-                    **removal_base_info,
-                    "service": "OUTLINE",
-                    "status": SyncStatus.FAILURE.value,
-                    "action": "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION",
-                }
-                if outline_client.remove_user_from_collection(outline_collection_id, outline_member_id):
-                    removal_result.update(
-                        {
-                            "status": SyncStatus.SUCCESS.value,
-                            "action": OutlineAction.USER_REMOVED_FROM_COLLECTION.value,
-                        }
-                    )
-                else:
-                    removal_result["error_message"] = "API call to remove user from Outline collection failed."
-                results.append(removal_result)
+    #            removal_base_info = {
+    #                "mm_username": username_for_log,  # Best effort username
+    #                "mm_user_email": user_email_for_log,  # Best effort email
+    #                "mm_channel_display_name": mm_channel_context_name,  # Context of the sync operation
+    #                "target_resource_name": collection_name,
+    #            }
+    #            removal_result = {
+    #                **removal_base_info,
+    #                "service": "OUTLINE",
+    #                "status": SyncStatus.FAILURE.value,
+    #                "action": "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION",
+    #            }
+    #            if outline_client.remove_user_from_collection(outline_collection_id, outline_member_id):
+    #                removal_result.update(
+    #                    {
+    #                        "status": SyncStatus.SUCCESS.value,
+    #                        "action": OutlineAction.USER_REMOVED_FROM_COLLECTION.value,
+    #                    }
+    #                )
+    #            else:
+    #                removal_result["error_message"] = "API call to remove user from Outline collection failed."
+    #            results.append(removal_result)
     return results
 
 
@@ -336,7 +335,6 @@ def _sync_outline_for_entity(
     admin_mm_users,
     mm_users_for_services,
     log_channel_name,
-    perform_deletions,
     entity_key,
 ):
     outline_coll_name = config.get("collection_name_pattern", "{base_name}").format(base_name=base_name)
@@ -350,7 +348,6 @@ def _sync_outline_for_entity(
         default_permission,
         admin_permission,
         log_channel_name,
-        perform_deletions,
     )
 
 

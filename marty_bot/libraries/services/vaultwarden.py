@@ -227,7 +227,6 @@ def _sync_vaultwarden_for_entity(
     admin_mm_users,
     mm_users_for_services,
     log_channel_name,
-    perform_deletions,
     entity_key,
 ):
     vw_collection_name = config.get("collection_name_pattern", "Shared - {base_name}").format(base_name=base_name)
