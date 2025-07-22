@@ -957,14 +957,26 @@ class TestAuthentikService(unittest.TestCase):
             {},
         )
 
-        mock_mattermost_client.get_users_in_channel.return_value = [{"email": "keep@me.com", "username": "keep_user"}]
+        # This data would be pre-fetched and passed in mm_channel_members
+        mm_channel_members_data = {"channel_id_for_projet_test1": [{"email": "keep@me.com", "username": "keep_user"}]}
+
         from libraries.services.authentik import AuthentikService
 
         service = AuthentikService(mock_authentik_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id)
+
+        # Mock the helper function that is now part of the service instance
+        service.get_mm_users_for_entity = MagicMock(
+            return_value=(
+                {"keep@me.com": {"username": "keep_user"}},  # mm_users_for_services
+                [{"email": "keep@me.com", "username": "keep_user"}],  # std_mm_users
+                [],  # adm_mm_users
+            )
+        )
+
         with patch.object(
             service, "remove_user_from_authentik_group", return_value={"status": "SUCCESS"}
         ) as mock_remove_user:
-            results = await service.differential_sync()
+            results = await service.differential_sync(mm_channel_members_data)
             mock_remove_user.assert_called_once_with(
                 mock_authentik_client, "pk1", "projet_Test1", 1, "remove@me.com", "Test1"
             )
