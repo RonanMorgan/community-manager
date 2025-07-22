@@ -2554,7 +2554,6 @@ permissions:
             mattermost_client=mock_mattermost_client,
             mm_team_id="test_team",
             email_to_authentik_user_pk_map={},
-            perform_deletions=True,
             permissions_matrix=mock_permissions_matrix,
             skip_services=[],
         )
@@ -2603,7 +2602,6 @@ permissions:
             mattermost_client=mock_mattermost_client,
             mm_team_id="test_team",
             email_to_authentik_user_pk_map={},
-            perform_deletions=True,
             permissions_matrix=mock_permissions_matrix,
             skip_services=[],
         )
@@ -2738,7 +2736,6 @@ permissions:
                 mattermost_client=mock_mattermost_client,
                 mm_team_id="test_team",
                 email_to_authentik_user_pk_map={},
-                perform_deletions=True,
                 permissions_matrix=mock_permissions_matrix,
                 skip_services=[],
             )
