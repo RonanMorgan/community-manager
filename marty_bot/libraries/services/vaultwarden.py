@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional
 import config
 from app.enums import SyncStatus
 from clients.vaultwarden_client import VaultwardenAction
-from .base import SyncService
+from .base import Service as SyncService
 from .mattermost import _extract_base_name, _get_mm_users_for_entity
 
 if TYPE_CHECKING:
@@ -226,20 +226,24 @@ class VaultwardenService(SyncService):
                         return entity_key, base_name
         return None, None
 
-    def _sync_vaultwarden_for_entity(
+    async def group_sync(
         self,
-        vaultwarden_client,
-        mattermost_client,
         base_name,
-        config,
+        entity_config,
         all_authentik_groups_by_name,
         email_to_authentik_user_pk_map,
-        std_mm_users,
-        admin_mm_users,
+        std_mm_users_in_channel,
+        adm_mm_users_in_channel,
         mm_users_for_services,
-        log_channel_name,
+        std_mm_channel_name_for_log,
         entity_key,
     ):
+        vaultwarden_client = self.client
+        mattermost_client = self.mattermost_client
+        config = entity_config.get("vaultwarden")
+        if not config:
+            return []
+        log_channel_name = std_mm_channel_name_for_log
         vw_collection_name = config.get("collection_name_pattern", "Shared - {base_name}").format(base_name=base_name)
         return self._sync_single_vaultwarden_collection_members(
             vaultwarden_client,

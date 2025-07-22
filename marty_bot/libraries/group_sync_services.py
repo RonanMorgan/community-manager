@@ -25,121 +25,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # Helper function to determine Outline permission (REMOVED as logic is now in _sync_single_outline_collection)
 # def _determine_outline_permission(auth_group_name: str, mm_channel_type: str) -> str:
 #     ...
-def sync_entity_permissions(
-    clients: dict,
-    mm_team_id: str,
-    base_name: str,
-    entity_key: str,
-    entity_config: dict,
-    all_authentik_groups_by_name: dict,
-    skip_services: list[str] | None = None,
-) -> list[dict]:
-    """
-    Synchronizes permissions for a single entity across configured services.
-    """
-    results = []
-    skip_services = skip_services or []
-    mattermost_client = clients.get("mattermost")
-
-    logging.info(f"Processing sync for entity '{base_name}' (type: {entity_key})")
-
-    # Common user and channel data preparation
-    std_config = entity_config.get("standard", {})
-    admin_config = entity_config.get("admin")
-    std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(base_name=base_name)
-    std_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(std_mm_channel_name))
-    std_mm_users_in_channel = mattermost_client.get_users_in_channel(std_mm_channel["id"]) if std_mm_channel else []
-    std_mm_channel_name_for_log = std_mm_channel.get("display_name") if std_mm_channel else std_mm_channel_name
-
-    adm_mm_users_in_channel = []
-    if admin_config:
-        adm_mm_channel_name = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin").format(
-            base_name=base_name
-        )
-        adm_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(adm_mm_channel_name))
-        if adm_mm_channel:
-            adm_mm_users_in_channel = mattermost_client.get_users_in_channel(adm_mm_channel["id"])
-
-    mm_users_for_services = {}
-    for mm_user in std_mm_users_in_channel:
-        email = mm_user.get("email", "").lower()
-        if email:
-            mm_users_for_services[email] = {
-                "username": mm_user.get("username"),
-                "mm_user_id": mm_user.get("id"),
-                "is_admin_channel_member": False,
-            }
-    for mm_user in adm_mm_users_in_channel:
-        email = mm_user.get("email", "").lower()
-        if email:
-            mm_users_for_services[email] = {
-                "username": mm_user.get("username"),
-                "mm_user_id": mm_user.get("id"),
-                "is_admin_channel_member": True,
-            }
-
-    email_to_authentik_user_pk_map = {}
-    # Service-specific logic
-    authentik_service = AuthentikService(
-        clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id
-    )
-    outline_service = OutlineService(clients.get("outline"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
-    brevo_service = BrevoService(clients.get("brevo"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
-    nocodb_service = NocoDBService(clients.get("nocodb"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
-    vaultwarden_service = VaultwardenService(
-        clients.get("vaultwarden"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id
-    )
-
-    service_registry = {
-        "authentik": {
-            "instance": authentik_service,
-            "sync_function": authentik_service._sync_authentik_for_entity,
-            "config": {"standard": std_config, "admin": admin_config},
-        },
-        "outline": {
-            "instance": outline_service,
-            "sync_function": outline_service._sync_outline_for_entity,
-            "config": entity_config.get("outline"),
-        },
-        "brevo": {
-            "instance": brevo_service,
-            "sync_function": brevo_service._sync_brevo_for_entity,
-            "config": entity_config.get("brevo"),
-        },
-        "nocodb": {
-            "instance": nocodb_service,
-            "sync_function": nocodb_service._sync_nocodb_for_entity,
-            "config": entity_config.get("nocodb"),
-        },
-        "vaultwarden": {
-            "instance": vaultwarden_service,
-            "sync_function": vaultwarden_service._sync_vaultwarden_for_entity,
-            "config": entity_config.get("vaultwarden"),
-        },
-    }
-
-    for service_name, service_data in service_registry.items():
-        if service_name not in skip_services and service_data["instance"].client and service_data["config"]:
-            results.extend(
-                service_data["sync_function"](
-                    service_data["instance"].client,
-                    mattermost_client,
-                    base_name,
-                    service_data["config"],
-                    all_authentik_groups_by_name,
-                    email_to_authentik_user_pk_map,
-                    std_mm_users_in_channel,
-                    adm_mm_users_in_channel,
-                    mm_users_for_services,
-                    std_mm_channel_name_for_log,
-                    entity_key,
-                )
-            )
-
-    logging.info(f"Finished sync for entity '{base_name}'. Total results: {len(results)}")
-    return results
-
-
 async def orchestrate_group_synchronization(
     clients: dict,
     mm_team_id: str,
@@ -148,10 +33,6 @@ async def orchestrate_group_synchronization(
 ) -> tuple[bool, list[dict]]:
     authentik_client = clients.get("authentik")
     mattermost_client = clients.get("mattermost")
-    outline_client = clients.get("outline")
-    brevo_client = clients.get("brevo")
-    nocodb_client = clients.get("nocodb")
-    vaultwarden_client = clients.get("vaultwarden")
     skip_services = skip_services or []
     logging.info(
         f"Starting group synchronization task (async)... " f"(Sync Mode: {sync_mode}, Skip Services: {skip_services})"
@@ -246,31 +127,74 @@ async def orchestrate_group_synchronization(
         )
         return True, detailed_results
 
-    clients = {
-        "authentik": authentik_client,
-        "mattermost": mattermost_client,
-        "outline": outline_client,
-        "brevo": brevo_client,
-        "nocodb": nocodb_client,
-        "vaultwarden": vaultwarden_client,
-    }
-    for (
-        entity_key,
-        base_name,
-    ), entity_config_to_use in entities_to_process.items():
+    services = [
+        AuthentikService(clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
+        OutlineService(clients.get("outline"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
+        BrevoService(clients.get("brevo"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
+        NocoDBService(clients.get("nocodb"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
+        VaultwardenService(clients.get("vaultwarden"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
+    ]
+
+    for (entity_key, base_name), entity_config in entities_to_process.items():
         logging.info(
             f"Orchestrating sync for entity: {entity_key}, base_name: {base_name}, " f"sync_mode: {sync_mode}"
         )
-        entity_sync_results = sync_entity_permissions(
-            clients,
-            mm_team_id,
-            base_name,
-            entity_key,
-            entity_config_to_use,
-            all_auth_groups_by_name,
-            skip_services=skip_services,
+
+        # Common user and channel data preparation
+        std_config = entity_config.get("standard", {})
+        admin_config = entity_config.get("admin")
+        std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(
+            base_name=base_name
         )
-        detailed_results.extend(entity_sync_results)
+        std_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(std_mm_channel_name))
+        std_mm_users_in_channel = (
+            mattermost_client.get_users_in_channel(std_mm_channel["id"]) if std_mm_channel else []
+        )
+        std_mm_channel_name_for_log = std_mm_channel.get("display_name") if std_mm_channel else std_mm_channel_name
+
+        adm_mm_users_in_channel = []
+        if admin_config:
+            adm_mm_channel_name = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin").format(
+                base_name=base_name
+            )
+            adm_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(adm_mm_channel_name))
+            if adm_mm_channel:
+                adm_mm_users_in_channel = mattermost_client.get_users_in_channel(adm_mm_channel["id"])
+
+        mm_users_for_services = {}
+        for mm_user in std_mm_users_in_channel:
+            email = mm_user.get("email", "").lower()
+            if email:
+                mm_users_for_services[email] = {
+                    "username": mm_user.get("username"),
+                    "mm_user_id": mm_user.get("id"),
+                    "is_admin_channel_member": False,
+                }
+        for mm_user in adm_mm_users_in_channel:
+            email = mm_user.get("email", "").lower()
+            if email:
+                mm_users_for_services[email] = {
+                    "username": mm_user.get("username"),
+                    "mm_user_id": mm_user.get("id"),
+                    "is_admin_channel_member": True,
+                }
+
+        email_to_authentik_user_pk_map = {}
+
+        for service in services:
+            if service.client and service.SERVICE_NAME.lower() not in skip_services:
+                service_results = await service.group_sync(
+                    base_name,
+                    entity_config,
+                    all_auth_groups_by_name,
+                    email_to_authentik_user_pk_map,
+                    std_mm_users_in_channel,
+                    adm_mm_users_in_channel,
+                    mm_users_for_services,
+                    std_mm_channel_name_for_log,
+                    entity_key,
+                )
+                detailed_results.extend(service_results)
 
     log_msg = (
         f"Synchronization task completed. Mode: {sync_mode}, "

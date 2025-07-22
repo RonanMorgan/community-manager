@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional
 import config
 from app.enums import SyncStatus
 from clients.authentik_client import AuthentikAction
-from .base import SyncService
+from .base import Service as SyncService
 from .mattermost import _extract_base_name, _get_mm_users_for_entity
 
 if TYPE_CHECKING:
@@ -240,20 +240,23 @@ class AuthentikService(SyncService):
                     return entity_key, base_name
         return None, None
 
-    def _sync_authentik_for_entity(
+    async def group_sync(
         self,
-        authentik_client,
-        mattermost_client,
         base_name,
-        config,
+        entity_config,
         all_authentik_groups_by_name,
         email_to_authentik_user_pk_map,
-        std_mm_users,
-        admin_mm_users,
+        std_mm_users_in_channel,
+        adm_mm_users_in_channel,
         mm_users_for_services,
-        log_channel_name,
+        std_mm_channel_name_for_log,
         entity_key,
     ):
+        authentik_client = self.client
+        config = entity_config
+        std_mm_users = std_mm_users_in_channel
+        admin_mm_users = adm_mm_users_in_channel
+        log_channel_name = std_mm_channel_name_for_log
         results = []
         std_auth_group_name = (
             config["standard"].get("authentik_group_name_pattern", "{base_name}").format(base_name=base_name)
