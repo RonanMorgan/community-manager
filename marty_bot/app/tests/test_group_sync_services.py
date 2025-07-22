@@ -932,6 +932,39 @@ permissions:
         self.mock_mattermost_client.send_dm.assert_not_called()  # No DM if invite failed
 
 
+    @async_test
+    async def test_all_services_have_correct_differential_sync_signature(self):
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
+        from libraries.group_sync_services import differential_sync
+        from unittest.mock import AsyncMock
+
+        with patch("libraries.group_sync_services.check_clients"), patch(
+            "libraries.group_sync_services.AuthentikService"
+        ) as MockAuth, patch("libraries.group_sync_services.OutlineService") as MockOutline, patch(
+            "libraries.group_sync_services.BrevoService"
+        ) as MockBrevo, patch("libraries.group_sync_services.NocoDBService") as MockNocoDB, patch(
+            "libraries.group_sync_services.VaultwardenService"
+        ) as MockVW:
+            services_to_mock = [MockAuth, MockOutline, MockBrevo, MockNocoDB, MockVW]
+            for service_mock in services_to_mock:
+                instance = service_mock.return_value
+                instance.differential_sync = AsyncMock(return_value=[])
+                # Make sure the client attribute is set on the instance
+                instance.client = MagicMock()
+            clients["mattermost"].get_channels_for_team.return_value = []
+            try:
+                await differential_sync(clients, "test_team_id")
+            except TypeError as e:
+                self.fail(f"differential_sync call failed with TypeError: {e}")
+
+
 if __name__ == "__main__":
     unittest.main()
 
