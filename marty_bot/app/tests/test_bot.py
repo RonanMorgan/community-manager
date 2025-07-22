@@ -489,7 +489,7 @@ class TestMartyBot(unittest.TestCase):
         self.assertEqual(self.bot._parse_command_from_mention(""), (None, None))
         self.assertEqual(self.bot._parse_command_from_mention("   "), (None, None))
 
-    @patch("app.bot.orchestrate_group_synchronization")
+    @patch("app.commands.update_all_user_rights.orchestrate_group_synchronization")
     def test_handle_update_all_user_rights_command_success(self, mock_orchestrate_sync):
         async def actual_test_logic():
             command_name = "update_all_user_rights"
@@ -535,10 +535,9 @@ class TestMartyBot(unittest.TestCase):
                     break
             self.assertTrue(summary_call_found, "Summary message for upsert not found.")
 
-        self.bot.orchestrate_group_synchronization = mock_orchestrate_sync
         asyncio.run(actual_test_logic())
 
-    @patch("app.bot.orchestrate_group_synchronization")
+    @patch("app.commands.update_user_rights_and_remove.orchestrate_group_synchronization")
     def test_handle_update_user_rights_and_remove_command_success_admin_user(self, mock_orchestrate_sync):
         async def actual_test_logic():
             command_name = "update_user_rights_and_remove"
@@ -584,12 +583,12 @@ class TestMartyBot(unittest.TestCase):
                     break
             self.assertTrue(summary_call_found, "Summary message for full sync/remove not found.")
 
-        self.bot.orchestrate_group_synchronization = mock_orchestrate_sync
         asyncio.run(actual_test_logic())
 
     @async_test
-    @patch("app.bot.orchestrate_group_synchronization")
-    async def test_sync_commands_permission_denied_non_admin(self, mock_orchestrate_sync):
+    @patch("app.commands.update_all_user_rights.orchestrate_group_synchronization")
+    @patch("app.commands.update_user_rights_and_remove.orchestrate_group_synchronization")
+    async def test_sync_commands_permission_denied_non_admin(self, mock_sync_upsert_and_remove, mock_sync_all_rights):
         commands_to_test = [
             "update_all_user_rights",
             "update_user_rights_and_remove",
@@ -601,36 +600,51 @@ class TestMartyBot(unittest.TestCase):
             with self.subTest(command=command_key):
                 self.bot.envoyer_message.reset_mock()
                 self.bot.mattermost_api_client.get_user_roles.reset_mock()
-                mock_orchestrate_sync.reset_mock()
+                mock_sync_upsert_and_remove.reset_mock()
+                mock_sync_all_rights.reset_mock()
 
                 await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_key}", user_id=non_admin_user_id)
 
                 self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(non_admin_user_id)
-                mock_orchestrate_sync.assert_not_called()
+                mock_sync_upsert_and_remove.assert_not_called()
+                mock_sync_all_rights.assert_not_called()
                 self.bot.envoyer_message.assert_called_once()
                 sent_message = self.bot.envoyer_message.call_args[0][1]
                 self.assertIn(":no_entry_sign: Accès refusé.", sent_message)
 
     @async_test
-    async def test_sync_commands_orchestration_failure_admin_user(self):
+    @patch("app.commands.update_all_user_rights.orchestrate_group_synchronization", return_value=(False, []))
+    @patch("app.commands.update_user_rights_and_remove.orchestrate_group_synchronization", return_value=(False, []))
+    async def test_sync_commands_orchestration_failure_admin_user(
+        self,
+        mock_sync_upsert_and_remove,
+        mock_sync_all_rights,
+    ):
         commands_to_test = ["update_all_user_rights", "update_user_rights_and_remove"]
         admin_user_id = "admin_user_for_fail_test"
         self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin"]
 
-        with patch.object(self.bot, "orchestrate_group_synchronization", return_value=(False, [])) as mock_orchestrate:
-            for command_key in commands_to_test:
-                with self.subTest(command=command_key):
-                    self.bot.envoyer_message.reset_mock()
-                    self.bot.mattermost_api_client.get_user_roles.reset_mock()
-                    mock_orchestrate.reset_mock()
+        for command_key in commands_to_test:
+            with self.subTest(command=command_key):
+                self.bot.envoyer_message.reset_mock()
+                self.bot.mattermost_api_client.get_user_roles.reset_mock()
+                mock_sync_upsert_and_remove.reset_mock()
+                mock_sync_all_rights.reset_mock()
 
-                    await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_key}", user_id=admin_user_id)
+                await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_key}", user_id=admin_user_id)
 
-                    self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
-                    mock_orchestrate.assert_called_once()
-                    self.assertEqual(self.bot.envoyer_message.call_count, 2)
-                    final_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
-                    self.assertIn("échoué de manière critique durant l'orchestration", final_message_text)
+                self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(admin_user_id)
+
+                if command_key == "update_all_user_rights":
+                    mock_sync_all_rights.assert_called_once()
+                    mock_sync_upsert_and_remove.assert_not_called()
+                else:
+                    mock_sync_upsert_and_remove.assert_called_once()
+                    mock_sync_all_rights.assert_not_called()
+
+                self.assertEqual(self.bot.envoyer_message.call_count, 2)
+                final_message_text = self.bot.envoyer_message.call_args_list[1][0][1]
+                self.assertIn("échoué de manière critique durant l'orchestration", final_message_text)
 
     @async_test
     async def test_sync_commands_no_clients_configured_admin_user(self):
@@ -687,15 +701,13 @@ class TestMartyBot(unittest.TestCase):
         )
 
     @async_test
-    @patch("app.bot.orchestrate_group_synchronization")
+    @patch("app.commands.update_user_rights_and_remove.orchestrate_group_synchronization")
     async def test_handle_update_user_rights_and_remove_command_with_skip_nocodb(self, mock_orchestrate_sync):
         command_name = "update_user_rights_and_remove"
         arg_string = "nocodb=false"
         admin_user_id = "admin_for_skip_nocodb"
         self.bot.mattermost_api_client.get_user_roles.return_value = ["system_admin", "system_user"]
         mock_orchestrate_sync.return_value = (True, [])
-
-        self.bot.orchestrate_group_synchronization = mock_orchestrate_sync
 
         await self._send_test_message(
             f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}", user_id=admin_user_id

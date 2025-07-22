@@ -33,9 +33,6 @@ from app.result_manager import ResultManager
 # Import client classes
 from clients.client_factory import create_clients
 
-# Import orchestration function for sync command
-from libraries.group_sync_services import orchestrate_group_synchronization
-
 
 class MartyBot:
     def __init__(self, config_obj):
@@ -79,27 +76,6 @@ class MartyBot:
 
         self.command_factory = CommandFactory(self)
         self.result_manager = ResultManager(self)
-        self.orchestrate_group_synchronization = orchestrate_group_synchronization
-
-    # _handle_create_projet_command, _handle_create_antenne_command, _handle_create_pole_command
-    # are now simplified by the lambdas in self.commands, directly calling _execute_batch_create_command.
-    # They can be removed if no other specific logic is needed for them.
-    # For now, I will keep them commented out in case they are needed for more specific logic later.
-    # async def _handle_create_projet_command(self, channel_id, arg_string, user_id_who_posted=None):
-    #     """Crée les ressources pour un ou plusieurs projets. Usage: create_projet <NomProjet1> [NomProjet2 ...]"""
-    #     await self._execute_batch_create_command(
-    #         channel_id, arg_string, "projet", "PROJET", user_id_who_posted
-    #     )
-    # async def _handle_create_antenne_command(self, channel_id, arg_string, user_id_who_posted=None):
-    #     """Crée les ressources pour une ou plusieurs antennes. Usage: create_antenne <NomAntenne1> [NomAntenne2 ...]"""
-    #     await self._execute_batch_create_command(
-    #         channel_id, arg_string, "antenne", "ANTENNE", user_id_who_posted
-    #     )
-    # async def _handle_create_pole_command(self, channel_id, arg_string, user_id_who_posted=None):
-    #     """Crée les ressources pour un ou plusieurs pôles. Usage: create_pole <NomPole1> [NomPole2 ...]"""
-    #     await self._execute_batch_create_command(
-    #         channel_id, arg_string, "pôle", "POLES", user_id_who_posted
-    #     )
 
     def _request_shutdown(self):
         logging.info("Shutdown requested. Setting shutdown event.")

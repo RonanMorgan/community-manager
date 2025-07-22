@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from .base_command import BaseCommand
+from libraries.group_sync_services import orchestrate_group_synchronization
 
 
 class UpdateUserRightsAndRemoveCommand(BaseCommand):
@@ -72,11 +73,6 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
             await asyncio.to_thread(self.bot.envoyer_message, channel_id, error_msg, thread_id=initial_post_id)
             return
 
-        if not self.bot.outline_client:
-            logging.info(
-                "Outline client not configured on this bot instance. Outline synchronization will be skipped for remove_user_rights."
-            )
-
         try:
             logging.info(  # Corrected log message for upsert
                 "Calling 'orchestrate_group_synchronization' with sync_mode='MM_TO_TOOLS' for upsert..."
@@ -89,7 +85,7 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
                 "nocodb": self.bot.nocodb_client,
                 "vaultwarden": self.bot.vaultwarden_client,
             }
-            orchestration_success, detailed_results = await self.bot.orchestrate_group_synchronization(
+            orchestration_success, detailed_results = await orchestrate_group_synchronization(
                 clients=clients,
                 mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
