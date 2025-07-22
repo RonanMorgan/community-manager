@@ -162,6 +162,6 @@ class BrevoService(SyncService):
         brevo_list_name = config.get("list_name_pattern", "mm_{base_name}").format(base_name=base_name)
         return self._sync_single_brevo_list(brevo_client, brevo_list_name, std_mm_users, log_channel_name)
 
-    async def differential_sync(self):
-        # Brevo sync is handled by the existing _sync_single_brevo_list
+    async def differential_sync(self, mm_channel_members: dict):
+        # Brevo sync is additive only, so no differential sync logic is needed.
         return []
