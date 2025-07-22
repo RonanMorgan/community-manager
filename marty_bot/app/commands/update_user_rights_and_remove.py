@@ -19,7 +19,9 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
         if not self.bot.mattermost_api_client or not user_id_who_posted:
             logging.error("Mattermost API client or user_id_who_posted not available for permission check.")
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, ":x: Erreur interne : Impossible de vérifier les permissions."
+                self.bot.envoyer_message,
+                channel_id,
+                ":x: Erreur interne : Impossible de vérifier les permissions.",
             )
             return
 
@@ -70,7 +72,12 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
                 "Bot is not properly configured for rights removal (core components): Missing Authentik client, "
                 "Mattermost API client, or Mattermost Team ID."
             )
-            await asyncio.to_thread(self.bot.envoyer_message, channel_id, error_msg, thread_id=initial_post_id)
+            await asyncio.to_thread(
+                self.bot.envoyer_message,
+                channel_id,
+                error_msg,
+                thread_id=initial_post_id,
+            )
             return
 
         try:
@@ -85,7 +92,10 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
                 "nocodb": self.bot.nocodb_client,
                 "vaultwarden": self.bot.vaultwarden_client,
             }
-            orchestration_success, detailed_results = await orchestrate_group_synchronization(
+            (
+                orchestration_success,
+                detailed_results,
+            ) = await orchestrate_group_synchronization(
                 clients=clients,
                 mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=True,
@@ -101,13 +111,21 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
                     ":x: La suppression/synchronisation des droits a échoué de manière critique durant l'orchestration. "
                     "Veuillez consulter les logs du serveur pour plus de détails."
                 )
-                await asyncio.to_thread(self.bot.envoyer_message, channel_id, summary_msg, thread_id=initial_post_id)
+                await asyncio.to_thread(
+                    self.bot.envoyer_message,
+                    channel_id,
+                    summary_msg,
+                    thread_id=initial_post_id,
+                )
             else:
                 logging.info(
                     f"Group synchronization task (for rights removal) orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
                 await self.bot.result_manager.format_and_send_sync_results(
-                    channel_id, initial_post_id, detailed_results, command_name="Suppression/synchronisation"
+                    channel_id,
+                    initial_post_id,
+                    detailed_results,
+                    command_name="Suppression/synchronisation",
                 )
 
         except Exception as e:
@@ -120,7 +138,10 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
                 "d'exécution de la suppression/synchronisation des droits. Veuillez consulter les logs du serveur."
             )
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id
+                self.bot.envoyer_message,
+                channel_id,
+                error_response_msg,
+                thread_id=initial_post_id,
             )
 
     @staticmethod

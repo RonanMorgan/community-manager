@@ -33,7 +33,10 @@ class WebsocketHandler:
         except json.JSONDecodeError:
             logging.error(f"Error decoding JSON message: {message_str}")
         except Exception as e:
-            logging.error(f"Error in on_message: {e}. Original message: {message_str}", exc_info=True)
+            logging.error(
+                f"Error in on_message: {e}. Original message: {message_str}",
+                exc_info=True,
+            )
 
     async def on_error(self, ws, error):
         logging.error(f"WebSocket Error: {error}")
@@ -47,7 +50,11 @@ class WebsocketHandler:
             logging.error("BOT_TOKEN not configured for bot instance. Cannot send authentication challenge.")
             await ws.close()
             return
-        auth_data = {"seq": 1, "action": "authentication_challenge", "data": {"token": self.bot.config.BOT_TOKEN}}
+        auth_data = {
+            "seq": 1,
+            "action": "authentication_challenge",
+            "data": {"token": self.bot.config.BOT_TOKEN},
+        }
         try:
             await ws.send(json.dumps(auth_data))
             logging.info(
@@ -114,7 +121,10 @@ class WebsocketHandler:
             ) as e:
                 logging.error(f"Failed to connect to WebSocket: {e}")
             except Exception as e:
-                logging.error(f"Unexpected error during WebSocket connection attempt: {e}", exc_info=True)
+                logging.error(
+                    f"Unexpected error during WebSocket connection attempt: {e}",
+                    exc_info=True,
+                )
 
             if not self.shutdown_event.is_set():
                 reconnect_attempts += 1

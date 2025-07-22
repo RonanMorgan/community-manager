@@ -1,5 +1,6 @@
 import logging
 from typing import TYPE_CHECKING, Optional
+from .mattermost import _extract_base_name
 
 import config
 from app.enums import SyncStatus
@@ -196,9 +197,6 @@ def _sync_single_brevo_list(
 
     logging.info(f"Finished Brevo list sync for '{brevo_list_name}'. Total results: {len(results)}")
     return results
-
-
-from .mattermost import _extract_base_name
 
 
 def _map_brevo_list_to_entity_and_base_name(

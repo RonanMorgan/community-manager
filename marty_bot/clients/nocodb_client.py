@@ -125,9 +125,15 @@ class NocoDBClient:
                 if base.get("title") == base_title:
                     logger.debug("Found NoCoDB base '%s' with ID: %s", base_title, base["id"])
                     return base
-            logger.debug("NoCoDB base with title '%s' not found in the list of bases.", base_title)
+            logger.debug(
+                "NoCoDB base with title '%s' not found in the list of bases.",
+                base_title,
+            )
         else:
-            logger.warning("Failed to list NoCoDB bases or unexpected response format. Response: %s", response_data)
+            logger.warning(
+                "Failed to list NoCoDB bases or unexpected response format. Response: %s",
+                response_data,
+            )
         return None
 
     def invite_user_to_base(self, base_id: str, email: str, role: str) -> bool:
@@ -197,7 +203,9 @@ class NocoDBClient:
             logger.debug("Found %d users for base ID '%s'.", len(users_list), base_id)
             return users_list
         logger.warning(
-            "Failed to list users for base ID '%s' or unexpected format. Response: %s", base_id, response_data
+            "Failed to list users for base ID '%s' or unexpected format. Response: %s",
+            base_id,
+            response_data,
         )
         return []
 

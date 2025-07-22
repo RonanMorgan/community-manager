@@ -21,7 +21,9 @@ class SendEmailCommand(BaseCommand):
 
         if not self.bot.brevo_client:
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, ":x: Erreur: Le client Brevo n'est pas configuré."
+                self.bot.envoyer_message,
+                channel_id,
+                ":x: Erreur: Le client Brevo n'est pas configuré.",
             )
             return
         if not self.bot.config.BREVO_DEFAULT_SENDER_EMAIL or not self.bot.config.BREVO_DEFAULT_SENDER_NAME:
@@ -33,13 +35,19 @@ class SendEmailCommand(BaseCommand):
             return
         if not self.bot.mattermost_api_client:
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, ":x: Erreur: Le client Mattermost API n'est pas configuré."
+                self.bot.envoyer_message,
+                channel_id,
+                ":x: Erreur: Le client Mattermost API n'est pas configuré.",
             )
             return
 
         if not arg_string or "///" not in arg_string:
             usage_msg = "Usage: `@marty send_email <Sujet de l'email> /// <Contenu de l'email>`"
-            await asyncio.to_thread(self.bot.envoyer_message, channel_id, f":warning: Syntaxe incorrecte. {usage_msg}")
+            await asyncio.to_thread(
+                self.bot.envoyer_message,
+                channel_id,
+                f":warning: Syntaxe incorrecte. {usage_msg}",
+            )
             return
 
         subject, text_content = [part.strip() for part in arg_string.split("///", 1)]

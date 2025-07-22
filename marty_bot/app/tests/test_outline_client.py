@@ -6,7 +6,6 @@ from clients.outline_client import OutlineClient  # Import the class
 
 
 class TestOutlineClient(unittest.TestCase):
-
     def setUp(self):
         self.mock_url = "http://fake-outline-url.com"
         self.mock_token = "fake_outline_token"
@@ -34,7 +33,10 @@ class TestOutlineClient(unittest.TestCase):
         # Mock for list_collections (first call)
         mock_list_response = Mock()
         mock_list_response.status_code = 200
-        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 100, "total": 0}}
+        mock_list_response.json.return_value = {
+            "data": [],
+            "pagination": {"offset": 0, "limit": 100, "total": 0},
+        }
 
         # Mock for collections.create (second call)
         project_name = "new_project"
@@ -91,7 +93,10 @@ class TestOutlineClient(unittest.TestCase):
     def test_create_group_failure_during_actual_creation(self, mock_post_request):
         mock_list_response = Mock()
         mock_list_response.status_code = 200
-        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 100, "total": 0}}
+        mock_list_response.json.return_value = {
+            "data": [],
+            "pagination": {"offset": 0, "limit": 100, "total": 0},
+        }
 
         mock_create_response = Mock()
         mock_create_response.status_code = 403
@@ -111,7 +116,10 @@ class TestOutlineClient(unittest.TestCase):
     def test_create_group_failure_unexpected_response_data_in_create(self, mock_post_request):
         mock_list_response = Mock()
         mock_list_response.status_code = 200
-        mock_list_response.json.return_value = {"data": [], "pagination": {"offset": 0, "limit": 100, "total": 0}}
+        mock_list_response.json.return_value = {
+            "data": [],
+            "pagination": {"offset": 0, "limit": 100, "total": 0},
+        }
 
         mock_create_response = Mock()
         mock_create_response.status_code = 200
@@ -146,7 +154,10 @@ class TestOutlineClient(unittest.TestCase):
             Mock(
                 status_code=200,
                 json=lambda: {
-                    "data": [{"id": "coll-1", "name": "First"}, {"id": "coll-2", "name": "Second"}],
+                    "data": [
+                        {"id": "coll-1", "name": "First"},
+                        {"id": "coll-2", "name": "Second"},
+                    ],
                     "pagination": {"limit": 2, "offset": 0, "total": 3},
                 },
             ),
@@ -167,7 +178,11 @@ class TestOutlineClient(unittest.TestCase):
     @patch("requests.post")
     def test_list_collections_not_found(self, mock_post):
         mock_post.return_value = Mock(
-            status_code=200, json=lambda: {"data": [], "pagination": {"limit": 25, "offset": 0, "total": 0}}
+            status_code=200,
+            json=lambda: {
+                "data": [],
+                "pagination": {"limit": 25, "offset": 0, "total": 0},
+            },
         )
         collection = self.client.list_collections(name="Non-Existent Collection")
         self.assertEqual(collection, [])
@@ -186,7 +201,11 @@ class TestOutlineClient(unittest.TestCase):
     def test_get_collection_details_success(self, mock_post_request):
         mock_response = Mock()
         mock_response.status_code = 200
-        expected_details = {"id": "coll_id_1", "name": "Test Collection", "urlId": "test-coll"}
+        expected_details = {
+            "id": "coll_id_1",
+            "name": "Test Collection",
+            "urlId": "test-coll",
+        }
         mock_response.json.return_value = {"data": expected_details}
         mock_post_request.return_value = mock_response
 

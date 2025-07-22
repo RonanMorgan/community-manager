@@ -7,8 +7,6 @@ import os
 import sys
 from typing import TYPE_CHECKING, Optional
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 import config
 from app.enums import SyncStatus
 from clients.vaultwarden_client import VaultwardenAction
@@ -42,6 +40,8 @@ if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
 
 from libraries.services.mattermost import _get_mm_users_for_entity, slugify
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 # Helper function to determine Outline permission (REMOVED as logic is now in _sync_single_outline_collection)
@@ -309,7 +309,10 @@ async def orchestrate_group_synchronization(
             "nocodb": nocodb_client,
             "vaultwarden": vaultwarden_client,
         }
-        for (entity_key, base_name), entity_config_to_use in entities_to_process.items():
+        for (
+            entity_key,
+            base_name,
+        ), entity_config_to_use in entities_to_process.items():
             logging.info(
                 f"Orchestrating sync for entity: {entity_key}, base_name: {base_name}, "
                 f"sync_mode: {sync_mode}, perform_deletions: {perform_deletions}"

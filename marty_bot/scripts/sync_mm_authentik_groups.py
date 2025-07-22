@@ -2,9 +2,6 @@ import logging
 import os
 import sys
 
-# Adjust path to import from the app directory
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 import config
 from clients.authentik_client import AuthentikClient
 from clients.brevo_client import BrevoClient
@@ -23,6 +20,9 @@ if config.DEBUG:
     logging.debug("DEBUG mode is enabled for sync script.")
 else:
     logging.basicConfig(level=logging.INFO, format=log_format)
+
+# Adjust path to import from the app directory
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 def initialize_clients():
@@ -99,7 +99,14 @@ def initialize_clients():
             "Vaultwarden config (Org ID, Server URL, API User/Pass) not fully set for script. Vaultwarden sync will be skipped."
         )
 
-    return auth_client, mm_client, outline_client, brevo_client, nocodb_client, vaultwarden_client
+    return (
+        auth_client,
+        mm_client,
+        outline_client,
+        brevo_client,
+        nocodb_client,
+        vaultwarden_client,
+    )
 
 
 async def main_sync_logic():  # Changed to async
@@ -107,9 +114,14 @@ async def main_sync_logic():  # Changed to async
         "Attempting to run Mattermost to Authentik, Outline, Brevo, NocoDB, & Vaultwarden group synchronization via script..."
     )
 
-    authentik_client, mattermost_client, outline_client, brevo_client, nocodb_client, vaultwarden_client = (
-        initialize_clients()
-    )
+    (
+        authentik_client,
+        mattermost_client,
+        outline_client,
+        brevo_client,
+        nocodb_client,
+        vaultwarden_client,
+    ) = initialize_clients()
 
     if not authentik_client:  # Keeping Authentik mandatory for FULL_SYNC mode often initiated by script
         logging.critical("Authentik client not initialized in script. Aborting FULL_SYNC.")

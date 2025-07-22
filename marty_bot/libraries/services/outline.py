@@ -47,7 +47,11 @@ def _ensure_users_in_outline_collection(
             "target_resource_name": collection_name,
             "service": "OUTLINE",
         }
-        outline_result = {**base_user_info, "status": "FAILURE", "action": "OUTLINE_COLLECTION_UNCHANGED"}
+        outline_result = {
+            **base_user_info,
+            "status": "FAILURE",
+            "action": "OUTLINE_COLLECTION_UNCHANGED",
+        }
 
         if mm_username in config.EXCLUDED_USERS:
             logging.debug(

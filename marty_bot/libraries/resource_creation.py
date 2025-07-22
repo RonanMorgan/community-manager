@@ -185,7 +185,9 @@ async def create_resources_for_entity(
                         )
                 else:
                     created_list = await asyncio.to_thread(
-                        clients.get("brevo").create_list, brevo_list_name, folder_id=int(target_folder_id)
+                        clients.get("brevo").create_list,
+                        brevo_list_name,
+                        folder_id=int(target_folder_id),
                     )
                     if created_list and created_list.get("id"):
                         brevo_msg += f":white_check_mark: Créée (ID: {created_list['id']})."
@@ -247,7 +249,10 @@ async def create_resources_for_entity(
                     logging.error(f"Vaultwarden client error for collection '{vw_coll_name}': {error_message}")
                 except Exception as e:
                     vw_msg += f":x: Erreur ({e})."
-                    logging.error(f"Error creating Vaultwarden collection '{vw_coll_name}': {e}", exc_info=True)
+                    logging.error(
+                        f"Error creating Vaultwarden collection '{vw_coll_name}': {e}",
+                        exc_info=True,
+                    )
         else:
             vw_msg += ":information_source: Client non configuré."
         item_results_log.append(vw_msg)

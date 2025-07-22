@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional
 import config
 from app.enums import SyncStatus
 from clients.vaultwarden_client import VaultwardenAction
+from .mattermost import _extract_base_name
 
 if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
@@ -56,7 +57,11 @@ def _ensure_users_invited_to_vaultwarden_collection(
             "target_resource_name": collection_name,
             "service": "VAULTWARDEN",
         }
-        invite_result = {**base_user_info, "status": "FAILURE", "action": "VAULTWARDEN_USER_INVITE_UNCHANGED"}
+        invite_result = {
+            **base_user_info,
+            "status": "FAILURE",
+            "action": "VAULTWARDEN_USER_INVITE_UNCHANGED",
+        }
 
         if mm_username in config.EXCLUDED_USERS:
             logging.debug(
@@ -68,7 +73,12 @@ def _ensure_users_invited_to_vaultwarden_collection(
             logging.warning(
                 f"Skipping user with no email for Vaultwarden invite: {mm_username} to collection {collection_name}"
             )
-            invite_result.update({"status": SyncStatus.SKIPPED.value, "action": "SKIPPED_NO_EMAIL_FOR_VW_INVITE"})
+            invite_result.update(
+                {
+                    "status": SyncStatus.SKIPPED.value,
+                    "action": "SKIPPED_NO_EMAIL_FOR_VW_INVITE",
+                }
+            )
             results.append(invite_result)
             continue
 
@@ -188,9 +198,6 @@ def _sync_single_vaultwarden_collection_members(
     return results
 
 
-from .mattermost import _extract_base_name
-
-
 def _map_vaultwarden_collection_to_entity_and_base_name(
     collection_name: str, permissions_matrix: dict
 ) -> tuple[Optional[str], Optional[str]]:
@@ -224,5 +231,9 @@ def _sync_vaultwarden_for_entity(
 ):
     vw_collection_name = config.get("collection_name_pattern", "Shared - {base_name}").format(base_name=base_name)
     return _sync_single_vaultwarden_collection_members(
-        vaultwarden_client, mattermost_client, vw_collection_name, mm_users_for_services, log_channel_name
+        vaultwarden_client,
+        mattermost_client,
+        vw_collection_name,
+        mm_users_for_services,
+        log_channel_name,
     )

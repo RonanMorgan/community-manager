@@ -1,5 +1,6 @@
 import logging
 from typing import TYPE_CHECKING, Optional
+from .mattermost import _extract_base_name
 
 import config
 from app.enums import SyncStatus
@@ -115,7 +116,10 @@ def _sync_single_nocodb_base(
                 }
                 if nocodb_client.delete_base_user(base_id, nocodb_user_id_to_remove):
                     removal_result.update(
-                        {"status": SyncStatus.SUCCESS.value, "action": NocoDBAction.USER_REMOVED_FROM_BASE.value}
+                        {
+                            "status": SyncStatus.SUCCESS.value,
+                            "action": NocoDBAction.USER_REMOVED_FROM_BASE.value,
+                        }
                     )
                 else:
                     removal_result["error_message"] = (
@@ -167,7 +171,11 @@ def _ensure_users_in_nocodb_base(
             "target_resource_name": base_title,
             "service": "NOCODB",
         }
-        nocodb_result = {**base_user_info, "status": "FAILURE", "action": "NOCODB_USER_UNCHANGED"}
+        nocodb_result = {
+            **base_user_info,
+            "status": "FAILURE",
+            "action": "NOCODB_USER_UNCHANGED",
+        }
 
         if mm_username in config.EXCLUDED_USERS:
             logging.debug(f"User '{mm_username}' is excluded. Skipping NoCoDB ensure for base '{base_title}'.")
@@ -197,7 +205,10 @@ def _ensure_users_in_nocodb_base(
                     )
             else:
                 nocodb_result.update(
-                    {"status": SyncStatus.SUCCESS.value, "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE"}
+                    {
+                        "status": SyncStatus.SUCCESS.value,
+                        "action": "NOCODB_USER_ALREADY_IN_BASE_WITH_CORRECT_ROLE",
+                    }
                 )
         else:
             action_verb = f"NOCODB_USER_INVITED_AS_{target_role.upper()}"
@@ -221,7 +232,10 @@ def _ensure_users_in_nocodb_base(
                     nocodb_result["action"] = f"{action_verb}_DM_SKIPPED_NO_URL"
             else:
                 nocodb_result.update(
-                    {"action": "FAILED_TO_INVITE_NOCODB_USER", "error_message": "API call to invite user failed."}
+                    {
+                        "action": "FAILED_TO_INVITE_NOCODB_USER",
+                        "error_message": "API call to invite user failed.",
+                    }
                 )
 
         results.append(nocodb_result)
@@ -252,9 +266,6 @@ def _remove_user_from_nocodb_base(
     else:
         result["error_message"] = "API call to remove user from NoCoDB base failed."
     return result
-
-
-from .mattermost import _extract_base_name
 
 
 def _map_nocodb_base_to_entity_and_base_name(

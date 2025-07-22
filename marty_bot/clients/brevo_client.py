@@ -42,7 +42,10 @@ class BrevoClient:
             logging.error(
                 f"Brevo API HTTP Error for {method.upper()} {url}: {e.response.status_code} - {e.response.text}"
             )
-            return e.response.status_code, e.response.json() if e.response.content else {"error": str(e)}
+            return (
+                e.response.status_code,
+                e.response.json() if e.response.content else {"error": str(e)},
+            )
         except requests.exceptions.RequestException as e:
             logging.error(f"Brevo API Request Exception for {method.upper()} {url}: {e}")
             return 500, {"error": str(e)}  # Generic server error for other request exceptions
@@ -103,7 +106,10 @@ class BrevoClient:
         Returns the created list object or None on failure.
         """
         logging.info(f"Creating Brevo list with name: '{list_name}' in folder ID {folder_id}")
-        payload = {"name": list_name, "folderId": folder_id}  # Default folder ID, adjust if necessary
+        payload = {
+            "name": list_name,
+            "folderId": folder_id,
+        }  # Default folder ID, adjust if necessary
         status_code, data = self._make_request("POST", "contacts/lists", json_data=payload)
 
         if status_code == 201 and data and "id" in data:
@@ -159,14 +165,22 @@ class BrevoClient:
         return all_lists
 
     def add_contact_to_list(
-        self, email: str, list_id: int, attributes: dict = None, update_enabled: bool = True
+        self,
+        email: str,
+        list_id: int,
+        attributes: dict = None,
+        update_enabled: bool = True,
     ) -> bool:
         """
         Adds a contact to a specific list.
         Optionally allows setting contact attributes and enabling/disabling contact update.
         """
         logging.info(f"Adding contact '{email}' to Brevo list ID {list_id}")
-        payload = {"email": email, "listIds": [list_id], "updateEnabled": update_enabled}
+        payload = {
+            "email": email,
+            "listIds": [list_id],
+            "updateEnabled": update_enabled,
+        }
         if attributes:
             payload["attributes"] = attributes
 

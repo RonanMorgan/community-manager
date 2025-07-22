@@ -9,7 +9,6 @@ from clients.vaultwarden_client import VaultwardenClient
 
 
 class TestVaultwardenClient(unittest.TestCase):
-
     def setUp(self):
         self.organization_id = "test-org-id"
         self.server_url = "https://test.vaultwarden.com"
@@ -62,7 +61,10 @@ class TestVaultwardenClient(unittest.TestCase):
 
     @patch("clients.vaultwarden_client.VaultwardenClient._run_bw_command")
     def test_ensure_server_configuration_needs_set(self, mock_run_bw_command):
-        mock_run_bw_command.side_effect = [(0, "https://otherserver.com", ""), (0, "", "")]
+        mock_run_bw_command.side_effect = [
+            (0, "https://otherserver.com", ""),
+            (0, "", ""),
+        ]
         client = self.client
         self.assertTrue(client._ensure_server_configuration())
         expected_calls = [
@@ -153,7 +155,10 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_get_cli_status.return_value = "unlocked"
         self.client.bw_session = "invalid_session"
         expected_new_key = "freshly_unlocked_key"
-        mock_run_bw.side_effect = [(1, "", "session invalid error"), (0, f"{expected_new_key}\n", "")]
+        mock_run_bw.side_effect = [
+            (1, "", "session invalid error"),
+            (0, f"{expected_new_key}\n", ""),
+        ]
         session = self.client._get_session()
         self.assertEqual(session, expected_new_key)
 
@@ -183,7 +188,10 @@ class TestVaultwardenClient(unittest.TestCase):
     def test_create_collection_success(self, mock_run_bw, mock_sync_vault, mock_get_session):
         mock_get_session.return_value = "fake_session_for_create"
         mock_sync_vault.return_value = True
-        mock_run_bw.side_effect = [(0, "encoded", ""), (0, json.dumps({"id": "id"}), "")]
+        mock_run_bw.side_effect = [
+            (0, "encoded", ""),
+            (0, json.dumps({"id": "id"}), ""),
+        ]
         self.assertIsNotNone(self.client.create_collection("New Coll"))
 
     @patch.object(VaultwardenClient, "_get_session", return_value=None)
@@ -194,7 +202,10 @@ class TestVaultwardenClient(unittest.TestCase):
     @patch.object(VaultwardenClient, "_sync_vault", return_value=False)
     @patch.object(VaultwardenClient, "_run_bw_command")
     def test_create_collection_sync_fail_still_attempts(self, mock_run_bw, mock_sync_vault, mock_get_session):
-        mock_run_bw.side_effect = [(0, "encoded", ""), (0, json.dumps({"id": "id"}), "")]
+        mock_run_bw.side_effect = [
+            (0, "encoded", ""),
+            (0, json.dumps({"id": "id"}), ""),
+        ]
         self.assertIsNotNone(self.client.create_collection("Sync Fail"))
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
@@ -204,7 +215,19 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_run_bw.side_effect = [
             (0, "encoded_payload", ""),
             (1, "", "already exists"),
-            (0, json.dumps([{"id": "existing-uuid", "name": "Existing", "organizationId": self.organization_id}]), ""),
+            (
+                0,
+                json.dumps(
+                    [
+                        {
+                            "id": "existing-uuid",
+                            "name": "Existing",
+                            "organizationId": self.organization_id,
+                        }
+                    ]
+                ),
+                "",
+            ),
         ]
         self.assertEqual(self.client.create_collection("Existing"), "existing-uuid")
 
@@ -214,7 +237,15 @@ class TestVaultwardenClient(unittest.TestCase):
     def test_get_collection_by_name_found(self, mock_run_bw, mock_sync_vault, mock_get_session):
         mock_run_bw.return_value = (
             0,
-            json.dumps([{"name": "Target", "id": "target-uuid", "organizationId": self.organization_id}]),
+            json.dumps(
+                [
+                    {
+                        "name": "Target",
+                        "id": "target-uuid",
+                        "organizationId": self.organization_id,
+                    }
+                ]
+            ),
             "",
         )
         self.assertEqual(self.client.get_collection_by_name("Target"), "target-uuid")
@@ -338,7 +369,10 @@ class TestVaultwardenClient(unittest.TestCase):
             user_email, collection_id, self.organization_id, access_token
         )
         print(f"DEBUG_TEST_CASE2_RETURN_VALUE: success_case2 = {success_case2}")
-        self.assertTrue(success_case2, "Should return True if user already confirmed (ValidationErrors case)")
+        self.assertTrue(
+            success_case2,
+            "Should return True if user already confirmed (ValidationErrors case)",
+        )
 
         # To verify logging for this specific path if needed, could re-call within assertLogs
         # or check logs via other means if print statements confirm the path.
@@ -374,7 +408,8 @@ class TestVaultwardenClient(unittest.TestCase):
                     already_member_log_found = True
                     break
             self.assertFalse(
-                already_member_log_found, "Should not log 'already member/invited' for a generic 400 error"
+                already_member_log_found,
+                "Should not log 'already member/invited' for a generic 400 error",
             )
 
     def test_get_collections_details_success(self):

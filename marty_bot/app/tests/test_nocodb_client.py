@@ -11,7 +11,6 @@ from clients.nocodb_client import NocoDBClient
 
 
 class TestNocoDBClient(unittest.TestCase):
-
     def setUp(self):
         self.nocodb_url = "http://fake-nocodb.com"
         self.token = "fake-token"
@@ -84,7 +83,9 @@ class TestNocoDBClient(unittest.TestCase):
         self.assertIsNotNone(response)
         self.assertEqual(response["title"], base_title)
         mock_make_request.assert_called_once_with(
-            "post", "projects/", json={"title": base_title, "description": "Test Description"}
+            "post",
+            "projects/",
+            json={"title": base_title, "description": "Test Description"},
         )
 
     @patch.object(NocoDBClient, "_make_request")
@@ -97,7 +98,10 @@ class TestNocoDBClient(unittest.TestCase):
     def test_get_base_by_title_found(self, mock_make_request):
         base_title_to_find = "Existing Base"
         mock_make_request.return_value = {
-            "list": [{"id": "p_other", "title": "Other Base"}, {"id": self.base_id_test, "title": base_title_to_find}]
+            "list": [
+                {"id": "p_other", "title": "Other Base"},
+                {"id": self.base_id_test, "title": base_title_to_find},
+            ]
         }
         response = self.client.get_base_by_title(base_title_to_find)
         self.assertIsNotNone(response)
@@ -122,7 +126,9 @@ class TestNocoDBClient(unittest.TestCase):
         success = self.client.invite_user_to_base(self.base_id_test, self.email_test, "viewer")
         self.assertTrue(success)
         mock_make_request.assert_called_once_with(
-            "post", f"projects/{self.base_id_test}/users", json={"email": self.email_test, "roles": "viewer"}
+            "post",
+            f"projects/{self.base_id_test}/users",
+            json={"email": self.email_test, "roles": "viewer"},
         )
 
     @patch.object(NocoDBClient, "_make_request")
@@ -137,7 +143,9 @@ class TestNocoDBClient(unittest.TestCase):
         success = self.client.update_base_user(self.base_id_test, self.user_id_test, "editor")
         self.assertTrue(success)
         mock_make_request.assert_called_once_with(
-            "patch", f"projects/{self.base_id_test}/users/{self.user_id_test}", json={"roles": "editor"}
+            "patch",
+            f"projects/{self.base_id_test}/users/{self.user_id_test}",
+            json={"roles": "editor"},
         )
 
     @patch.object(NocoDBClient, "_make_request")
@@ -181,8 +189,15 @@ class TestNocoDBClient(unittest.TestCase):
 
     @patch.object(NocoDBClient, "list_base_users")
     def test_get_user_by_email_in_base_found(self, mock_list_base_users):
-        user_obj = {"id": self.user_id_test, "email": self.email_test, "roles": "viewer"}
-        mock_list_base_users.return_value = [user_obj, {"id": "other_id", "email": "other@example.com"}]
+        user_obj = {
+            "id": self.user_id_test,
+            "email": self.email_test,
+            "roles": "viewer",
+        }
+        mock_list_base_users.return_value = [
+            user_obj,
+            {"id": "other_id", "email": "other@example.com"},
+        ]
 
         found_user = self.client.get_user_by_email_in_base(self.base_id_test, self.email_test)
         self.assertEqual(found_user, user_obj)

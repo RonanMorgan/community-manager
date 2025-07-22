@@ -1,4 +1,3 @@
-print("<<<<<<<<<< SCRIPT EXECUTED >>>>>>>>>>")
 # import os # No longer used
 import asyncio
 import json
@@ -20,7 +19,8 @@ from app.websocket_handler import WebsocketHandler
 # MartyBot's __init__ will refine this for its instance.
 if config.DEBUG:
     logging.basicConfig(
-        level=logging.DEBUG, format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+        level=logging.DEBUG,
+        format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
     )
     logging.debug("Initial DEBUG mode is enabled. Global verbose logging active.")
 else:

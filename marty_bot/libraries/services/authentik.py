@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional
 import config
 from app.enums import SyncStatus
 from clients.authentik_client import AuthentikAction
+from .mattermost import _extract_base_name
 
 if TYPE_CHECKING:
     from clients.authentik_client import AuthentikClient
@@ -70,7 +71,11 @@ def _ensure_users_in_authentik_group(
             "target_resource_name": auth_group_name,
             "service": "AUTHENTIK",
         }
-        auth_user_result = {**base_user_info, "status": "FAILURE", "action": "AUTHENTIK_GROUP_UNCHANGED"}
+        auth_user_result = {
+            **base_user_info,
+            "status": "FAILURE",
+            "action": "AUTHENTIK_GROUP_UNCHANGED",
+        }
 
         if mm_username in config.EXCLUDED_USERS:
             # If user is excluded, we don't try to add them.
@@ -158,7 +163,11 @@ def _ensure_users_in_authentik_group(
             "target_resource_name": auth_group_name,
             "service": "AUTHENTIK",
         }
-        auth_user_result = {**base_user_info, "status": "FAILURE", "action": "AUTHENTIK_GROUP_UNCHANGED"}
+        auth_user_result = {
+            **base_user_info,
+            "status": "FAILURE",
+            "action": "AUTHENTIK_GROUP_UNCHANGED",
+        }
 
         if mm_username in config.EXCLUDED_USERS:
             # If user is excluded, we don't try to add them.
@@ -197,7 +206,10 @@ def _ensure_users_in_authentik_group(
             if auth_pk_for_mm_user not in current_auth_user_pks_in_group:
                 if authentik_client.add_user_to_group(auth_group_pk, auth_pk_for_mm_user):
                     auth_user_result.update(
-                        {"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_ADDED_TO_GROUP.value}
+                        {
+                            "status": SyncStatus.SUCCESS.value,
+                            "action": AuthentikAction.USER_ADDED_TO_GROUP.value,
+                        }
                     )
                 else:
                     auth_user_result.update(
@@ -208,7 +220,10 @@ def _ensure_users_in_authentik_group(
                     )
             else:
                 auth_user_result.update(
-                    {"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_ALREADY_IN_GROUP.value}
+                    {
+                        "status": SyncStatus.SUCCESS.value,
+                        "action": AuthentikAction.USER_ALREADY_IN_GROUP.value,
+                    }
                 )
         results.append(auth_user_result)
 
@@ -297,7 +312,10 @@ def _sync_single_authentik_group(
                 }
                 if authentik_client.remove_user_from_group(auth_group_pk, auth_pk_in_group_obj):
                     removal_result.update(
-                        {"status": SyncStatus.SUCCESS.value, "action": AuthentikAction.USER_REMOVED_FROM_GROUP.value}
+                        {
+                            "status": SyncStatus.SUCCESS.value,
+                            "action": AuthentikAction.USER_REMOVED_FROM_GROUP.value,
+                        }
                     )
                 else:
                     removal_result["error_message"] = "API call to remove user from Authentik group failed."
@@ -328,9 +346,6 @@ def remove_user_from_authentik_group(
     else:
         result["error_message"] = "API call to remove user from Authentik group failed."
     return result
-
-
-from .mattermost import _extract_base_name
 
 
 def _map_auth_group_to_entity_and_base_name(

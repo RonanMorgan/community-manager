@@ -24,7 +24,6 @@ FAKE_BREVO_LIST_ID = "123"  # String, as it comes from getenv
     },
 )
 class TestAuthentikBrevoSync(unittest.TestCase):
-
     @patch("libraries.authentik_brevo_sync.AuthentikClient")
     @patch("libraries.authentik_brevo_sync.BrevoClient")
     def test_sync_success_add_users(self, MockBrevoClient, MockAuthentikClient):
@@ -34,9 +33,18 @@ class TestAuthentikBrevoSync(unittest.TestCase):
         # Simulate Authentik returning user data including attributes
         mock_auth_instance.get_all_users_data.return_value = [
             {"email": "user1@example.com", "attributes": {"attributes.ville": "Paris"}},
-            {"email": "user2@example.com", "attributes": {"attributes.activity": "Dev"}},
-            {"email": "shared@example.com", "attributes": {"attributes.metier": "Engineer"}},
-            {"email": "user_no_attrs@example.com", "attributes": {}},  # User with no specific attributes
+            {
+                "email": "user2@example.com",
+                "attributes": {"attributes.activity": "Dev"},
+            },
+            {
+                "email": "shared@example.com",
+                "attributes": {"attributes.metier": "Engineer"},
+            },
+            {
+                "email": "user_no_attrs@example.com",
+                "attributes": {},
+            },  # User with no specific attributes
         ]
 
         # Mock BrevoClient instance and its methods
@@ -153,7 +161,9 @@ class TestAuthentikBrevoSync(unittest.TestCase):
 
         expected_brevo_attrs = {"CITY": "Nice"}  # Mapped attributes
         mock_brevo_instance.add_contact_to_list.assert_called_once_with(
-            email="newuser@example.com", list_id=int(FAKE_BREVO_LIST_ID), attributes=expected_brevo_attrs
+            email="newuser@example.com",
+            list_id=int(FAKE_BREVO_LIST_ID),
+            attributes=expected_brevo_attrs,
         )
         # Check the summary log
         mock_logging.info.assert_any_call("Finished adding users to Brevo. Added: 0, Failed: 1.")

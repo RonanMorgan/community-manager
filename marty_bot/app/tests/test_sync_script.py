@@ -5,9 +5,6 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-# Adjust path to import from the project root directory
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-
 import asyncio  # For async_test helper
 
 # Functions/modules to be tested
@@ -25,6 +22,9 @@ from libraries.group_sync_services import (  # sync_entity_permissions removed a
     orchestrate_group_synchronization,
 )
 
+# Adjust path to import from the project root directory
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
 
 # Helper to run async test methods (copied from test_bot.py)
 def async_test(f):
@@ -35,7 +35,6 @@ def async_test(f):
 
 
 class TestSyncLogic(unittest.TestCase):
-
     def setUp(self):
         self.mock_auth_client_instance = MagicMock(spec=AuthentikClient)
         self.mock_mm_client_instance = MagicMock(spec=MattermostClient)
@@ -69,11 +68,11 @@ class TestSyncLogic(unittest.TestCase):
         mock_auth_instance = MockScriptAuthClient.return_value
         mock_mm_instance = MockScriptMMClient.return_value
         # Mock OutlineClient and BrevoClient if they are part of initialize_clients
-        with patch("scripts.sync_mm_authentik_groups.OutlineClient") as MockScriptOutlineClient, patch(
-            "scripts.sync_mm_authentik_groups.BrevoClient"
-        ) as MockScriptBrevoClient, patch(
-            "scripts.sync_mm_authentik_groups.NocoDBClient"
-        ) as MockScriptNocoDBClient:  # Added NocoDBClient
+        with (
+            patch("scripts.sync_mm_authentik_groups.OutlineClient") as MockScriptOutlineClient,
+            patch("scripts.sync_mm_authentik_groups.BrevoClient") as MockScriptBrevoClient,
+            patch("scripts.sync_mm_authentik_groups.NocoDBClient") as MockScriptNocoDBClient,
+        ):  # Added NocoDBClient
             mock_outline_instance = MockScriptOutlineClient.return_value
             mock_brevo_instance = MockScriptBrevoClient.return_value
             mock_nocodb_instance = MockScriptNocoDBClient.return_value
@@ -81,11 +80,17 @@ class TestSyncLogic(unittest.TestCase):
 
             # Patch VaultwardenClient inside this test's context
             with patch(
-                "scripts.sync_mm_authentik_groups.VaultwardenClient", return_value=mock_vaultwarden_instance
+                "scripts.sync_mm_authentik_groups.VaultwardenClient",
+                return_value=mock_vaultwarden_instance,
             ) as MockScriptVWClient:
-                auth_client, mm_client, outline_client, brevo_client, nocodb_client, vw_client = (
-                    script_module.initialize_clients()
-                )  # Unpack 6
+                (
+                    auth_client,
+                    mm_client,
+                    outline_client,
+                    brevo_client,
+                    nocodb_client,
+                    vw_client,
+                ) = script_module.initialize_clients()  # Unpack 6
 
             MockScriptAuthClient.assert_called_once_with("http://auth.example.com", "auth_token")
             MockScriptMMClient.assert_called_once_with("http://mm.example.com", "mm_bot_token", "mm_team_id")
@@ -139,7 +144,10 @@ class TestSyncLogic(unittest.TestCase):
     def test_library_get_all_authentik_groups_and_user_map(self):
         mock_groups_data = [{"name": "group1"}]
         mock_email_map_data = {"email@example.com": "pk1"}
-        self.mock_auth_client_instance.get_groups_with_users.return_value = (mock_groups_data, mock_email_map_data)
+        self.mock_auth_client_instance.get_groups_with_users.return_value = (
+            mock_groups_data,
+            mock_email_map_data,
+        )
         groups, email_map = get_all_authentik_groups_and_user_map(self.mock_auth_client_instance)
         self.mock_auth_client_instance.get_groups_with_users.assert_called_once()
         self.assertEqual(groups, mock_groups_data)
@@ -163,13 +171,24 @@ class TestSyncLogic(unittest.TestCase):
         mock_team_id = "team123"
         mock_groups_list = [
             {"name": "projet_alpha", "pk": "g1_std", "users": [], "users_obj": []},
-            {"name": "projet_alpha Admin", "pk": "g1_adm", "users": [], "users_obj": []},
+            {
+                "name": "projet_alpha Admin",
+                "pk": "g1_adm",
+                "users": [],
+                "users_obj": [],
+            },
             {"name": "antenne_beta", "pk": "g2_std", "users": [], "users_obj": []},
         ]
         mock_email_pk_map = {"user1@example.com": "upk1"}
-        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map)  # For the email map part
+        mock_get_groups_map.return_value = (
+            mock_groups_list,
+            mock_email_pk_map,
+        )  # For the email map part
         # Also mock the direct call to authentik_client.get_groups_with_users for group discovery
-        mock_auth_client.get_groups_with_users.return_value = (mock_groups_list, mock_email_pk_map)
+        mock_auth_client.get_groups_with_users.return_value = (
+            mock_groups_list,
+            mock_email_pk_map,
+        )
 
         mock_lib_config.PERMISSIONS_MATRIX = {
             "PROJET": {
@@ -248,7 +267,10 @@ class TestSyncLogic(unittest.TestCase):
         mock_outline_client_none = None
         mock_groups_list = [{"name": "projet_gamma", "pk": "g_gamma", "users": [], "users_obj": []}]
         mock_email_pk_map = {"usergamma@example.com": "upk_gamma"}
-        mock_get_groups_map.return_value = (mock_groups_list, mock_email_pk_map)  # For email map
+        mock_get_groups_map.return_value = (
+            mock_groups_list,
+            mock_email_pk_map,
+        )  # For email map
         mock_auth_client.get_groups_with_users.return_value = (
             mock_groups_list,
             mock_email_pk_map,
@@ -304,7 +326,10 @@ class TestSyncLogic(unittest.TestCase):
         mock_outline_client = MagicMock(spec=OutlineClient)
         mock_team_id = "team123"
         mock_get_groups_map.return_value = ([], {})  # For email map part
-        mock_auth_client.get_groups_with_users.return_value = ([], {})  # For group discovery part
+        mock_auth_client.get_groups_with_users.return_value = (
+            [],
+            {},
+        )  # For group discovery part
 
         clients = {
             "authentik": mock_auth_client,
@@ -387,7 +412,10 @@ class TestSyncLogic(unittest.TestCase):
 
     @patch("scripts.sync_mm_authentik_groups.config")
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
-    @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
+    @patch(
+        "scripts.sync_mm_authentik_groups.orchestrate_group_synchronization",
+        new_callable=unittest.mock.AsyncMock,
+    )
     @async_test
     async def test_script_main_sync_logic_orchestration(
         self, mock_orchestrate_lib, mock_script_init_clients, mock_script_config
@@ -439,7 +467,10 @@ class TestSyncLogic(unittest.TestCase):
         )
 
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
-    @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
+    @patch(
+        "scripts.sync_mm_authentik_groups.orchestrate_group_synchronization",
+        new_callable=unittest.mock.AsyncMock,
+    )
     @async_test
     async def test_script_main_sync_logic_init_auth_fails(self, mock_orchestrate_lib, mock_script_init_clients):
         with patch("scripts.sync_mm_authentik_groups.config") as mock_script_config:
@@ -463,7 +494,10 @@ class TestSyncLogic(unittest.TestCase):
 
     @patch("scripts.sync_mm_authentik_groups.config")
     @patch("scripts.sync_mm_authentik_groups.initialize_clients")
-    @patch("scripts.sync_mm_authentik_groups.orchestrate_group_synchronization", new_callable=unittest.mock.AsyncMock)
+    @patch(
+        "scripts.sync_mm_authentik_groups.orchestrate_group_synchronization",
+        new_callable=unittest.mock.AsyncMock,
+    )
     @async_test  # Added decorator
     async def test_script_main_sync_logic_no_team_id(  # Corrected function name
         self, mock_orchestrate_lib, mock_script_init_clients, mock_script_config
@@ -493,12 +527,19 @@ class TestVaultwardenSync(unittest.TestCase):
     @patch("libraries.group_sync_services._get_mm_users_for_entity")
     @patch("libraries.group_sync_services._map_vaultwarden_collection_to_entity_and_base_name")
     def test_sync_vaultwarden_removes_user(
-        self, mock_map_collection, mock_get_users, mock_get_auth_groups, mock_auth_client_class
+        self,
+        mock_map_collection,
+        mock_get_users,
+        mock_get_auth_groups,
+        mock_auth_client_class,
     ):
         # Arrange
         mock_auth_instance = mock_auth_client_class.return_value
         mock_auth_instance.get_groups_with_users.return_value = ([], {})
-        mock_get_auth_groups.return_value = ([], {"user1@test.com": "user1-pk", "user2@test.com": "user2-pk"})
+        mock_get_auth_groups.return_value = (
+            [],
+            {"user1@test.com": "user1-pk", "user2@test.com": "user2-pk"},
+        )
         mock_vw_client = MagicMock(spec=VaultwardenClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
         mm_team_id = "test-team-id"
@@ -511,16 +552,32 @@ class TestVaultwardenSync(unittest.TestCase):
         ]
         mock_vw_client.get_collections.return_value = (
             0,
-            json.dumps([{"id": "coll1", "name": "projet-test", "organizationId": "test-org-id"}]),
+            json.dumps(
+                [
+                    {
+                        "id": "coll1",
+                        "name": "projet-test",
+                        "organizationId": "test-org-id",
+                    }
+                ]
+            ),
             "",
         )
         mock_vw_client.get_members.return_value = (
             0,
-            json.dumps([{"id": "user1-pk", "email": "user1@test.com"}, {"id": "user2-pk", "email": "user2@test.com"}]),
+            json.dumps(
+                [
+                    {"id": "user1-pk", "email": "user1@test.com"},
+                    {"id": "user2-pk", "email": "user2@test.com"},
+                ]
+            ),
             "",
         )
         mock_vw_client.get_name_from_collections.return_value = "projet-test"
-        mock_vw_client.get_email_from_members.side_effect = ["user1@test.com", "user2@test.com"]
+        mock_vw_client.get_email_from_members.side_effect = [
+            "user1@test.com",
+            "user2@test.com",
+        ]
         mock_map_collection.return_value = ("PROJET", "test")
         mock_get_users.return_value = ({"user1@test.com": {}}, [], [])
         mock_vw_client.update_collection.return_value = True

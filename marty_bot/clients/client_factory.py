@@ -88,7 +88,10 @@ def create_clients() -> dict:
         except ValueError as e:
             logging.warning(f"Failed to initialize VaultwardenClient: {e}")
         except Exception as e:
-            logging.error(f"An unexpected error occurred during VaultwardenClient initialization: {e}", exc_info=True)
+            logging.error(
+                f"An unexpected error occurred during VaultwardenClient initialization: {e}",
+                exc_info=True,
+            )
     else:
         logging.warning("Vaultwarden Organization ID not configured. Vaultwarden features will be disabled.")
 

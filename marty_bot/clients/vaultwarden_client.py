@@ -101,7 +101,11 @@ class VaultwardenClient:
             return None
 
     def invite_user_to_collection(
-        self, user_email: str, collection_id: str, organization_id: str, access_token: str
+        self,
+        user_email: str,
+        collection_id: str,
+        organization_id: str,
+        access_token: str,
     ) -> bool:
         if not self.server_url:
             logging.error("Vaultwarden server URL not configured. Cannot determine invite endpoint.")
@@ -110,13 +114,23 @@ class VaultwardenClient:
         invite_url = f"{self.server_url.rstrip('/')}/api/organizations/{organization_id}/users/invite"
         payload = {
             "emails": [user_email],
-            "collections": [{"id": collection_id, "readOnly": True, "hidePasswords": False, "manage": False}],
+            "collections": [
+                {
+                    "id": collection_id,
+                    "readOnly": True,
+                    "hidePasswords": False,
+                    "manage": False,
+                }
+            ],
             "permissions": {"response": None},
             "type": 2,
             "groups": [],
             "accessSecretsManager": False,
         }
-        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
 
         try:
             logging.info(f"Inviting user {user_email} to collection {collection_id} in organization {organization_id}")
@@ -199,7 +213,7 @@ class VaultwardenClient:
                 env_for_subprocess["BW_SESSION"] = self.bw_session
 
             logging.debug(f"Running bw command: {' '.join(['bw'] + command_parts)}")
-            logging.debug(f"input_data: { input_data }")
+            logging.debug(f"input_data: {input_data}")
             process = subprocess.run(
                 ["bw"] + command_parts,
                 input=input_data,
@@ -318,7 +332,8 @@ class VaultwardenClient:
             unlock_env_vars["PATH"] = os.getenv("PATH", "")
 
         rc_unlock, sout_unlock, err_unlock = self._run_bw_command(
-            ["unlock", "--passwordenv", "BW_PASSWORD", "--raw"], custom_env=unlock_env_vars
+            ["unlock", "--passwordenv", "BW_PASSWORD", "--raw"],
+            custom_env=unlock_env_vars,
         )
         new_session_key = sout_unlock.strip()
         if rc_unlock == 0 and new_session_key:
@@ -372,7 +387,8 @@ class VaultwardenClient:
             return None
 
         rc_create, sout_create, err_create = self._run_bw_command(
-            ["create", "org-collection", "--organizationid", self.organization_id], input_data=encoded_payload.strip()
+            ["create", "org-collection", "--organizationid", self.organization_id],
+            input_data=encoded_payload.strip(),
         )
         if rc_create == 0:
             try:
@@ -524,7 +540,10 @@ class VaultwardenClient:
         update_url = (
             f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/collections/{collection_id}"
         )
-        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
         try:
             response = requests.put(update_url, json=payload, headers=headers)
             response.raise_for_status()

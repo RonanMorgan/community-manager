@@ -161,7 +161,11 @@ class AuthentikClient:
                 f"Fetching group search page {page_count} from {current_url} with params {params if page_count == 1 else None}"
             )
             try:
-                response = requests.get(current_url, headers=self.headers, params=params if page_count == 1 else None)
+                response = requests.get(
+                    current_url,
+                    headers=self.headers,
+                    params=params if page_count == 1 else None,
+                )
                 response.raise_for_status()
                 data = response.json()
                 page_results = data.get("results", [])
@@ -395,7 +399,7 @@ if __name__ == "__main__":
     if not auth_url or not auth_token:
         print("Please set AUTHENTIK_URL and AUTHENTIK_TOKEN environment variables for this example.")
     else:
-        log_format = "%(asctime)s - %(levelname)s - " "[%(filename)s:%(lineno)d] - %(message)s"  # noqa: E501
+        log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"  # noqa: E501
         logging.basicConfig(level=logging.DEBUG, format=log_format)
         print(f"Attempting to connect to Authentik at {auth_url}")
         try:

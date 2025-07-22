@@ -23,7 +23,10 @@ class ResultManager:
         if not detailed_results:
             final_summary_message = f":information_source: Processus de {command_name} terminé, mais aucune opération utilisateur spécifique n'a été effectuée ou rapportée."
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id
+                self.bot.envoyer_message,
+                channel_id,
+                final_summary_message,
+                thread_id=initial_post_id,
             )
             return
 
@@ -119,7 +122,10 @@ class ResultManager:
 
             full_user_report_message = "\n".join(message_parts)
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, full_user_report_message, thread_id=initial_post_id
+                self.bot.envoyer_message,
+                channel_id,
+                full_user_report_message,
+                thread_id=initial_post_id,
             )
 
         summary_lines = [f"### :checkered_flag: Résumé de {command_name} des droits :"]
@@ -134,7 +140,10 @@ class ResultManager:
         if total_problem_ops > 0 and total_success_ops > 0:
             summary_lines.insert(1, f":warning: {command_name.capitalize()} partiellement terminée.")
         elif total_problem_ops > 0:
-            summary_lines.insert(1, f":x: {command_name.capitalize()} terminée avec des problèmes/omissions.")
+            summary_lines.insert(
+                1,
+                f":x: {command_name.capitalize()} terminée avec des problèmes/omissions.",
+            )
         elif total_success_ops > 0:
             summary_lines.insert(1, f":rocket: {command_name.capitalize()} terminée avec succès.")
         else:
@@ -146,5 +155,8 @@ class ResultManager:
         final_summary_message = "\n".join(summary_lines)
         if final_summary_message:
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, final_summary_message, thread_id=initial_post_id
+                self.bot.envoyer_message,
+                channel_id,
+                final_summary_message,
+                thread_id=initial_post_id,
             )

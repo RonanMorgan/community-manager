@@ -573,7 +573,7 @@ if __name__ == "__main__":
                     logging.info(f"Found {len(users)} users in channel '{test_channel_name_slug}'. First few users:")
                     for i, user in enumerate(users[:3]):  # Print first 3 users
                         logging.info(
-                            f"  User {i+1}: ID={user.get('id')}, Username={user.get('username')}, Email={user.get('email')}"
+                            f"  User {i + 1}: ID={user.get('id')}, Username={user.get('username')}, Email={user.get('email')}"
                         )
                 else:
                     logging.info(f"No users found in channel '{test_channel_name_slug}' or an error occurred.")

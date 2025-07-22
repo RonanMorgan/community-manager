@@ -37,7 +37,6 @@ def async_test(f):
 
 
 class TestGroupSyncServices(unittest.TestCase):
-
     def setUp(self):
         app_config.EXCLUDED_USERS = set()
         self.mock_authentik_client = MagicMock(spec=AuthentikClient)
@@ -66,7 +65,12 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mock_authentik_client.get_group_by_name.return_value = None
 
         def create_auth_group_side_effect(name):
-            return {"name": name, "pk": f"new_auth_pk_for_{slugify(name)}", "users": [], "users_obj": []}
+            return {
+                "name": name,
+                "pk": f"new_auth_pk_for_{slugify(name)}",
+                "users": [],
+                "users_obj": [],
+            }
 
         self.mock_authentik_client.create_group.side_effect = create_auth_group_side_effect
 
@@ -107,7 +111,10 @@ class TestGroupSyncServices(unittest.TestCase):
         self.mock_nocodb_client.delete_base_user.return_value = True
 
     def test_extract_base_name(self):
-        self.assertEqual(_extract_base_name("projet_TestProjet_dev", "projet_{base_name}_dev"), "TestProjet")
+        self.assertEqual(
+            _extract_base_name("projet_TestProjet_dev", "projet_{base_name}_dev"),
+            "TestProjet",
+        )
         self.assertEqual(_extract_base_name("projet_TestProjet", "projet_{base_name}"), "TestProjet")
         self.assertEqual(_extract_base_name("TestProjet_dev", "{base_name}_dev"), "TestProjet")
         self.assertIsNone(_extract_base_name("projet_TestProjet_dev", "antenne_{base_name}_dev"))
@@ -117,7 +124,10 @@ class TestGroupSyncServices(unittest.TestCase):
         self.assertEqual(_extract_base_name("Projet Super Cool", "Projet {base_name}"), "Super Cool")
         self.assertIsNone(_extract_base_name("Projet Admin", "Projet {base_name} Admin"))
         self.assertEqual(_extract_base_name("ProjetAdmin", "Projet{base_name}Admin"), "")  # No spaces around base_name
-        self.assertEqual(_extract_base_name("Projet Super Cool Admin", "Projet {base_name} Admin"), "Super Cool")
+        self.assertEqual(
+            _extract_base_name("Projet Super Cool Admin", "Projet {base_name} Admin"),
+            "Super Cool",
+        )
 
     def test_map_auth_group_to_entity_and_base_name(self):
         matrix = {
@@ -129,18 +139,27 @@ class TestGroupSyncServices(unittest.TestCase):
                 "standard": {"authentik_group_name_pattern": "antenne_{base_name}_standard"},
             },
         }
-        self.assertEqual(_map_auth_group_to_entity_and_base_name("projet_MonProjet", matrix), ("PROJET", "MonProjet"))
         self.assertEqual(
-            _map_auth_group_to_entity_and_base_name("projet_MonProjet_admin", matrix), ("PROJET", "MonProjet")
+            _map_auth_group_to_entity_and_base_name("projet_MonProjet", matrix),
+            ("PROJET", "MonProjet"),
+        )
+        self.assertEqual(
+            _map_auth_group_to_entity_and_base_name("projet_MonProjet_admin", matrix),
+            ("PROJET", "MonProjet"),
         )
         # "projet_admin" will be matched by "projet_{base_name}" (standard) before "projet_{base_name}_admin" (admin)
         # because _extract_base_name("projet_admin", "projet_{base_name}_admin") returns None.
-        self.assertEqual(_map_auth_group_to_entity_and_base_name("projet_admin", matrix), ("PROJET", "admin"))
         self.assertEqual(
-            _map_auth_group_to_entity_and_base_name("projet__admin", matrix), ("PROJET", "")
+            _map_auth_group_to_entity_and_base_name("projet_admin", matrix),
+            ("PROJET", "admin"),
+        )
+        self.assertEqual(
+            _map_auth_group_to_entity_and_base_name("projet__admin", matrix),
+            ("PROJET", ""),
         )  # Test expects "" now
         self.assertEqual(
-            _map_auth_group_to_entity_and_base_name("antenne_MaRegion_standard", matrix), ("ANTENNE", "MaRegion")
+            _map_auth_group_to_entity_and_base_name("antenne_MaRegion_standard", matrix),
+            ("ANTENNE", "MaRegion"),
         )
         self.assertIsNone(_map_auth_group_to_entity_and_base_name("unknown_group_format", matrix)[0])
 
@@ -155,7 +174,8 @@ class TestGroupSyncServices(unittest.TestCase):
             },
         }
         self.assertEqual(
-            _map_mm_channel_to_entity_and_base_name("projet-alpha", "Projet Alpha", matrix), ("PROJET", "Alpha")
+            _map_mm_channel_to_entity_and_base_name("projet-alpha", "Projet Alpha", matrix),
+            ("PROJET", "Alpha"),
         )
         self.assertEqual(
             _map_mm_channel_to_entity_and_base_name("projet-alpha-admin", "Projet Alpha Admin", matrix),
@@ -180,11 +200,17 @@ class TestGroupSyncServices(unittest.TestCase):
     @patch("libraries.services.outline.config")
     @patch("libraries.group_sync_services.config")
     def test_sync_single_group_user_exclusion(
-        self, mock_config_module_in_service, mock_config_module_in_outline_service, mock_service_config_authentik
+        self,
+        mock_config_module_in_service,
+        mock_config_module_in_outline_service,
+        mock_service_config_authentik,
     ):
         mock_config_module_in_service.EXCLUDED_USERS = {"excluded_user", "marty"}
         mock_config_module_in_service.OUTLINE_URL = "http://fake-outline.com"
-        mock_config_module_in_outline_service.EXCLUDED_USERS = {"excluded_user", "marty"}
+        mock_config_module_in_outline_service.EXCLUDED_USERS = {
+            "excluded_user",
+            "marty",
+        }
         mock_config_module_in_outline_service.OUTLINE_URL = "http://fake-outline.com"
         mock_service_config_authentik.EXCLUDED_USERS = {"excluded_user", "marty"}
 
@@ -219,15 +245,31 @@ class TestGroupSyncServices(unittest.TestCase):
         )
         outline_coll_name = mock_entity_config["outline"]["collection_name_pattern"].format(base_name=base_name)
 
-        std_auth_group_obj = {"name": std_auth_group_name, "pk": "std_auth_pk_1", "users": [], "users_obj": []}
-        adm_auth_group_obj = {"name": adm_auth_group_name, "pk": "adm_auth_pk_1", "users": [], "users_obj": []}
+        std_auth_group_obj = {
+            "name": std_auth_group_name,
+            "pk": "std_auth_pk_1",
+            "users": [],
+            "users_obj": [],
+        }
+        adm_auth_group_obj = {
+            "name": adm_auth_group_name,
+            "pk": "adm_auth_pk_1",
+            "users": [],
+            "users_obj": [],
+        }
         all_authentik_groups_by_name_fixture = {
             std_auth_group_name: std_auth_group_obj,
             adm_auth_group_name: adm_auth_group_obj,
         }
 
-        std_mm_channel_obj = {"id": "std_mm_chan_id_1", "display_name": std_mm_channel_name}
-        adm_mm_channel_obj = {"id": "adm_mm_chan_id_1", "display_name": adm_mm_channel_name}
+        std_mm_channel_obj = {
+            "id": "std_mm_chan_id_1",
+            "display_name": std_mm_channel_name,
+        }
+        adm_mm_channel_obj = {
+            "id": "adm_mm_chan_id_1",
+            "display_name": adm_mm_channel_name,
+        }
 
         def get_channel_by_name_side_effect(team_id, channel_name_slug):
             if channel_name_slug == slugify(std_mm_channel_name):
@@ -240,12 +282,20 @@ class TestGroupSyncServices(unittest.TestCase):
 
         mm_users_std_channel = [
             {"username": "user1", "email": "user1@example.com", "id": "mm_user_id_1"},
-            {"username": "excluded_user", "email": "excludeduser@example.com", "id": "mm_user_id_excluded"},
+            {
+                "username": "excluded_user",
+                "email": "excludeduser@example.com",
+                "id": "mm_user_id_excluded",
+            },
         ]
         mm_users_adm_channel = [
             {"username": "user1", "email": "user1@example.com", "id": "mm_user_id_1"},
             {"username": "user2", "email": "user2@example.com", "id": "mm_user_id_2"},
-            {"username": "marty", "email": "marty@example.com", "id": "mm_user_id_marty"},
+            {
+                "username": "marty",
+                "email": "marty@example.com",
+                "id": "mm_user_id_marty",
+            },
         ]
 
         def get_users_in_channel_side_effect(channel_id):
@@ -309,10 +359,14 @@ class TestGroupSyncServices(unittest.TestCase):
 
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
         self.mock_outline_client.add_user_to_collection.assert_any_call(
-            expected_outline_coll_id, outline_user1_id, permission="read_write"  # Corrected ID
+            expected_outline_coll_id,
+            outline_user1_id,
+            permission="read_write",  # Corrected ID
         )
         self.mock_outline_client.add_user_to_collection.assert_any_call(
-            expected_outline_coll_id, outline_user2_id, permission="read_write"  # Corrected ID
+            expected_outline_coll_id,
+            outline_user2_id,
+            permission="read_write",  # Corrected ID
         )
         self.assertEqual(self.mock_outline_client.add_user_to_collection.call_count, 2)
 
@@ -326,10 +380,14 @@ class TestGroupSyncServices(unittest.TestCase):
         for r in results:
             if r.get("mm_username") in {"excluded_user", "marty"}:
                 self.assertNotEqual(
-                    r.get("status"), "SUCCESS", f"Excluded user {r.get('mm_username')} had a SUCCESS action."
+                    r.get("status"),
+                    "SUCCESS",
+                    f"Excluded user {r.get('mm_username')} had a SUCCESS action.",
                 )
                 self.assertNotEqual(
-                    r.get("status"), "FAILURE", f"Excluded user {r.get('mm_username')} had a FAILURE action."
+                    r.get("status"),
+                    "FAILURE",
+                    f"Excluded user {r.get('mm_username')} had a FAILURE action.",
                 )
 
     @patch("dotenv.main.find_dotenv", return_value=None)
@@ -437,7 +495,10 @@ permissions:
         mock_open_file.assert_called_once_with(dummy_matrix_path, "r")
         self.assertIn("PROJET", app_config.PERMISSIONS_MATRIX)
         if "PROJET" in app_config.PERMISSIONS_MATRIX:
-            self.assertEqual(app_config.PERMISSIONS_MATRIX["PROJET"]["outline"]["default_access"], "read")
+            self.assertEqual(
+                app_config.PERMISSIONS_MATRIX["PROJET"]["outline"]["default_access"],
+                "read",
+            )
         self.assertEqual(app_config.EXCLUDED_USERS, set())
 
     @patch("libraries.services.outline.config")
@@ -471,11 +532,23 @@ permissions:
             base_name=base_name
         )
         outline_coll_name = mock_entity_config["outline"]["collection_name_pattern"].format(base_name=base_name)
-        std_auth_group_obj = {"name": std_auth_group_name, "pk": "std_auth_pk_dm", "users": [], "users_obj": []}
+        std_auth_group_obj = {
+            "name": std_auth_group_name,
+            "pk": "std_auth_pk_dm",
+            "users": [],
+            "users_obj": [],
+        }
         all_authentik_groups_by_name_fixture = {std_auth_group_name: std_auth_group_obj}
-        mm_user_for_dm = {"username": "dm_user", "email": "dmuser@example.com", "id": "mm_user_id_dm"}
+        mm_user_for_dm = {
+            "username": "dm_user",
+            "email": "dmuser@example.com",
+            "id": "mm_user_id_dm",
+        }
         email_map_for_dm = {"dmuser@example.com": "auth_user_pk_dm"}
-        std_mm_channel_obj = {"id": "std_mm_chan_id_dm", "display_name": std_mm_channel_name}
+        std_mm_channel_obj = {
+            "id": "std_mm_chan_id_dm",
+            "display_name": std_mm_channel_name,
+        }
         self.mock_mattermost_client.get_channel_by_name.side_effect = lambda _, slug: (
             std_mm_channel_obj if slug == slugify(std_mm_channel_name) else None
         )
@@ -487,7 +560,10 @@ permissions:
         }
 
         expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
-        self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
+        self.mock_outline_client.create_group.return_value = {
+            "id": expected_collection_id,
+            "name": outline_coll_name,
+        }
         self.mock_outline_client.get_collection_members.return_value = []
         self.mock_outline_client.add_user_to_collection.return_value = True
         mock_url_id = f"{slugify(outline_coll_name)}-urlid"  # Example urlId
@@ -524,10 +600,17 @@ permissions:
         # Count will depend on how many services are configured and succeed for this user.
         # For this test, focusing on Outline:
         outline_success_results = [r for r in successful_sync_actions if r["service"] == "OUTLINE"]
-        self.assertEqual(len(outline_success_results), 1, "Expected one successful Outline operation.")
+        self.assertEqual(
+            len(outline_success_results),
+            1,
+            "Expected one successful Outline operation.",
+        )
         outline_result = outline_success_results[0]
 
-        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT")
+        self.assertEqual(
+            outline_result["action"],
+            "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_AND_DM_SENT",
+        )
         self.mock_mattermost_client.send_dm.assert_called_once()
         call_args = self.mock_mattermost_client.send_dm.call_args[0]
         self.assertEqual(call_args[0], mm_user_for_dm["id"])
@@ -570,11 +653,23 @@ permissions:
             base_name=base_name
         )
         outline_coll_name = mock_entity_config["outline"]["collection_name_pattern"].format(base_name=base_name)
-        std_auth_group_obj = {"name": std_auth_group_name, "pk": "std_auth_pk_dm_fail", "users": [], "users_obj": []}
+        std_auth_group_obj = {
+            "name": std_auth_group_name,
+            "pk": "std_auth_pk_dm_fail",
+            "users": [],
+            "users_obj": [],
+        }
         all_authentik_groups_by_name_fixture = {std_auth_group_name: std_auth_group_obj}
-        mm_user_for_dm = {"username": "dm_user_fail", "email": "dmuserfail@example.com", "id": "mm_user_id_dm_fail"}
+        mm_user_for_dm = {
+            "username": "dm_user_fail",
+            "email": "dmuserfail@example.com",
+            "id": "mm_user_id_dm_fail",
+        }
         email_map_for_dm = {"dmuserfail@example.com": "auth_user_pk_dm_fail"}
-        std_mm_channel_obj = {"id": "std_mm_chan_id_dm_fail", "display_name": std_mm_channel_name}
+        std_mm_channel_obj = {
+            "id": "std_mm_chan_id_dm_fail",
+            "display_name": std_mm_channel_name,
+        }
         self.mock_mattermost_client.get_channel_by_name.side_effect = lambda _, slug: (
             std_mm_channel_obj if slug == slugify(std_mm_channel_name) else None
         )
@@ -587,7 +682,10 @@ permissions:
 
         expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
         mock_url_id_fail = f"{slugify(outline_coll_name)}-urlidfail"
-        self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
+        self.mock_outline_client.create_group.return_value = {
+            "id": expected_collection_id,
+            "name": outline_coll_name,
+        }
         self.mock_outline_client.get_collection_members.return_value = []
         self.mock_outline_client.add_user_to_collection.return_value = True
         self.mock_outline_client.get_collection_details.return_value = {
@@ -616,7 +714,10 @@ permissions:
             skip_services=None,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
-        self.assertEqual(outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_FAILED")
+        self.assertEqual(
+            outline_result["action"],
+            "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_FAILED",
+        )
         self.mock_mattermost_client.send_dm.assert_called_once()
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
@@ -644,7 +745,12 @@ permissions:
             base_name=base_name
         )
         outline_coll_name = mock_entity_config["outline"]["collection_name_pattern"].format(base_name=base_name)
-        std_auth_group_obj = {"name": std_auth_group_name, "pk": "std_auth_pk_already", "users": [], "users_obj": []}
+        std_auth_group_obj = {
+            "name": std_auth_group_name,
+            "pk": "std_auth_pk_already",
+            "users": [],
+            "users_obj": [],
+        }
         all_authentik_groups_by_name_fixture = {std_auth_group_name: std_auth_group_obj}
         mm_user_already_member = {
             "username": "already_member",
@@ -652,11 +758,20 @@ permissions:
             "id": "mm_user_id_already",
         }
         email_map_already = {"already@example.com": "auth_user_pk_already"}
-        std_mm_channel_obj = {"id": "std_mm_chan_id_already", "display_name": std_mm_channel_name}
-        outline_user_data = {"id": "outline_user_id_already", "email": "already@example.com"}
+        std_mm_channel_obj = {
+            "id": "std_mm_chan_id_already",
+            "display_name": std_mm_channel_name,
+        }
+        outline_user_data = {
+            "id": "outline_user_id_already",
+            "email": "already@example.com",
+        }
 
         expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
-        self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
+        self.mock_outline_client.create_group.return_value = {
+            "id": expected_collection_id,
+            "name": outline_coll_name,
+        }
 
         self.mock_mattermost_client.get_channel_by_name.side_effect = lambda _, slug: (
             std_mm_channel_obj if slug == slugify(std_mm_channel_name) else None
@@ -686,7 +801,10 @@ permissions:
             skip_services=None,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
-        self.assertEqual(outline_result["action"], "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED")
+        self.assertEqual(
+            outline_result["action"],
+            "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED",
+        )
         self.mock_outline_client.add_user_to_collection.assert_called_once_with(
             expected_collection_id, outline_user_data["id"], permission="read"
         )
@@ -709,7 +827,10 @@ permissions:
                 "authentik_group_name_pattern": "projet_{base_name}",
                 "mattermost_channel_name_pattern": "projet_{base_name}",
             },
-            "outline": {"collection_name_pattern": "projet_{base_name}", "default_access": "read"},
+            "outline": {
+                "collection_name_pattern": "projet_{base_name}",
+                "default_access": "read",
+            },
         }
         # Basic setup for user and collection
         std_auth_group_name = mock_entity_config["standard"]["authentik_group_name_pattern"].format(
@@ -719,18 +840,33 @@ permissions:
             base_name=base_name
         )
         outline_coll_name = mock_entity_config["outline"]["collection_name_pattern"].format(base_name=base_name)
-        std_auth_group_obj = {"name": std_auth_group_name, "pk": "auth_pk_no_url", "users": [], "users_obj": []}
+        std_auth_group_obj = {
+            "name": std_auth_group_name,
+            "pk": "auth_pk_no_url",
+            "users": [],
+            "users_obj": [],
+        }
         all_auth_groups_by_name_fixture = {std_auth_group_name: std_auth_group_obj}
-        mm_user = {"username": "dm_no_url_user", "email": "dmnourl@example.com", "id": "mm_user_id_no_url"}
+        mm_user = {
+            "username": "dm_no_url_user",
+            "email": "dmnourl@example.com",
+            "id": "mm_user_id_no_url",
+        }
         email_map = {"dmnourl@example.com": "auth_pk_no_url"}
-        std_mm_channel_obj = {"id": "std_mm_chan_id_no_url", "display_name": std_mm_channel_name}
+        std_mm_channel_obj = {
+            "id": "std_mm_chan_id_no_url",
+            "display_name": std_mm_channel_name,
+        }
 
         self.mock_mattermost_client.get_channel_by_name.return_value = std_mm_channel_obj
         self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user]
         self.mock_authentik_client.add_user_to_group.return_value = True  # Auth part succeeds
         self.mock_outline_client.get_user_by_email.return_value = {"id": "outline_id_no_url"}
         expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
-        self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
+        self.mock_outline_client.create_group.return_value = {
+            "id": expected_collection_id,
+            "name": outline_coll_name,
+        }
         self.mock_outline_client.get_collection_members.return_value = []  # New member
         self.mock_outline_client.add_user_to_collection.return_value = True  # Outline add succeeds
         # Crucially, get_collection_details will still be called
@@ -760,7 +896,8 @@ permissions:
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
         self.assertEqual(
-            outline_result["action"], "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_SKIPPED_NO_URL"
+            outline_result["action"],
+            "USER_ADDED_TO_OUTLINE_COLLECTION_WITH_READ_ACCESS_DM_SKIPPED_NO_URL",
         )
         self.mock_mattermost_client.send_dm.assert_not_called()
 
@@ -780,7 +917,10 @@ permissions:
                 "authentik_group_name_pattern": "projet_{base_name}",
                 "mattermost_channel_name_pattern": "projet_{base_name}",
             },
-            "outline": {"collection_name_pattern": "projet_{base_name}", "default_access": "read"},
+            "outline": {
+                "collection_name_pattern": "projet_{base_name}",
+                "default_access": "read",
+            },
         }
         std_auth_group_name = mock_entity_config["standard"]["authentik_group_name_pattern"].format(
             base_name=base_name
@@ -789,7 +929,12 @@ permissions:
             base_name=base_name
         )
         outline_coll_name = mock_entity_config["outline"]["collection_name_pattern"].format(base_name=base_name)
-        std_auth_group_obj = {"name": std_auth_group_name, "pk": "auth_pk_incomplete", "users": [], "users_obj": []}
+        std_auth_group_obj = {
+            "name": std_auth_group_name,
+            "pk": "auth_pk_incomplete",
+            "users": [],
+            "users_obj": [],
+        }
         all_auth_groups_by_name_fixture = {std_auth_group_name: std_auth_group_obj}
         mm_user = {
             "username": "dm_incomplete_user",
@@ -797,14 +942,20 @@ permissions:
             "id": "mm_user_id_incomplete",
         }
         email_map = {"dmincomplete@example.com": "auth_pk_incomplete"}
-        std_mm_channel_obj = {"id": "std_mm_chan_id_incomplete", "display_name": std_mm_channel_name}
+        std_mm_channel_obj = {
+            "id": "std_mm_chan_id_incomplete",
+            "display_name": std_mm_channel_name,
+        }
 
         self.mock_mattermost_client.get_channel_by_name.return_value = std_mm_channel_obj
         self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user]
         self.mock_authentik_client.add_user_to_group.return_value = True
         self.mock_outline_client.get_user_by_email.return_value = {"id": "outline_id_incomplete"}
         expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
-        self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
+        self.mock_outline_client.create_group.return_value = {
+            "id": expected_collection_id,
+            "name": outline_coll_name,
+        }
         self.mock_outline_client.get_collection_members.return_value = []
         self.mock_outline_client.add_user_to_collection.return_value = True
         # Simulate get_collection_details missing urlId
@@ -849,8 +1000,16 @@ permissions:
             "username": "removeme_user",
         }
         auth_user_pk_to_keep = "auth_pk_to_keep"
-        auth_user_obj_to_keep = {"pk": auth_user_pk_to_keep, "email": "keepme@example.com", "username": "keepme_user"}
-        mm_user_to_keep = {"username": "keepme_user", "email": "keepme@example.com", "id": "mm_id_keep"}
+        auth_user_obj_to_keep = {
+            "pk": auth_user_pk_to_keep,
+            "email": "keepme@example.com",
+            "username": "keepme_user",
+        }
+        mm_user_to_keep = {
+            "username": "keepme_user",
+            "email": "keepme@example.com",
+            "id": "mm_id_keep",
+        }
 
         current_auth_group_name = "AuthGroupForRemovalTest"
         current_auth_group_pk = "auth_group_pk_removal"
@@ -860,8 +1019,14 @@ permissions:
             "users": [auth_user_pk_to_remove, auth_user_pk_to_keep],
             "users_obj": [auth_user_obj_to_remove, auth_user_obj_to_keep],
         }
-        email_to_pk_map = {"removeme@example.com": auth_user_pk_to_remove, "keepme@example.com": auth_user_pk_to_keep}
-        mm_channel_for_removal_test = {"id": "mm_chan_removal", "display_name": current_auth_group_name}
+        email_to_pk_map = {
+            "removeme@example.com": auth_user_pk_to_remove,
+            "keepme@example.com": auth_user_pk_to_keep,
+        }
+        mm_channel_for_removal_test = {
+            "id": "mm_chan_removal",
+            "display_name": current_auth_group_name,
+        }
         self.mock_mattermost_client.get_channel_by_name.return_value = mm_channel_for_removal_test
         self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user_to_keep]
         self.mock_authentik_client.remove_user_from_group.return_value = True
@@ -905,14 +1070,20 @@ permissions:
             and r["mm_username"] == "removeme_user"
             for r in results
         )
-        self.assertTrue(removal_action_found, "USER_REMOVED_FROM_AUTHENTIK_GROUP action not found for 'removeme_user'")
+        self.assertTrue(
+            removal_action_found,
+            "USER_REMOVED_FROM_AUTHENTIK_GROUP action not found for 'removeme_user'",
+        )
         kept_action_found = any(
             r["service"] == "AUTHENTIK"
             and r["action"] == "USER_ALREADY_IN_AUTHENTIK_GROUP"
             and r["mm_username"] == "keepme_user"
             for r in results
         )
-        self.assertTrue(kept_action_found, "USER_ALREADY_IN_AUTHENTIK_GROUP action not found for 'keepme_user'")
+        self.assertTrue(
+            kept_action_found,
+            "USER_ALREADY_IN_AUTHENTIK_GROUP action not found for 'keepme_user'",
+        )
 
     @patch("libraries.services.authentik.config")
     @patch("libraries.group_sync_services.config")
@@ -938,7 +1109,10 @@ permissions:
             "users_obj": [auth_user_obj_excluded],
         }
         email_to_pk_map = {"excluded@example.com": auth_user_pk_excluded}
-        mm_channel_for_test = {"id": "mm_chan_excl_removal", "display_name": current_auth_group_name}
+        mm_channel_for_test = {
+            "id": "mm_chan_excl_removal",
+            "display_name": current_auth_group_name,
+        }
         self.mock_mattermost_client.get_channel_by_name.return_value = mm_channel_for_test
         self.mock_mattermost_client.get_users_in_channel.return_value = []
 
@@ -992,11 +1166,19 @@ permissions:
         base_name_for_test = "OutlineRemovalTest"
         entity_key_for_test = "PROJET"
         std_auth_group_name = f"projet_{base_name_for_test}"
-        auth_group = {"name": std_auth_group_name, "pk": "auth_pk_outline_remove", "users": [], "users_obj": []}
+        auth_group = {
+            "name": std_auth_group_name,
+            "pk": "auth_pk_outline_remove",
+            "users": [],
+            "users_obj": [],
+        }
         all_auth_groups_fixture = {std_auth_group_name: auth_group}
         email_to_pk_map = {mm_user_to_keep_outline["email"]: "auth_pk_keep_outline"}
         std_mm_channel_name = f"projet_{base_name_for_test}"
-        std_mm_channel_obj = {"id": "std_mm_chan_outline_remove", "display_name": std_mm_channel_name}
+        std_mm_channel_obj = {
+            "id": "std_mm_chan_outline_remove",
+            "display_name": std_mm_channel_name,
+        }
         self.mock_mattermost_client.get_channel_by_name.side_effect = lambda _, slug: (
             std_mm_channel_obj if slug == slugify(std_mm_channel_name) else None
         )
@@ -1004,7 +1186,10 @@ permissions:
         outline_coll_name = f"projet_{base_name_for_test}"
 
         expected_collection_id = f"new_outline_id_for_{slugify(outline_coll_name)}"
-        self.mock_outline_client.create_group.return_value = {"id": expected_collection_id, "name": outline_coll_name}
+        self.mock_outline_client.create_group.return_value = {
+            "id": expected_collection_id,
+            "name": outline_coll_name,
+        }
         self.mock_outline_client.get_collection_members.return_value = [
             outline_user_id_to_remove,
             outline_user_id_to_keep,
@@ -1061,15 +1246,26 @@ permissions:
         self.mock_outline_client.add_user_to_collection.assert_called_once_with(
             expected_collection_id, outline_user_id_to_keep, permission="read"
         )
-        removal_action = next((r for r in results if r.get("action") == "USER_REMOVED_FROM_OUTLINE_COLLECTION"), None)
-        self.assertIsNotNone(removal_action, "USER_REMOVED_FROM_OUTLINE_COLLECTION action not found in results")
-        if removal_action:
-            self.assertEqual(removal_action["mm_username"], f"OutlineUserName_{outline_user_id_to_remove}")
-        kept_action = next(
-            (r for r in results if r.get("action") == "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED"), None
+        removal_action = next(
+            (r for r in results if r.get("action") == "USER_REMOVED_FROM_OUTLINE_COLLECTION"),
+            None,
         )
         self.assertIsNotNone(
-            kept_action, "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED not found for kept user"
+            removal_action,
+            "USER_REMOVED_FROM_OUTLINE_COLLECTION action not found in results",
+        )
+        if removal_action:
+            self.assertEqual(
+                removal_action["mm_username"],
+                f"OutlineUserName_{outline_user_id_to_remove}",
+            )
+        kept_action = next(
+            (r for r in results if r.get("action") == "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED"),
+            None,
+        )
+        self.assertIsNotNone(
+            kept_action,
+            "USER_ALREADY_IN_OUTLINE_COLLECTION_PERMISSION_ENSURED not found for kept user",
         )
         if kept_action:
             self.assertEqual(kept_action["mm_username"], "keepme_outline")
@@ -1090,11 +1286,19 @@ permissions:
         base_name_for_test = "OutlineExcludedTest"
         entity_key_for_test = "PROJET"
         std_auth_group_name = f"projet_{base_name_for_test}"
-        auth_group = {"name": std_auth_group_name, "pk": "auth_pk_excl_outline", "users": [], "users_obj": []}
+        auth_group = {
+            "name": std_auth_group_name,
+            "pk": "auth_pk_excl_outline",
+            "users": [],
+            "users_obj": [],
+        }
         all_auth_groups_fixture = {std_auth_group_name: auth_group}
         email_to_pk_map = {"excluded.outline@example.com": "auth_pk_excl_for_outline_test"}
         std_mm_channel_name = f"projet_{base_name_for_test}"
-        std_mm_channel_obj = {"id": "std_mm_chan_excl_outline", "display_name": std_mm_channel_name}
+        std_mm_channel_obj = {
+            "id": "std_mm_chan_excl_outline",
+            "display_name": std_mm_channel_name,
+        }
         mm_user_excluded_in_channel = {
             "username": excluded_mm_username,
             "email": "excluded.outline@example.com",
@@ -1148,7 +1352,8 @@ permissions:
             r["service"] == "OUTLINE" and r.get("mm_username") == excluded_mm_username for r in results
         )
         self.assertFalse(
-            action_for_excluded_user_in_outline, "No Outline action should be logged for an excluded user."
+            action_for_excluded_user_in_outline,
+            "No Outline action should be logged for an excluded user.",
         )
         self.mock_outline_client.create_group.assert_called_once_with(outline_coll_name)
 
@@ -1170,11 +1375,22 @@ permissions:
             ("pole_test", "O", "read"),
             ("pole_test", "P", "read_write"),
         ]
-        mm_user_fixture = {"username": "perm_user", "email": "permuser@example.com", "id": "mm_user_id_perm"}
-        outline_user_data = {"id": "outline_user_id_perm_user", "email": "permuser@example.com"}
+        mm_user_fixture = {
+            "username": "perm_user",
+            "email": "permuser@example.com",
+            "id": "mm_user_id_perm",
+        }
+        outline_user_data = {
+            "id": "outline_user_id_perm_user",
+            "email": "permuser@example.com",
+        }
         email_to_pk_map = {mm_user_fixture["email"]: "auth_user_pk_perm"}
 
-        for base_name_from_case, mm_channel_type_being_processed, expected_permission in test_cases:
+        for (
+            base_name_from_case,
+            mm_channel_type_being_processed,
+            expected_permission,
+        ) in test_cases:
             entity_key_for_test = "PROJET"
             if "antenne" in base_name_from_case.lower():
                 entity_key_for_test = "ANTENNE"
@@ -1242,8 +1458,14 @@ permissions:
                     std_auth_group_name: std_auth_group_obj,
                     adm_auth_group_name: adm_auth_group_obj,
                 }
-                std_mm_channel_obj = {"id": "std_mm_chan_id_perm_test", "display_name": std_mm_channel_name}
-                adm_mm_channel_obj = {"id": "adm_mm_chan_id_perm_test", "display_name": adm_mm_channel_name}
+                std_mm_channel_obj = {
+                    "id": "std_mm_chan_id_perm_test",
+                    "display_name": std_mm_channel_name,
+                }
+                adm_mm_channel_obj = {
+                    "id": "adm_mm_chan_id_perm_test",
+                    "display_name": adm_mm_channel_name,
+                }
 
                 def get_channel_by_name_side_effect(team_id, channel_name_slug):
                     if channel_name_slug == slugify(std_mm_channel_name):
@@ -1310,9 +1532,13 @@ permissions:
                 self.assertEqual(called_args_add_user.kwargs.get("permission"), expected_permission)
 
                 outline_result = next(
-                    (r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS"), None
+                    (r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS"),
+                    None,
                 )
-                self.assertIsNotNone(outline_result, f"No successful Outline result found for {subTest_name}")
+                self.assertIsNotNone(
+                    outline_result,
+                    f"No successful Outline result found for {subTest_name}",
+                )
                 if outline_result:
                     dm_part = "_AND_DM_SENT"
                     expected_action_val = (
@@ -1326,7 +1552,10 @@ permissions:
     @patch("libraries.group_sync_services.config")
     @async_test  # Added decorator
     async def test_orchestrate_sync_fetch_remote_false_discover_via_mm_no_deletions(
-        self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
+        self,
+        mock_lib_config,
+        mock_get_all_auth_groups_and_map,
+        mock_sync_entity_permissions_call,
     ):
         # This test will now test sync_mode="MM_TO_TOOLS"
         self.mock_authentik_client.reset_mock()
@@ -1334,7 +1563,12 @@ permissions:
         self.mock_outline_client.reset_mock()
 
         def create_auth_group_side_effect(name):
-            return {"name": name, "pk": f"auth_pk_{slugify(name)}", "users": [], "users_obj": []}
+            return {
+                "name": name,
+                "pk": f"auth_pk_{slugify(name)}",
+                "users": [],
+                "users_obj": [],
+            }
 
         self.mock_authentik_client.get_group_by_name.return_value = None
         self.mock_authentik_client.create_group.side_effect = create_auth_group_side_effect
@@ -1345,7 +1579,10 @@ permissions:
         self.mock_outline_client.create_group.side_effect = create_outline_coll_side_effect
 
         mock_team_id = "team_upsert_mode"
-        mock_email_pk_map = {"user.alpha@example.com": "auth_pk_alpha", "user.beta@example.com": "auth_pk_beta"}
+        mock_email_pk_map = {
+            "user.alpha@example.com": "auth_pk_alpha",
+            "user.beta@example.com": "auth_pk_beta",
+        }
         mock_get_all_auth_groups_and_map.return_value = ([], mock_email_pk_map)
 
         # mm_channel_projet_alpha = {"id": "mm_alpha_id", "name": "projet-alpha", "display_name": "PROJET Alpha"}
@@ -1400,7 +1637,10 @@ permissions:
     @patch("libraries.group_sync_services.config")
     @async_test  # Added decorator
     async def test_orchestrate_sync_fetch_remote_true_discover_via_auth_with_deletions(
-        self, mock_lib_config, mock_get_all_auth_groups_and_map, mock_sync_entity_permissions_call
+        self,
+        mock_lib_config,
+        mock_get_all_auth_groups_and_map,
+        mock_sync_entity_permissions_call,
     ):
         # This test will now test sync_mode="FULL_SYNC"
         self.mock_authentik_client.reset_mock()
@@ -1417,7 +1657,13 @@ permissions:
             "name": "auth_projet_Gamma",
             "pk": "auth_g_gamma",
             "users": ["u1"],
-            "users_obj": [{"pk": "u1", "email": "user.gamma@example.com", "username": "user.gamma"}],
+            "users_obj": [
+                {
+                    "pk": "u1",
+                    "email": "user.gamma@example.com",
+                    "username": "user.gamma",
+                }
+            ],
         }
         auth_group_antenne_delta_admin = {
             "name": "auth_antenne_Delta_admin",
@@ -1425,12 +1671,21 @@ permissions:
             "users": [],
             "users_obj": [],
         }
-        mock_all_auth_groups_list = [auth_group_projet_gamma, auth_group_antenne_delta_admin]
+        mock_all_auth_groups_list = [
+            auth_group_projet_gamma,
+            auth_group_antenne_delta_admin,
+        ]
         mock_email_pk_map = {"user.gamma@example.com": "auth_pk_gamma"}
 
-        mock_get_all_auth_groups_and_map.return_value = (mock_all_auth_groups_list, mock_email_pk_map)
+        mock_get_all_auth_groups_and_map.return_value = (
+            mock_all_auth_groups_list,
+            mock_email_pk_map,
+        )
         # This mock below is for the direct call inside orchestrate_group_synchronization when fetch_remote_members=True
-        self.mock_authentik_client.get_groups_with_users.return_value = (mock_all_auth_groups_list, mock_email_pk_map)
+        self.mock_authentik_client.get_groups_with_users.return_value = (
+            mock_all_auth_groups_list,
+            mock_email_pk_map,
+        )
 
         mock_lib_config.PERMISSIONS_MATRIX = {
             "PROJET": {"standard": {"authentik_group_name_pattern": "auth_projet_{base_name}"}},
@@ -1512,13 +1767,20 @@ permissions:
         self.mock_brevo_client.get_lists.return_value = []  # List does not exist
         # Use the ID pattern from the mock_brevo_client.create_list setup
         expected_created_list_id = f"new_brevo_list_id_for_{slugify(brevo_list_name)}"
-        created_list_obj_for_test = {"id": expected_created_list_id, "name": brevo_list_name}
+        created_list_obj_for_test = {
+            "id": expected_created_list_id,
+            "name": brevo_list_name,
+        }
         # Ensure create_list mock returns this structure if called
         self.mock_brevo_client.create_list.return_value = created_list_obj_for_test
         self.mock_brevo_client.add_contact_to_list.return_value = True
 
         results = self.sync_single_brevo_list_helper(
-            self.mock_brevo_client, brevo_list_name, mm_users, mm_channel_name_log, perform_deletions=False
+            self.mock_brevo_client,
+            brevo_list_name,
+            mm_users,
+            mm_channel_name_log,
+            perform_deletions=False,
         )
 
         self.mock_brevo_client.get_lists.assert_called_once_with(name=brevo_list_name)
@@ -1547,7 +1809,10 @@ permissions:
 
         mm_users_in_channel = [{"username": "user_stay", "email": "stay@example.com"}]
         # Simulate Brevo having 'stay@example.com' and 'remove@example.com'
-        brevo_contacts_on_list = [{"email": "stay@example.com"}, {"email": "remove@example.com"}]
+        brevo_contacts_on_list = [
+            {"email": "stay@example.com"},
+            {"email": "remove@example.com"},
+        ]
         self.mock_brevo_client.get_contacts_from_list.return_value = brevo_contacts_on_list
         self.mock_brevo_client.remove_contact_from_list.return_value = True
         self.mock_brevo_client.add_contact_to_list.return_value = True
@@ -1621,7 +1886,12 @@ permissions:
         )
 
     def sync_single_brevo_list_helper(
-        self, mock_brevo_client, brevo_list_name, mm_users, mm_channel_name_log, perform_deletions
+        self,
+        mock_brevo_client,
+        brevo_list_name,
+        mm_users,
+        mm_channel_name_log,
+        perform_deletions,
     ):
         """Helper to call the static _sync_single_brevo_list method for testing."""
         # This method is part of the Test class, so it can access self.
@@ -1674,7 +1944,10 @@ permissions:
         mm_channel_context = "TestNocoDBChannel"
 
         # Mock NocoDB client calls for this test
-        self.mock_nocodb_client.get_base_by_title.return_value = {"id": "nc_base_id_123", "title": nocodb_base_title}
+        self.mock_nocodb_client.get_base_by_title.return_value = {
+            "id": "nc_base_id_123",
+            "title": nocodb_base_title,
+        }
         self.mock_nocodb_client.list_base_users.return_value = []  # No users initially
         self.mock_nocodb_client.invite_user_to_base.return_value = True
         self.mock_mattermost_client.send_dm.return_value = True  # Assume DMs are sent successfully
@@ -1741,9 +2014,15 @@ permissions:
         for res in results:
             self.assertEqual(res["status"], "SUCCESS")
             if res["mm_user_email"] == "user1@nocodb.com":
-                self.assertEqual(res["action"], f"NOCODB_USER_INVITED_AS_{default_perm.upper()}_AND_DM_SENT")
+                self.assertEqual(
+                    res["action"],
+                    f"NOCODB_USER_INVITED_AS_{default_perm.upper()}_AND_DM_SENT",
+                )
             elif res["mm_user_email"] == "admin@nocodb.com":
-                self.assertEqual(res["action"], f"NOCODB_USER_INVITED_AS_{admin_perm.upper()}_AND_DM_SENT")
+                self.assertEqual(
+                    res["action"],
+                    f"NOCODB_USER_INVITED_AS_{admin_perm.upper()}_AND_DM_SENT",
+                )
 
     @patch("libraries.services.nocodb.config")
     @patch("libraries.group_sync_services.config")
@@ -1758,10 +2037,17 @@ permissions:
         entity_base_name = "NocoDMFail"
         nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
         base_id = "nc_base_id_dm_fail"
-        mm_user = {"username": "dm_fail_user", "mm_user_id": "mm_dm_fail", "is_admin_channel_member": False}
+        mm_user = {
+            "username": "dm_fail_user",
+            "mm_user_id": "mm_dm_fail",
+            "is_admin_channel_member": False,
+        }
         mm_users_for_perm = {"dm.fail@example.com": mm_user}
 
-        self.mock_nocodb_client.get_base_by_title.return_value = {"id": base_id, "title": nocodb_base_title}
+        self.mock_nocodb_client.get_base_by_title.return_value = {
+            "id": base_id,
+            "title": nocodb_base_title,
+        }
         self.mock_nocodb_client.list_base_users.return_value = []
         self.mock_nocodb_client.invite_user_to_base.return_value = True
         self.mock_mattermost_client.send_dm.return_value = False  # Simulate DM failure
@@ -1795,10 +2081,17 @@ permissions:
         entity_base_name = "NocoDMSkip"
         nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
         base_id = "nc_base_id_dm_skip"
-        mm_user = {"username": "dm_skip_user", "mm_user_id": "mm_dm_skip", "is_admin_channel_member": False}
+        mm_user = {
+            "username": "dm_skip_user",
+            "mm_user_id": "mm_dm_skip",
+            "is_admin_channel_member": False,
+        }
         mm_users_for_perm = {"dm.skip@example.com": mm_user}
 
-        self.mock_nocodb_client.get_base_by_title.return_value = {"id": base_id, "title": nocodb_base_title}
+        self.mock_nocodb_client.get_base_by_title.return_value = {
+            "id": base_id,
+            "title": nocodb_base_title,
+        }
         self.mock_nocodb_client.list_base_users.return_value = []
         self.mock_nocodb_client.invite_user_to_base.return_value = True
 
@@ -1849,7 +2142,11 @@ permissions:
         }
         # NocoDB users initially: user1 (owner), user_to_remove (viewer)
         initial_nocodb_users = [
-            {"id": "nc_uid1", "email": "user1.update@nocodb.com", "roles": "owner"},  # Role needs update
+            {
+                "id": "nc_uid1",
+                "email": "user1.update@nocodb.com",
+                "roles": "owner",
+            },  # Role needs update
             {
                 "id": "nc_uid_remove",
                 "email": "user.remove@nocodb.com",
@@ -1859,7 +2156,10 @@ permissions:
             },
         ]
 
-        self.mock_nocodb_client.get_base_by_title.return_value = {"id": base_id, "title": nocodb_base_title}
+        self.mock_nocodb_client.get_base_by_title.return_value = {
+            "id": base_id,
+            "title": nocodb_base_title,
+        }
         self.mock_nocodb_client.list_base_users.return_value = initial_nocodb_users
         self.mock_nocodb_client.update_base_user.return_value = True
         self.mock_nocodb_client.delete_base_user.return_value = True  # This actually sets role to no-access
@@ -1918,11 +2218,22 @@ permissions:
         }
         # Excluded user is on NocoDB, should be preserved. Another user on NocoDB not in MM should be removed.
         initial_nocodb_users = [
-            {"id": "nc_uid_excl", "email": "excluded.user@nocodb.com", "roles": "editor"},
-            {"id": "nc_uid_remove_excl_test", "email": "remove.excl@nocodb.com", "roles": "viewer"},
+            {
+                "id": "nc_uid_excl",
+                "email": "excluded.user@nocodb.com",
+                "roles": "editor",
+            },
+            {
+                "id": "nc_uid_remove_excl_test",
+                "email": "remove.excl@nocodb.com",
+                "roles": "viewer",
+            },
         ]
 
-        self.mock_nocodb_client.get_base_by_title.return_value = {"id": base_id, "title": nocodb_base_title}
+        self.mock_nocodb_client.get_base_by_title.return_value = {
+            "id": base_id,
+            "title": nocodb_base_title,
+        }
         self.mock_nocodb_client.list_base_users.return_value = initial_nocodb_users
         self.mock_nocodb_client.invite_user_to_base.return_value = True  # For normal.user
         self.mock_nocodb_client.delete_base_user.return_value = True  # For remove.excl
@@ -1953,7 +2264,10 @@ permissions:
 
         actions = {r["mm_user_email"]: r["action"] for r in results if "mm_user_email" in r}
         # Assuming send_dm is True by default from setUp or previous context if not reset and overridden
-        self.assertEqual(actions.get("normal.user@nocodb.com"), "NOCODB_USER_INVITED_AS_VIEWER_AND_DM_SENT")
+        self.assertEqual(
+            actions.get("normal.user@nocodb.com"),
+            "NOCODB_USER_INVITED_AS_VIEWER_AND_DM_SENT",
+        )
         self.assertEqual(actions.get("remove.excl@nocodb.com"), "NOCODB_USER_REMOVED_FROM_BASE")
         self.assertNotIn("excluded.user@nocodb.com", actions)  # No action logged for excluded user if already present
 
@@ -1998,7 +2312,11 @@ permissions:
             "id": "mm_chan_skip_id",
             "display_name": f"{entity_key.lower()}_{base_name}",
         }
-        mm_user_data = {"username": "testuser", "email": "test@example.com", "id": "mm_user_id_skip"}
+        mm_user_data = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "id": "mm_user_id_skip",
+        }
         self.mock_mattermost_client.get_users_in_channel.return_value = [mm_user_data]
 
         # Ensure other clients are minimally mocked if their sync logic were to be called (though not expected for this test focus)
@@ -2053,7 +2371,11 @@ permissions:
         )
 
         collection_name = "TestVWCollection"
-        mm_user_data = {"username": "vw_user1", "mm_user_id": "mm_vw_u1", "is_admin_channel_member": False}
+        mm_user_data = {
+            "username": "vw_user1",
+            "mm_user_id": "mm_vw_u1",
+            "is_admin_channel_member": False,
+        }
         mm_users_for_services = {"vw.user1@example.com": mm_user_data}
         mm_channel_context = "TestVWChannel"
 
@@ -2101,7 +2423,12 @@ permissions:
         )
 
         collection_name = "VWCollectionDMFail"
-        mm_users_for_services = {"vw.dm.fail@example.com": {"username": "vw_dm_fail", "mm_user_id": "mm_vw_dm_fail"}}
+        mm_users_for_services = {
+            "vw.dm.fail@example.com": {
+                "username": "vw_dm_fail",
+                "mm_user_id": "mm_vw_dm_fail",
+            }
+        }
 
         self.mock_vaultwarden_client.get_collection_by_name.return_value = "vw_coll_id_dm_fail"
         self.mock_vaultwarden_client._get_api_token.return_value = "fake_vw_api_token"
@@ -2131,7 +2458,12 @@ permissions:
         )
 
         collection_name = "VWCollectionDMSkip"
-        mm_users_for_services = {"vw.dm.skip@example.com": {"username": "vw_dm_skip", "mm_user_id": "mm_vw_dm_skip"}}
+        mm_users_for_services = {
+            "vw.dm.skip@example.com": {
+                "username": "vw_dm_skip",
+                "mm_user_id": "mm_vw_dm_skip",
+            }
+        }
 
         self.mock_vaultwarden_client.get_collection_by_name.return_value = "vw_coll_id_dm_skip"
         self.mock_vaultwarden_client._get_api_token.return_value = "fake_vw_api_token"
@@ -2159,7 +2491,10 @@ permissions:
 
         collection_name = "VWCollectionInviteFail"
         mm_users_for_services = {
-            "vw.invite.fail@example.com": {"username": "vw_invite_fail", "mm_user_id": "mm_vw_invite_fail"}
+            "vw.invite.fail@example.com": {
+                "username": "vw_invite_fail",
+                "mm_user_id": "mm_vw_invite_fail",
+            }
         }
 
         self.mock_vaultwarden_client.get_collection_by_name.return_value = "vw_coll_id_invite_fail"
@@ -2197,10 +2532,17 @@ permissions:
                 {"pk": 2, "email": "keep@me.com", "username": "keep_user"},
             ],
         }
-        mock_authentik_client.get_groups_with_users.return_value = ([mock_auth_group1], {})
+        mock_authentik_client.get_groups_with_users.return_value = (
+            [mock_auth_group1],
+            {},
+        )
 
         mock_map_group.return_value = "PROJET", "Test1"
-        mock_get_mm_users.return_value = ({}, [{"email": "keep@me.com", "username": "keep_user"}], [])
+        mock_get_mm_users.return_value = (
+            {},
+            [{"email": "keep@me.com", "username": "keep_user"}],
+            [],
+        )
 
         mock_remove_user.return_value = {"status": "SUCCESS"}
 
@@ -2241,10 +2583,17 @@ permissions:
                 {"pk": 2, "email": "keep@me.com", "username": "keep_user"},
             ],
         }
-        mock_authentik_client.get_groups_with_users.return_value = ([mock_auth_group1], {})
+        mock_authentik_client.get_groups_with_users.return_value = (
+            [mock_auth_group1],
+            {},
+        )
 
         mock_map_group.return_value = "PROJET", "Test1"
-        mock_get_mm_users.return_value = ({}, [{"email": "keep@me.com", "username": "keep_user"}], [])
+        mock_get_mm_users.return_value = (
+            {},
+            [{"email": "keep@me.com", "username": "keep_user"}],
+            [],
+        )
 
         from libraries.group_sync_services import _sync_entity_permissions_tools_to_mm
 
@@ -2267,7 +2616,12 @@ permissions:
 
         self.mock_outline_client.remove_user_from_collection.return_value = True
         result = _remove_user_from_outline_collection(
-            self.mock_outline_client, "coll_id", "coll_name", "user_id", "user_email", "channel_name"
+            self.mock_outline_client,
+            "coll_id",
+            "coll_name",
+            "user_id",
+            "user_email",
+            "channel_name",
         )
         self.assertEqual(result["status"], "SUCCESS")
         self.assertEqual(result["action"], "USER_REMOVED_FROM_OUTLINE_COLLECTION")
@@ -2278,7 +2632,12 @@ permissions:
 
         self.mock_outline_client.remove_user_from_collection.return_value = False
         result = _remove_user_from_outline_collection(
-            self.mock_outline_client, "coll_id", "coll_name", "user_id", "user_email", "channel_name"
+            self.mock_outline_client,
+            "coll_id",
+            "coll_name",
+            "user_id",
+            "user_email",
+            "channel_name",
         )
         self.assertEqual(result["status"], "FAILURE")
         self.assertEqual(result["action"], "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION")
@@ -2289,7 +2648,12 @@ permissions:
 
         self.mock_nocodb_client.delete_base_user.return_value = True
         result = _remove_user_from_nocodb_base(
-            self.mock_nocodb_client, "base_id", "base_title", "user_id", "user_email", "channel_name"
+            self.mock_nocodb_client,
+            "base_id",
+            "base_title",
+            "user_id",
+            "user_email",
+            "channel_name",
         )
         self.assertEqual(result["status"], "SUCCESS")
         self.assertEqual(result["action"], "NOCODB_USER_REMOVED_FROM_BASE")
@@ -2300,7 +2664,12 @@ permissions:
 
         self.mock_nocodb_client.delete_base_user.return_value = False
         result = _remove_user_from_nocodb_base(
-            self.mock_nocodb_client, "base_id", "base_title", "user_id", "user_email", "channel_name"
+            self.mock_nocodb_client,
+            "base_id",
+            "base_title",
+            "user_id",
+            "user_email",
+            "channel_name",
         )
         self.assertEqual(result["status"], "FAILURE")
         self.assertEqual(result["action"], "FAILED_TO_REMOVE_NOCODB_USER")
@@ -2354,9 +2723,15 @@ permissions:
             "pk": "pk1",
             "users_obj": [],
         }
-        mock_authentik_client.get_groups_with_users.return_value = ([mock_auth_group], {})
+        mock_authentik_client.get_groups_with_users.return_value = (
+            [mock_auth_group],
+            {},
+        )
 
-        with patch("libraries.group_sync_services._get_mm_users_for_entity", return_value=({}, [], [])):
+        with patch(
+            "libraries.group_sync_services._get_mm_users_for_entity",
+            return_value=({}, [], []),
+        ):
             await _sync_entity_permissions_tools_to_mm(
                 service_client=mock_authentik_client,
                 service_name="AUTHENTIK",

@@ -7,7 +7,6 @@ from clients.authentik_client import AuthentikClient
 
 
 class TestAuthentikClient(unittest.TestCase):
-
     def setUp(self):
         self.mock_url = "http://fake-authentik-url.com"
         self.mock_token = "fake_auth_token"
@@ -74,9 +73,16 @@ class TestAuthentikClient(unittest.TestCase):
                 {
                     "pk": "g1",
                     "name": "Group 1",
-                    "users_obj": [{"email": "a@a.com", "pk": 1}, {"email": "b@b.com", "pk": 2}],
+                    "users_obj": [
+                        {"email": "a@a.com", "pk": 1},
+                        {"email": "b@b.com", "pk": 2},
+                    ],
                 },
-                {"pk": "g2", "name": "Group 2", "users_obj": [{"email": "c@c.com", "pk": 3}]},
+                {
+                    "pk": "g2",
+                    "name": "Group 2",
+                    "users_obj": [{"email": "c@c.com", "pk": 3}],
+                },
             ],
             "pagination": {"next": None},
         }
@@ -93,17 +99,30 @@ class TestAuthentikClient(unittest.TestCase):
         self.assertEqual(email_map["b@b.com"], 2)
         self.assertEqual(email_map["c@c.com"], 3)
         mock_get.assert_called_once_with(
-            f"{self.mock_url}/api/v3/core/groups/?include_users=true", headers=self.client.headers
+            f"{self.mock_url}/api/v3/core/groups/?include_users=true",
+            headers=self.client.headers,
         )
 
     @patch("requests.get")
     def test_get_groups_with_users_success_with_pagination(self, mock_get):
         mock_response_page1_data = {
-            "results": [{"pk": "g1", "name": "Group 1", "users_obj": [{"email": "a@a.com", "pk": 1}]}],
+            "results": [
+                {
+                    "pk": "g1",
+                    "name": "Group 1",
+                    "users_obj": [{"email": "a@a.com", "pk": 1}],
+                }
+            ],
             "pagination": {"next": f"{self.mock_url}/api/v3/core/groups/?page=2&include_users=true"},
         }
         mock_response_page2_data = {
-            "results": [{"pk": "g2", "name": "Group 2", "users_obj": [{"email": "b@b.com", "pk": 2}]}],
+            "results": [
+                {
+                    "pk": "g2",
+                    "name": "Group 2",
+                    "users_obj": [{"email": "b@b.com", "pk": 2}],
+                }
+            ],
             "pagination": {"next": None},
         }
         mock_response_page1 = Mock(status_code=200)
@@ -122,10 +141,12 @@ class TestAuthentikClient(unittest.TestCase):
         self.assertEqual(email_map["b@b.com"], 2)
         self.assertEqual(mock_get.call_count, 2)
         mock_get.assert_any_call(
-            f"{self.mock_url}/api/v3/core/groups/?include_users=true", headers=self.client.headers
+            f"{self.mock_url}/api/v3/core/groups/?include_users=true",
+            headers=self.client.headers,
         )
         mock_get.assert_any_call(
-            f"{self.mock_url}/api/v3/core/groups/?page=2&include_users=true", headers=self.client.headers
+            f"{self.mock_url}/api/v3/core/groups/?page=2&include_users=true",
+            headers=self.client.headers,
         )
 
     @patch("requests.get")
@@ -151,7 +172,10 @@ class TestAuthentikClient(unittest.TestCase):
                 {
                     "pk": "g1",
                     "name": "Group 1",
-                    "users_obj": [{"email": "a@a.com", "pk": 1}, {"email": "a@a.com", "pk": 2}],
+                    "users_obj": [
+                        {"email": "a@a.com", "pk": 1},
+                        {"email": "a@a.com", "pk": 2},
+                    ],
                 },
             ],
             "pagination": {"next": None},
@@ -261,9 +285,20 @@ class TestAuthentikClient(unittest.TestCase):
     def test_get_all_users_data_success_no_pagination(self, mock_get):
         mock_response_data = {
             "results": [
-                {"email": "user1@example.com", "username": "user1", "attributes": {"ville": "Paris", "exp": 5}},
-                {"email": "user2@example.com", "username": "user2", "attributes": {"ville": "Lyon"}},
-                {"email": "user3@example.com", "username": "user3"},  # No attributes field
+                {
+                    "email": "user1@example.com",
+                    "username": "user1",
+                    "attributes": {"ville": "Paris", "exp": 5},
+                },
+                {
+                    "email": "user2@example.com",
+                    "username": "user2",
+                    "attributes": {"ville": "Lyon"},
+                },
+                {
+                    "email": "user3@example.com",
+                    "username": "user3",
+                },  # No attributes field
             ],
             "pagination": {"next": None},
         }
@@ -275,9 +310,18 @@ class TestAuthentikClient(unittest.TestCase):
 
         self.assertEqual(len(users_data), 3)
 
-        expected_user1_data = {"email": "user1@example.com", "attributes": {"ville": "Paris", "exp": 5}}
-        expected_user2_data = {"email": "user2@example.com", "attributes": {"ville": "Lyon"}}
-        expected_user3_data = {"email": "user3@example.com", "attributes": {}}  # Default to empty dict
+        expected_user1_data = {
+            "email": "user1@example.com",
+            "attributes": {"ville": "Paris", "exp": 5},
+        }
+        expected_user2_data = {
+            "email": "user2@example.com",
+            "attributes": {"ville": "Lyon"},
+        }
+        expected_user3_data = {
+            "email": "user3@example.com",
+            "attributes": {},
+        }  # Default to empty dict
 
         self.assertIn(expected_user1_data, users_data)
         self.assertIn(expected_user2_data, users_data)
@@ -289,11 +333,23 @@ class TestAuthentikClient(unittest.TestCase):
     @patch("requests.get")
     def test_get_all_users_data_success_with_pagination(self, mock_get):
         mock_response_page1_data = {
-            "results": [{"email": "user1@example.com", "username": "user1", "attributes": {"framework": "React"}}],
+            "results": [
+                {
+                    "email": "user1@example.com",
+                    "username": "user1",
+                    "attributes": {"framework": "React"},
+                }
+            ],
             "pagination": {"next": f"{self.mock_url}/api/v3/core/users/?page=2"},
         }
         mock_response_page2_data = {
-            "results": [{"email": "user2@example.com", "username": "user2", "attributes": {"totem": "Lion"}}],
+            "results": [
+                {
+                    "email": "user2@example.com",
+                    "username": "user2",
+                    "attributes": {"totem": "Lion"},
+                }
+            ],
             "pagination": {"next": None},
         }
         mock_response_page1 = Mock(status_code=200)
@@ -306,8 +362,14 @@ class TestAuthentikClient(unittest.TestCase):
         users_data = self.client.get_all_users_data()
 
         self.assertEqual(len(users_data), 2)
-        expected_user1_data = {"email": "user1@example.com", "attributes": {"framework": "React"}}
-        expected_user2_data = {"email": "user2@example.com", "attributes": {"totem": "Lion"}}
+        expected_user1_data = {
+            "email": "user1@example.com",
+            "attributes": {"framework": "React"},
+        }
+        expected_user2_data = {
+            "email": "user2@example.com",
+            "attributes": {"totem": "Lion"},
+        }
         self.assertIn(expected_user1_data, users_data)
         self.assertIn(expected_user2_data, users_data)
 
@@ -344,7 +406,10 @@ class TestAuthentikClient(unittest.TestCase):
     def test_get_all_users_data_user_without_email(self, mock_get):
         mock_response_data = {
             "results": [
-                {"username": "user1_no_email", "attributes": {"ville": "Inconnue"}},  # User without email field
+                {
+                    "username": "user1_no_email",
+                    "attributes": {"ville": "Inconnue"},
+                },  # User without email field
                 {"email": "user2@example.com", "username": "user2", "attributes": {}},
             ],
             "pagination": {"next": None},

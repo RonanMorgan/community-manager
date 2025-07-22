@@ -73,7 +73,8 @@ if __name__ == "__main__":
         logging.info("Script de synchronisation Authentik vers Brevo terminé avec succès.")
     except Exception as e:
         logging.error(
-            f"Une erreur s'est produite pendant l'exécution du script de synchronisation : {e}", exc_info=True
+            f"Une erreur s'est produite pendant l'exécution du script de synchronisation : {e}",
+            exc_info=True,
         )
         sys.exit(1)  # Quitter avec un code d'erreur en cas d'échec grave non géré dans la fonction principale
     sys.exit(0)  # Quitter avec succès

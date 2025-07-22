@@ -19,7 +19,9 @@ class UpdateAllUserRightsCommand(BaseCommand):
         if not self.bot.mattermost_api_client or not user_id_who_posted:
             logging.error("Mattermost API client or user_id_who_posted not available for permission check.")
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, ":x: Erreur interne : Impossible de vérifier les permissions."
+                self.bot.envoyer_message,
+                channel_id,
+                ":x: Erreur interne : Impossible de vérifier les permissions.",
             )
             return
 
@@ -52,7 +54,12 @@ class UpdateAllUserRightsCommand(BaseCommand):
                 "Bot is not properly configured for rights update (upsert): Missing Authentik client, "
                 "Mattermost API client, or Mattermost Team ID."
             )
-            await asyncio.to_thread(self.bot.envoyer_message, channel_id, error_msg, thread_id=initial_post_id)
+            await asyncio.to_thread(
+                self.bot.envoyer_message,
+                channel_id,
+                error_msg,
+                thread_id=initial_post_id,
+            )
             return
 
         try:
@@ -67,7 +74,10 @@ class UpdateAllUserRightsCommand(BaseCommand):
                 "nocodb": self.bot.nocodb_client,
                 "vaultwarden": self.bot.vaultwarden_client,
             }
-            orchestration_success, detailed_results = await orchestrate_group_synchronization(
+            (
+                orchestration_success,
+                detailed_results,
+            ) = await orchestrate_group_synchronization(
                 clients=clients,
                 mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
                 perform_deletions=False,
@@ -83,22 +93,34 @@ class UpdateAllUserRightsCommand(BaseCommand):
                     ":x: La mise à jour des droits (upsert) a échoué de manière critique durant l'orchestration. "
                     "Veuillez consulter les logs du serveur pour plus de détails."
                 )
-                await asyncio.to_thread(self.bot.envoyer_message, channel_id, summary_msg, thread_id=initial_post_id)
+                await asyncio.to_thread(
+                    self.bot.envoyer_message,
+                    channel_id,
+                    summary_msg,
+                    thread_id=initial_post_id,
+                )
             else:
                 logging.info(
                     f"Group synchronization task (upsert mode) orchestration completed. Detailed results count: {len(detailed_results)}"
                 )
                 await self.bot.result_manager.format_and_send_sync_results(
-                    channel_id, initial_post_id, detailed_results, command_name="Mise à jour (upsert)"
+                    channel_id,
+                    initial_post_id,
+                    detailed_results,
+                    command_name="Mise à jour (upsert)",
                 )
 
         except Exception as e:
             logging.error(
-                f"An unexpected error occurred while dispatching or running the upsert task: {e}", exc_info=True
+                f"An unexpected error occurred while dispatching or running the upsert task: {e}",
+                exc_info=True,
             )
             error_response_msg = ":boom: Une erreur serveur inattendue s'est produite lors de la tentative d'exécution de la mise à jour des droits (upsert). Veuillez consulter les logs du serveur."
             await asyncio.to_thread(
-                self.bot.envoyer_message, channel_id, error_response_msg, thread_id=initial_post_id
+                self.bot.envoyer_message,
+                channel_id,
+                error_response_msg,
+                thread_id=initial_post_id,
             )
 
     @staticmethod

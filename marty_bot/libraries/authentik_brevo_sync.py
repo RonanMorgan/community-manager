@@ -58,7 +58,15 @@ def sync_authentik_users_to_brevo_list():
     BREVO_API_KEY = os.getenv("BREVO_API_KEY")
     BREVO_AUTHENTIK_USERS_LIST_ID_STR = os.getenv("BREVO_AUTHENTIK_USERS_LIST_ID")
 
-    if not all([AUTHENTIK_URL, AUTHENTIK_TOKEN, BREVO_API_URL, BREVO_API_KEY, BREVO_AUTHENTIK_USERS_LIST_ID_STR]):
+    if not all(
+        [
+            AUTHENTIK_URL,
+            AUTHENTIK_TOKEN,
+            BREVO_API_URL,
+            BREVO_API_KEY,
+            BREVO_AUTHENTIK_USERS_LIST_ID_STR,
+        ]
+    ):
         logging.error(
             "Missing one or more required environment variables for Authentik/Brevo sync: "
             "AUTHENTIK_URL, AUTHENTIK_TOKEN, BREVO_API_URL, BREVO_API_KEY, BREVO_AUTHENTIK_USERS_LIST_ID"
@@ -129,7 +137,9 @@ def sync_authentik_users_to_brevo_list():
                 )
 
                 if brevo_client.add_contact_to_list(
-                    email=email_to_add, list_id=brevo_list_id, attributes=brevo_attributes
+                    email=email_to_add,
+                    list_id=brevo_list_id,
+                    attributes=brevo_attributes,
                 ):
                     added_count += 1
                 else:
@@ -150,7 +160,10 @@ def sync_authentik_users_to_brevo_list():
     ) as ve:  # Handles AuthentikClient/BrevoClient init errors if URLs/tokens are invalid after load_dotenv
         logging.error(f"Configuration error during client initialization: {ve}")
     except Exception as e:
-        logging.error(f"An unexpected error occurred during Authentik to Brevo sync: {e}", exc_info=True)
+        logging.error(
+            f"An unexpected error occurred during Authentik to Brevo sync: {e}",
+            exc_info=True,
+        )
 
 
 if __name__ == "__main__":

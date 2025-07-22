@@ -6,7 +6,6 @@ from clients.outline_client import OutlineClient  # Import the class
 
 
 class TestOutlineClient2(unittest.TestCase):
-
     def setUp(self):
         self.mock_url = "http://fake-outline-url.com"
         self.mock_token = "fake_outline_token"
@@ -46,7 +45,10 @@ class TestOutlineClient2(unittest.TestCase):
             Mock(
                 status_code=200,
                 json=lambda: {
-                    "data": [{"id": "coll-1", "name": "First"}, {"id": "coll-2", "name": "Second"}],
+                    "data": [
+                        {"id": "coll-1", "name": "First"},
+                        {"id": "coll-2", "name": "Second"},
+                    ],
                     "pagination": {"limit": 2, "offset": 0, "total": 3},
                 },
             ),
