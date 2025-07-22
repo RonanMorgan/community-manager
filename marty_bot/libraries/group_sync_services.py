@@ -222,6 +222,25 @@ async def differential_sync(
 
     check_clients(clients)
 
+    logging.info("Pre-fetching all Mattermost channel members for differential sync...")
+    all_mm_channels = mattermost_client.get_channels_for_team(mm_team_id)
+    mm_channel_members = {}
+    for channel in all_mm_channels:
+        channel_id = channel.get("id")
+        # Check if channel is relevant to any service based on permissions matrix
+        entity_key, base_name = _map_mm_channel_to_entity_and_base_name(
+            channel.get("name"), channel.get("display_name"), config.PERMISSIONS_MATRIX
+        )
+        if entity_key and base_name:
+            logging.debug(
+                f"Channel '{channel.get('display_name')}' maps to entity '{base_name}' ({entity_key}). Fetching members."
+            )
+            mm_channel_members[channel_id] = mattermost_client.get_users_in_channel(channel_id)
+        else:
+            logging.debug(
+                f"Channel '{channel.get('display_name')}' does not map to a configured entity. Skipping member fetch."
+            )
+
     logging.info("Iterating through configured services.")
     services = [
         AuthentikService(clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
@@ -233,7 +252,7 @@ async def differential_sync(
 
     for service in services:
         if service.client and service.SERVICE_NAME.lower() not in skip_services:
-            service_results = await service.differential_sync()
+            service_results = await service.differential_sync(mm_channel_members)
             detailed_results.extend(service_results)
         else:
             logging.info(f"Service client for {service.SERVICE_NAME} not configured, skipping for differential sync.")

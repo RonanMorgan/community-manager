@@ -5,7 +5,7 @@ import config
 from app.enums import SyncStatus
 from clients.authentik_client import AuthentikAction
 from .base import Service as SyncService
-from .mattermost import _extract_base_name, _get_mm_users_for_entity
+from .mattermost import _extract_base_name
 
 if TYPE_CHECKING:
     from clients.authentik_client import AuthentikClient
@@ -267,7 +267,7 @@ class AuthentikService(SyncService):
                 )
         return results
 
-    async def differential_sync(self):
+    async def differential_sync(self, mm_channel_members: dict):
         results = []
         all_auth_groups, email_to_authentik_user_pk_map = self.client.get_groups_with_users()
         if not all_auth_groups:
@@ -294,8 +294,8 @@ class AuthentikService(SyncService):
             if admin_cfg and _extract_base_name(group.get("name"), admin_cfg.get("authentik_group_name_pattern", "")):
                 is_admin_group = True
 
-            _, std_mm_users, adm_mm_users = _get_mm_users_for_entity(
-                self.mattermost_client, self.mm_team_id, base_name, entity_config
+            _, std_mm_users, adm_mm_users = self.get_mm_users_for_entity(
+                base_name, entity_config, mm_channel_members
             )
 
             mm_users_for_this_group = adm_mm_users if is_admin_group else std_mm_users

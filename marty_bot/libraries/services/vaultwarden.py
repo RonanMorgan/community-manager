@@ -5,7 +5,7 @@ import config
 from app.enums import SyncStatus
 from clients.vaultwarden_client import VaultwardenAction
 from .base import Service as SyncService
-from .mattermost import _extract_base_name, _get_mm_users_for_entity
+from .mattermost import _extract_base_name
 
 if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
@@ -253,7 +253,7 @@ class VaultwardenService(SyncService):
             log_channel_name,
         )
 
-    async def differential_sync(self):
+    async def differential_sync(self, mm_channel_members: dict):
         results = []
         all_collections = self.client.get_collections_details()
         if not all_collections:
@@ -277,8 +277,8 @@ class VaultwardenService(SyncService):
                 continue
 
             entity_config = self.permissions_matrix.get(entity_key, {})
-            mm_users_for_services, _, _ = _get_mm_users_for_entity(
-                self.mattermost_client, self.mm_team_id, base_name, entity_config
+            mm_users_for_services, _, _ = self.get_mm_users_for_entity(
+                base_name, entity_config, mm_channel_members
             )
             mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
 

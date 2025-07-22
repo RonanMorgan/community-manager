@@ -373,19 +373,23 @@ class TestVaultwardenDifferentialSync(unittest.TestCase):
         mock_vw_client.update_collection.return_value = True
 
         # Mock Mattermost client to return only the user to keep
-        with patch("libraries.services.vaultwarden._get_mm_users_for_entity") as mock_get_mm_users:
-            mock_get_mm_users.return_value = ({"keep@test.com": {}}, [], [])
+        mm_channel_members_data = {"some_channel_id": [{"email": "keep@test.com"}]}
 
-            # Instantiate the service with mocked clients
-            vaultwarden_service = VaultwardenService(
-                client=mock_vw_client,
-                mattermost_client=mock_mm_client,
-                permissions_matrix=permissions_matrix,
-                mm_team_id=mm_team_id,
-            )
+        # Instantiate the service with mocked clients
+        vaultwarden_service = VaultwardenService(
+            client=mock_vw_client,
+            mattermost_client=mock_mm_client,
+            permissions_matrix=permissions_matrix,
+            mm_team_id=mm_team_id,
+        )
 
-            # Act
-            results = await vaultwarden_service.differential_sync()
+        # Mock the get_mm_users_for_entity method on the service instance
+        vaultwarden_service.get_mm_users_for_entity = MagicMock(
+            return_value=({"keep@test.com": {}}, [{"email": "keep@test.com"}], [])
+        )
+
+        # Act
+        results = await vaultwarden_service.differential_sync(mm_channel_members_data)
 
         # Assert
         self.assertEqual(len(results), 1)

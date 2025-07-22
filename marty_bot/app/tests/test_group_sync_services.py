@@ -932,6 +932,39 @@ permissions:
         self.mock_mattermost_client.send_dm.assert_not_called()  # No DM if invite failed
 
 
+    @async_test
+    async def test_all_services_have_correct_differential_sync_signature(self):
+        clients = {
+            "authentik": self.mock_authentik_client,
+            "mattermost": self.mock_mattermost_client,
+            "outline": self.mock_outline_client,
+            "brevo": self.mock_brevo_client,
+            "nocodb": self.mock_nocodb_client,
+            "vaultwarden": self.mock_vaultwarden_client,
+        }
+        from libraries.group_sync_services import differential_sync
+        from unittest.mock import AsyncMock
+
+        with patch("libraries.group_sync_services.check_clients"), patch(
+            "libraries.group_sync_services.AuthentikService"
+        ) as MockAuth, patch("libraries.group_sync_services.OutlineService") as MockOutline, patch(
+            "libraries.group_sync_services.BrevoService"
+        ) as MockBrevo, patch("libraries.group_sync_services.NocoDBService") as MockNocoDB, patch(
+            "libraries.group_sync_services.VaultwardenService"
+        ) as MockVW:
+            services_to_mock = [MockAuth, MockOutline, MockBrevo, MockNocoDB, MockVW]
+            for service_mock in services_to_mock:
+                instance = service_mock.return_value
+                instance.differential_sync = AsyncMock(return_value=[])
+                # Make sure the client attribute is set on the instance
+                instance.client = MagicMock()
+            clients["mattermost"].get_channels_for_team.return_value = []
+            try:
+                await differential_sync(clients, "test_team_id")
+            except TypeError as e:
+                self.fail(f"differential_sync call failed with TypeError: {e}")
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -957,14 +990,26 @@ class TestAuthentikService(unittest.TestCase):
             {},
         )
 
-        mock_mattermost_client.get_users_in_channel.return_value = [{"email": "keep@me.com", "username": "keep_user"}]
+        # This data would be pre-fetched and passed in mm_channel_members
+        mm_channel_members_data = {"channel_id_for_projet_test1": [{"email": "keep@me.com", "username": "keep_user"}]}
+
         from libraries.services.authentik import AuthentikService
 
         service = AuthentikService(mock_authentik_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id)
+
+        # Mock the helper function that is now part of the service instance
+        service.get_mm_users_for_entity = MagicMock(
+            return_value=(
+                {"keep@me.com": {"username": "keep_user"}},  # mm_users_for_services
+                [{"email": "keep@me.com", "username": "keep_user"}],  # std_mm_users
+                [],  # adm_mm_users
+            )
+        )
+
         with patch.object(
             service, "remove_user_from_authentik_group", return_value={"status": "SUCCESS"}
         ) as mock_remove_user:
-            results = await service.differential_sync()
+            results = await service.differential_sync(mm_channel_members_data)
             mock_remove_user.assert_called_once_with(
                 mock_authentik_client, "pk1", "projet_Test1", 1, "remove@me.com", "Test1"
             )
