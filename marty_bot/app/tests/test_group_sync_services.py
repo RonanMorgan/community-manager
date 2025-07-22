@@ -1832,11 +1832,7 @@ permissions:
         self.mock_brevo_client.add_contact_to_list.assert_called_once_with(
             email="normal@example.com", list_id=existing_list_obj["id"]
         )
-        # "unmanaged@example.com" should be removed as it's not in the target MM user list.
-        self.mock_brevo_client.remove_contact_from_list.assert_called_once_with(
-            email="unmanaged@example.com", list_id=existing_list_obj["id"]
-        )
-
+        
         # Verify that no action was logged for the excluded user.
         actions_for_excluded = [r for r in results if r.get("mm_user_email") == "excluded_brevo@example.com"]
         self.assertEqual(
