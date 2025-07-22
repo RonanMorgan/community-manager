@@ -14,7 +14,7 @@ from libraries.group_sync_services import (
     orchestrate_group_synchronization,
     sync_entity_permissions,
 )
-from libraries.services.authentik import _map_auth_group_to_entity_and_base_name
+from libraries.services.authentik import AuthentikService
 from libraries.services.mattermost import (
     _extract_base_name,
     _map_mm_channel_to_entity_and_base_name,
@@ -139,29 +139,30 @@ class TestGroupSyncServices(unittest.TestCase):
                 "standard": {"authentik_group_name_pattern": "antenne_{base_name}_standard"},
             },
         }
+        authentik_service = AuthentikService(None, None, None, None)
         self.assertEqual(
-            _map_auth_group_to_entity_and_base_name("projet_MonProjet", matrix),
+            authentik_service._map_auth_group_to_entity_and_base_name("projet_MonProjet", matrix),
             ("PROJET", "MonProjet"),
         )
         self.assertEqual(
-            _map_auth_group_to_entity_and_base_name("projet_MonProjet_admin", matrix),
+            authentik_service._map_auth_group_to_entity_and_base_name("projet_MonProjet_admin", matrix),
             ("PROJET", "MonProjet"),
         )
         # "projet_admin" will be matched by "projet_{base_name}" (standard) before "projet_{base_name}_admin" (admin)
         # because _extract_base_name("projet_admin", "projet_{base_name}_admin") returns None.
         self.assertEqual(
-            _map_auth_group_to_entity_and_base_name("projet_admin", matrix),
+            authentik_service._map_auth_group_to_entity_and_base_name("projet_admin", matrix),
             ("PROJET", "admin"),
         )
         self.assertEqual(
-            _map_auth_group_to_entity_and_base_name("projet__admin", matrix),
+            authentik_service._map_auth_group_to_entity_and_base_name("projet__admin", matrix),
             ("PROJET", ""),
         )  # Test expects "" now
         self.assertEqual(
-            _map_auth_group_to_entity_and_base_name("antenne_MaRegion_standard", matrix),
+            authentik_service._map_auth_group_to_entity_and_base_name("antenne_MaRegion_standard", matrix),
             ("ANTENNE", "MaRegion"),
         )
-        self.assertIsNone(_map_auth_group_to_entity_and_base_name("unknown_group_format", matrix)[0])
+        self.assertIsNone(authentik_service._map_auth_group_to_entity_and_base_name("unknown_group_format", matrix)[0])
 
     def test_map_mm_channel_to_entity_and_base_name(self):
         matrix = {
@@ -1571,16 +1572,10 @@ permissions:
         mm_channel_name_log,
     ):
         """Helper to call the static _sync_single_brevo_list method for testing."""
-        # This method is part of the Test class, so it can access self.
-        # We need to import it if it's not already available in the test file's scope.
-        # Assuming _sync_single_brevo_list is globally available or imported for these tests.
-        # For now, let's assume it's directly callable or defined in this file for testing.
-        # If it's in group_sync_services, we'd call it as:
-        from libraries.services.brevo import (
-            _sync_single_brevo_list as actual_sync_function,
-        )
+        from libraries.services.brevo import BrevoService
 
-        return actual_sync_function(
+        brevo_service = BrevoService(None, None, None, None)
+        return brevo_service._sync_single_brevo_list(
             brevo_client=mock_brevo_client,
             brevo_list_name=brevo_list_name,
             mm_users_in_channel=mm_users,
@@ -1597,8 +1592,9 @@ permissions:
         mock_lib_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"  # Mock NOCODB_URL for DM link
         mock_service_config_nocodb.EXCLUDED_USERS = set()
         mock_service_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
-        from libraries.services.nocodb import _sync_single_nocodb_base
+        from libraries.services.nocodb import NocoDBService
 
+        nocodb_service = NocoDBService(None, None, None, None)
         base_title_pattern = "test_nocodb_{base_name}"
         entity_base_name = "MyNocoAntenne"
         nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
@@ -1628,7 +1624,7 @@ permissions:
         self.mock_nocodb_client.invite_user_to_base.return_value = True
         self.mock_mattermost_client.send_dm.return_value = True  # Assume DMs are sent successfully
 
-        results = _sync_single_nocodb_base(
+        results = nocodb_service._sync_single_nocodb_base(
             self.mock_nocodb_client,
             self.mock_mattermost_client,
             base_title_pattern,
@@ -1706,8 +1702,9 @@ permissions:
         mock_lib_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
         mock_service_config_nocodb.EXCLUDED_USERS = set()
         mock_service_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
-        from libraries.services.nocodb import _sync_single_nocodb_base
+        from libraries.services.nocodb import NocoDBService
 
+        nocodb_service = NocoDBService(None, None, None, None)
         base_title_pattern = "dm_fail_nocodb_{base_name}"
         entity_base_name = "NocoDMFail"
         nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
@@ -1727,7 +1724,7 @@ permissions:
         self.mock_nocodb_client.invite_user_to_base.return_value = True
         self.mock_mattermost_client.send_dm.return_value = False  # Simulate DM failure
 
-        results = _sync_single_nocodb_base(
+        results = nocodb_service._sync_single_nocodb_base(
             self.mock_nocodb_client,
             self.mock_mattermost_client,
             base_title_pattern,
@@ -1749,8 +1746,9 @@ permissions:
         mock_lib_config_nocodb.NOCODB_URL = None  # Simulate NOCODB_URL not being set
         mock_service_config_nocodb.EXCLUDED_USERS = set()
         mock_service_config_nocodb.NOCODB_URL = None
-        from libraries.services.nocodb import _sync_single_nocodb_base
+        from libraries.services.nocodb import NocoDBService
 
+        nocodb_service = NocoDBService(None, None, None, None)
         base_title_pattern = "dm_skip_nocodb_{base_name}"
         entity_base_name = "NocoDMSkip"
         nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
@@ -1769,7 +1767,7 @@ permissions:
         self.mock_nocodb_client.list_base_users.return_value = []
         self.mock_nocodb_client.invite_user_to_base.return_value = True
 
-        results = _sync_single_nocodb_base(
+        results = nocodb_service._sync_single_nocodb_base(
             self.mock_nocodb_client,
             self.mock_mattermost_client,
             base_title_pattern,
@@ -1793,8 +1791,9 @@ permissions:
         )
         mock_service_config_nocodb.EXCLUDED_USERS = set()
         mock_service_config_nocodb.NOCODB_URL = "https://test-nocodb.example.com"
-        from libraries.services.nocodb import _sync_single_nocodb_base
+        from libraries.services.nocodb import NocoDBService
 
+        nocodb_service = NocoDBService(None, None, None, None)
         base_title_pattern = "upd_rem_nocodb_{base_name}"
         entity_base_name = "NocoAntenneTwo"
         nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
@@ -1837,7 +1836,7 @@ permissions:
         self.mock_nocodb_client.update_base_user.return_value = True
         self.mock_nocodb_client.invite_user_to_base.return_value = True  # For user2 who is new
 
-        results = _sync_single_nocodb_base(
+        results = nocodb_service._sync_single_nocodb_base(
             self.mock_nocodb_client,
             self.mock_mattermost_client,  # Added mattermost_client
             base_title_pattern,
@@ -1865,8 +1864,9 @@ permissions:
         excluded_username = "excluded_nc_user"
         mock_lib_config_nocodb.EXCLUDED_USERS = {excluded_username}
         mock_service_config_nocodb.EXCLUDED_USERS = {excluded_username}
-        from libraries.services.nocodb import _sync_single_nocodb_base
+        from libraries.services.nocodb import NocoDBService
 
+        nocodb_service = NocoDBService(None, None, None, None)
         base_title_pattern = "excl_nocodb_{base_name}"
         entity_base_name = "NocoAntenneExcl"
         nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
@@ -1905,7 +1905,7 @@ permissions:
         self.mock_nocodb_client.list_base_users.return_value = initial_nocodb_users
         self.mock_nocodb_client.invite_user_to_base.return_value = True  # For normal.user
 
-        results = _sync_single_nocodb_base(
+        results = nocodb_service._sync_single_nocodb_base(
             self.mock_nocodb_client,
             self.mock_mattermost_client,  # Added mattermost_client
             base_title_pattern,
@@ -1937,11 +1937,12 @@ permissions:
     @patch("libraries.group_sync_services.config")
     def test_sync_nocodb_base_not_found(self, mock_lib_config_nocodb):
         mock_lib_config_nocodb.EXCLUDED_USERS = set()
-        from libraries.services.nocodb import _sync_single_nocodb_base
+        from libraries.services.nocodb import NocoDBService
 
+        nocodb_service = NocoDBService(None, None, None, None)
         self.mock_nocodb_client.get_base_by_title.return_value = None  # Simulate base not found
 
-        results = _sync_single_nocodb_base(
+        results = nocodb_service._sync_single_nocodb_base(
             self.mock_nocodb_client,
             self.mock_mattermost_client,  # Added mattermost_client
             "nf_{base_name}",
@@ -2026,10 +2027,9 @@ permissions:
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
         mock_service_config_vw.EXCLUDED_USERS = set()
         mock_service_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.services.vaultwarden import (
-            _sync_single_vaultwarden_collection_members,
-        )
+        from libraries.services.vaultwarden import VaultwardenService
 
+        vaultwarden_service = VaultwardenService(None, None, None, None)
         collection_name = "TestVWCollection"
         mm_user_data = {
             "username": "vw_user1",
@@ -2044,7 +2044,7 @@ permissions:
         self.mock_vaultwarden_client.invite_user_to_collection.return_value = True
         self.mock_mattermost_client.send_dm.return_value = True
 
-        results = _sync_single_vaultwarden_collection_members(
+        results = vaultwarden_service._sync_single_vaultwarden_collection_members(
             self.mock_vaultwarden_client,
             self.mock_mattermost_client,
             collection_name,
@@ -2078,10 +2078,9 @@ permissions:
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
         mock_service_config_vw.EXCLUDED_USERS = set()
         mock_service_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.services.vaultwarden import (
-            _sync_single_vaultwarden_collection_members,
-        )
+        from libraries.services.vaultwarden import VaultwardenService
 
+        vaultwarden_service = VaultwardenService(None, None, None, None)
         collection_name = "VWCollectionDMFail"
         mm_users_for_services = {
             "vw.dm.fail@example.com": {
@@ -2095,7 +2094,7 @@ permissions:
         self.mock_vaultwarden_client.invite_user_to_collection.return_value = True
         self.mock_mattermost_client.send_dm.return_value = False  # Simulate DM failure
 
-        results = _sync_single_vaultwarden_collection_members(
+        results = vaultwarden_service._sync_single_vaultwarden_collection_members(
             self.mock_vaultwarden_client,
             self.mock_mattermost_client,
             collection_name,
@@ -2113,10 +2112,9 @@ permissions:
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = None  # Simulate URL not set
         mock_service_config_vw.EXCLUDED_USERS = set()
         mock_service_config_vw.VAULTWARDEN_SERVER_URL = None
-        from libraries.services.vaultwarden import (
-            _sync_single_vaultwarden_collection_members,
-        )
+        from libraries.services.vaultwarden import VaultwardenService
 
+        vaultwarden_service = VaultwardenService(None, None, None, None)
         collection_name = "VWCollectionDMSkip"
         mm_users_for_services = {
             "vw.dm.skip@example.com": {
@@ -2129,7 +2127,7 @@ permissions:
         self.mock_vaultwarden_client._get_api_token.return_value = "fake_vw_api_token"
         self.mock_vaultwarden_client.invite_user_to_collection.return_value = True
 
-        results = _sync_single_vaultwarden_collection_members(
+        results = vaultwarden_service._sync_single_vaultwarden_collection_members(
             self.mock_vaultwarden_client,
             self.mock_mattermost_client,
             collection_name,
@@ -2145,10 +2143,9 @@ permissions:
     def test_sync_vaultwarden_invite_fails_no_dm(self, mock_lib_config_vw):
         mock_lib_config_vw.EXCLUDED_USERS = set()
         mock_lib_config_vw.VAULTWARDEN_SERVER_URL = "https://test-vault.example.com"
-        from libraries.services.vaultwarden import (
-            _sync_single_vaultwarden_collection_members,
-        )
+        from libraries.services.vaultwarden import VaultwardenService
 
+        vaultwarden_service = VaultwardenService(None, None, None, None)
         collection_name = "VWCollectionInviteFail"
         mm_users_for_services = {
             "vw.invite.fail@example.com": {
@@ -2161,7 +2158,7 @@ permissions:
         self.mock_vaultwarden_client._get_api_token.return_value = "fake_vw_api_token"
         self.mock_vaultwarden_client.invite_user_to_collection.return_value = False  # Simulate invite failure
 
-        results = _sync_single_vaultwarden_collection_members(
+        results = vaultwarden_service._sync_single_vaultwarden_collection_members(
             self.mock_vaultwarden_client,
             self.mock_mattermost_client,
             collection_name,
@@ -2200,15 +2197,13 @@ class TestAuthentikService(unittest.TestCase):
         )
 
         mock_mattermost_client.get_users_in_channel.return_value = [{"email": "keep@me.com", "username": "keep_user"}]
-        with patch("libraries.services.authentik.remove_user_from_authentik_group") as mock_remove_user:
-            mock_remove_user.return_value = {"status": "SUCCESS"}
-            from libraries.services.authentik import AuthentikService
+        from libraries.services.authentik import AuthentikService
 
-            service = AuthentikService(
-                mock_authentik_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id
-            )
+        service = AuthentikService(
+            mock_authentik_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id
+        )
+        with patch.object(service, "remove_user_from_authentik_group", return_value={"status": "SUCCESS"}) as mock_remove_user:
             results = await service.differential_sync()
-
             mock_remove_user.assert_called_once_with(
                 mock_authentik_client, "pk1", "projet_Test1", 1, "remove@me.com", "Test1"
             )
