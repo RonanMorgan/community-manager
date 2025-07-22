@@ -931,7 +931,6 @@ permissions:
         self.assertEqual(results[0]["action"], "FAILED_TO_INVITE_TO_VW_COLLECTION")
         self.mock_mattermost_client.send_dm.assert_not_called()  # No DM if invite failed
 
-
     @async_test
     async def test_all_services_have_correct_differential_sync_signature(self):
         clients = {
@@ -949,7 +948,9 @@ permissions:
             "libraries.group_sync_services.AuthentikService"
         ) as MockAuth, patch("libraries.group_sync_services.OutlineService") as MockOutline, patch(
             "libraries.group_sync_services.BrevoService"
-        ) as MockBrevo, patch("libraries.group_sync_services.NocoDBService") as MockNocoDB, patch(
+        ) as MockBrevo, patch(
+            "libraries.group_sync_services.NocoDBService"
+        ) as MockNocoDB, patch(
             "libraries.group_sync_services.VaultwardenService"
         ) as MockVW:
             services_to_mock = [MockAuth, MockOutline, MockBrevo, MockNocoDB, MockVW]
@@ -1008,10 +1009,144 @@ class TestAuthentikService(unittest.TestCase):
 
         with patch.object(
             service, "remove_user_from_authentik_group", return_value={"status": "SUCCESS"}
-        ) as mock_remove_user:
+        ) as mock_remove_user, patch.object(service, "_ensure_users_in_authentik_group", return_value=([], set())):
             results = await service.differential_sync(mm_channel_members_data)
             mock_remove_user.assert_called_once_with(
                 mock_authentik_client, "pk1", "projet_Test1", 1, "remove@me.com", "Test1"
             )
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["status"], "SUCCESS")
+
+
+class TestVaultwardenService(unittest.TestCase):
+    @async_test
+    async def test_differential_sync_adds_user(self):
+        mock_vaultwarden_client = MagicMock(spec=VaultwardenClient)
+        mock_mattermost_client = MagicMock(spec=MattermostClient)
+        mock_permissions_matrix = {"PROJET": {"vaultwarden": {"collection_name_pattern": "Shared - {base_name}"}}}
+        mm_team_id = "test_team"
+
+        mock_vaultwarden_client.get_collections_details.return_value = [
+            {"id": "coll1", "name": "Shared - Test1", "users": [{"id": "user-keep-id"}]}
+        ]
+        mock_vaultwarden_client.get_collections.return_value = (0, '[{"id": "coll1", "name": "Shared - Test1"}]', "")
+        mock_vaultwarden_client.get_members.return_value = (
+            0,
+            '[{"id": "user-keep-id", "email": "keep@me.com"}]',
+            "",
+        )
+        mock_vaultwarden_client.get_name_from_collections.return_value = "Shared - Test1"
+        mock_vaultwarden_client.get_email_from_members.return_value = "keep@me.com"
+        from libraries.services.vaultwarden import VaultwardenService
+
+        service = VaultwardenService(
+            mock_vaultwarden_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id
+        )
+
+        service.get_mm_users_for_entity = MagicMock(
+            return_value=(
+                {
+                    "keep@me.com": {"username": "keep_user"},
+                    "add@me.com": {"username": "add_user", "id": "mm_add_id"},
+                },
+                [
+                    {"email": "keep@me.com", "username": "keep_user"},
+                    {"email": "add@me.com", "username": "add_user", "id": "mm_add_id"},
+                ],
+                [],
+            )
+        )
+
+        with patch.object(
+            mock_vaultwarden_client, "update_collection", return_value=True
+        ) as mock_update, patch.object(
+            service, "_ensure_users_invited_to_vaultwarden_collection", return_value=([{"status": "SUCCESS"}])
+        ) as mock_ensure_users:
+            results = await service.differential_sync({})
+            mock_update.assert_not_called()
+            mock_ensure_users.assert_called_once()
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["status"], "SUCCESS")
+
+
+class TestNocoDBService(unittest.TestCase):
+    @async_test
+    async def test_differential_sync_adds_user(self):
+        mock_nocodb_client = MagicMock(spec=NocoDBClient)
+        mock_mattermost_client = MagicMock(spec=MattermostClient)
+        mock_permissions_matrix = {"ANTENNE": {"nocodb": {"base_title_pattern": "nocodb_{base_name}"}}}
+        mm_team_id = "test_team"
+
+        mock_nocodb_client.list_bases.return_value = {"list": [{"id": "base1", "title": "nocodb_Test1"}]}
+        mock_nocodb_client.list_base_users.return_value = [{"email": "keep@me.com"}]
+        from libraries.services.nocodb import NocoDBService
+
+        service = NocoDBService(mock_nocodb_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id)
+
+        service.get_mm_users_for_entity = MagicMock(
+            return_value=(
+                {
+                    "keep@me.com": {"username": "keep_user"},
+                    "add@me.com": {"username": "add_user", "id": "mm_add_id"},
+                },
+                [
+                    {"email": "keep@me.com", "username": "keep_user"},
+                    {"email": "add@me.com", "username": "add_user", "id": "mm_add_id"},
+                ],
+                [],
+            )
+        )
+
+        with patch.object(
+            service, "_remove_user_from_nocodb_base", return_value={"status": "SUCCESS"}
+        ) as mock_remove_user, patch.object(
+            service, "_ensure_users_in_nocodb_base", return_value=([{"status": "SUCCESS"}], set())
+        ) as mock_ensure_users:
+            results = await service.differential_sync({})
+            mock_remove_user.assert_not_called()
+            mock_ensure_users.assert_called_once()
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["status"], "SUCCESS")
+
+
+class TestOutlineService(unittest.TestCase):
+    @async_test
+    async def test_differential_sync_adds_user(self):
+        mock_outline_client = MagicMock(spec=OutlineClient)
+        mock_mattermost_client = MagicMock(spec=MattermostClient)
+        mock_permissions_matrix = {"PROJET": {"outline": {"collection_name_pattern": "projet-{base_name}"}}}
+        mm_team_id = "test_team"
+
+        mock_outline_client.list_collections.return_value = [{"id": "coll1", "name": "projet-Test1"}]
+        mock_outline_client.get_collection_members_with_details.return_value = [
+            {"id": "user-keep-id", "email": "keep@me.com"}
+        ]
+        mock_outline_client.get_user_by_email.return_value = {"id": "user-add-id"}
+        from libraries.services.outline import OutlineService
+
+        service = OutlineService(mock_outline_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id)
+
+        service.get_mm_users_for_entity = MagicMock(
+            return_value=(
+                {
+                    "keep@me.com": {"username": "keep_user"},
+                    "add@me.com": {"username": "add_user", "id": "mm_add_id"},
+                },
+                [
+                    {"email": "keep@me.com", "username": "keep_user"},
+                    {"email": "add@me.com", "username": "add_user", "id": "mm_add_id"},
+                ],
+                [],
+            )
+        )
+
+        with patch.object(
+            service, "_remove_user_from_outline_collection", return_value={"status": "SUCCESS"}
+        ) as mock_remove_user, patch.object(
+            service, "_ensure_users_in_outline_collection", return_value=([{"status": "SUCCESS"}], set())
+        ) as mock_ensure_users:
+            results = await service.differential_sync({})
+            mock_remove_user.assert_not_called()
+            mock_ensure_users.assert_called_once()
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["status"], "SUCCESS")

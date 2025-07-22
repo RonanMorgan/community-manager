@@ -294,14 +294,15 @@ class AuthentikService(SyncService):
             if admin_cfg and _extract_base_name(group.get("name"), admin_cfg.get("authentik_group_name_pattern", "")):
                 is_admin_group = True
 
-            _, std_mm_users, adm_mm_users = self.get_mm_users_for_entity(
-                base_name, entity_config, mm_channel_members
-            )
+            _, std_mm_users, adm_mm_users = self.get_mm_users_for_entity(base_name, entity_config, mm_channel_members)
 
             mm_users_for_this_group = adm_mm_users if is_admin_group else std_mm_users
             mm_user_emails = {user["email"].lower() for user in mm_users_for_this_group if "email" in user}
 
             auth_users = group.get("users_obj", [])
+            auth_user_emails = {user.get("email", "").lower() for user in auth_users if user.get("email")}
+
+            # Remove users from Authentik group if they are not in Mattermost
             for user in auth_users:
                 user_email = user.get("email", "").lower()
                 if user_email and user_email not in mm_user_emails:
@@ -317,4 +318,21 @@ class AuthentikService(SyncService):
                             base_name,
                         )
                     )
+
+            # Add users to Authentik group if they are in Mattermost but not in Authentik
+            missing_mm_users = [
+                user for user in mm_users_for_this_group if user.get("email", "").lower() not in auth_user_emails
+            ]
+            if missing_mm_users:
+                add_results, _ = self._ensure_users_in_authentik_group(
+                    self.client,
+                    group.get("pk"),
+                    group.get("name"),
+                    missing_mm_users,
+                    email_to_authentik_user_pk_map,
+                    base_name,
+                    set(),
+                )
+                results.extend(add_results)
+
         return results

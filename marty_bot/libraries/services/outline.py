@@ -317,15 +317,15 @@ class OutlineService(SyncService):
                 continue
 
             entity_config = self.permissions_matrix.get(entity_key, {})
-            mm_users_for_services, _, _ = self.get_mm_users_for_entity(
-                base_name, entity_config, mm_channel_members
-            )
+            mm_users_for_services, _, _ = self.get_mm_users_for_entity(base_name, entity_config, mm_channel_members)
 
             mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
 
-            outline_users_id = self.client.get_collection_members(collection_id)
-            for id in outline_users_id:
-                user = self.client.get_user_by_id(id)
+            outline_users = self.client.get_collection_members_with_details(collection_id)
+            outline_user_emails = {user.get("email", "").lower() for user in outline_users if user.get("email")}
+
+            # Remove users from Outline collection if they are not in Mattermost
+            for user in outline_users:
                 user_email = user.get("email", "").lower()
                 if user_email and user_email not in mm_user_emails:
                     results.append(
@@ -338,4 +338,25 @@ class OutlineService(SyncService):
                             base_name,
                         )
                     )
+
+            # Add users to Outline collection if they are in Mattermost but not in Outline
+            missing_mm_users_for_permission = {
+                email: data for email, data in mm_users_for_services.items() if email not in outline_user_emails
+            }
+            if missing_mm_users_for_permission:
+                default_permission = entity_config.get("outline", {}).get("default_access", "read")
+                admin_permission = entity_config.get("outline", {}).get("admin_access", "read_write")
+                add_results, _ = self._ensure_users_in_outline_collection(
+                    self.client,
+                    self.mattermost_client,
+                    collection_id,
+                    collection_name,
+                    missing_mm_users_for_permission,
+                    default_permission,
+                    admin_permission,
+                    set(),
+                    base_name,
+                )
+                results.extend(add_results)
+
         return results
