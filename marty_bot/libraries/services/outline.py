@@ -5,7 +5,8 @@ import config
 from app.enums import SyncStatus
 from clients.outline_client import OutlineAction
 
-from .mattermost import _extract_base_name
+from .base import SyncService
+from .mattermost import _extract_base_name, _get_mm_users_for_entity
 
 if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
@@ -351,3 +352,52 @@ def _sync_outline_for_entity(
         log_channel_name,
         perform_deletions,
     )
+
+
+class OutlineService(SyncService):
+    SERVICE_NAME = "OUTLINE"
+
+    async def differential_sync(self):
+        results = []
+        try:
+            all_collections = self.client.list_collections()
+            if not all_collections:
+                logging.warning("TOOLS_TO_MM: No Outline collections found to sync.")
+                return results
+        except (AttributeError, NotImplementedError):
+            logging.error("`outline_client.list_collections()` method not implemented. Skipping Outline sync.")
+            return results
+
+        for collection in all_collections:
+            collection_name = collection.get("name")
+            collection_id = collection.get("id")
+            entity_key, base_name = _map_outline_collection_to_entity_and_base_name(
+                collection_name, self.permissions_matrix
+            )
+
+            if not entity_key or not base_name:
+                continue
+
+            entity_config = self.permissions_matrix.get(entity_key, {})
+            mm_users_for_services, _, _ = _get_mm_users_for_entity(
+                self.mattermost_client, self.mm_team_id, base_name, entity_config
+            )
+
+            mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
+
+            outline_users_id = self.client.get_collection_members(collection_id)
+            for id in outline_users_id:
+                user = self.client.get_user_by_id(id)
+                user_email = user.get("email", "").lower()
+                if user_email and user_email not in mm_user_emails:
+                    results.append(
+                        _remove_user_from_outline_collection(
+                            self.client,
+                            collection_id,
+                            collection_name,
+                            user["id"],
+                            user_email,
+                            base_name,
+                        )
+                    )
+        return results

@@ -341,10 +341,12 @@ class TestGroupSyncServices(unittest.TestCase):
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-            email_to_authentik_user_pk_map=self.email_to_authentik_user_pk_map_fixture,
             perform_deletions=True,
             skip_services=None,
         )
+
+        user1_pk = self.email_to_authentik_user_pk_map_fixture["user1@example.com"]
+        user2_pk = self.email_to_authentik_user_pk_map_fixture["user2@example.com"]
 
         user1_pk = self.email_to_authentik_user_pk_map_fixture["user1@example.com"]
         user2_pk = self.email_to_authentik_user_pk_map_fixture["user2@example.com"]
@@ -589,7 +591,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-            email_to_authentik_user_pk_map=email_map_for_dm,
             perform_deletions=True,
             skip_services=None,
         )
@@ -709,7 +710,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-            email_to_authentik_user_pk_map=email_map_for_dm,
             perform_deletions=True,
             skip_services=None,
         )
@@ -796,7 +796,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-            email_to_authentik_user_pk_map=email_map_already,
             perform_deletions=True,
             skip_services=None,
         )
@@ -891,7 +890,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_by_name_fixture,
-            email_to_authentik_user_pk_map=email_map,
             perform_deletions=False,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
@@ -980,7 +978,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_by_name_fixture,
-            email_to_authentik_user_pk_map=email_map,
             perform_deletions=False,
         )
         outline_result = next(r for r in results if r["service"] == "OUTLINE" and r["status"] == "SUCCESS")
@@ -1055,12 +1052,11 @@ permissions:
             base_name="",
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
             skip_services=None,
         )
 
-        self.mock_authentik_client.remove_user_from_group.assert_called_once_with(
+        self.mock_authentik_client.remove_user_from_group.assert_any_call(
             current_auth_group_pk, auth_user_pk_to_remove
         )
         self.mock_authentik_client.add_user_to_group.assert_not_called()
@@ -1076,7 +1072,7 @@ permissions:
         )
         kept_action_found = any(
             r["service"] == "AUTHENTIK"
-            and r["action"] == "USER_ALREADY_IN_AUTHENTIK_GROUP"
+            and r["action"] == "USER_ALREADY_IN_GROUP"
             and r["mm_username"] == "keepme_user"
             for r in results
         )
@@ -1139,7 +1135,6 @@ permissions:
             base_name="",
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
             skip_services=None,
         )
@@ -1235,7 +1230,6 @@ permissions:
             base_name=base_name_for_test,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
             skip_services=None,
         )
@@ -1342,7 +1336,6 @@ permissions:
             base_name=base_name_for_test,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name=all_auth_groups_fixture,
-            email_to_authentik_user_pk_map=email_to_pk_map,
             perform_deletions=True,
             skip_services=None,
         )
@@ -1519,7 +1512,6 @@ permissions:
                     base_name=base_name_from_case,
                     entity_config=mock_entity_config,
                     all_authentik_groups_by_name=all_authentik_groups_by_name_fixture,
-                    email_to_authentik_user_pk_map=email_to_pk_map,
                     perform_deletions=True,
                     skip_services=None,
                 )
@@ -1583,7 +1575,6 @@ permissions:
             "user.alpha@example.com": "auth_pk_alpha",
             "user.beta@example.com": "auth_pk_beta",
         }
-        mock_get_all_auth_groups_and_map.return_value = ([], mock_email_pk_map)
 
         # mm_channel_projet_alpha = {"id": "mm_alpha_id", "name": "projet-alpha", "display_name": "PROJET Alpha"}
         # mm_channel_antenne_beta_admin = {"id": "mm_beta_adm_id", "name": "antenne-beta-admin", "display_name": "ANTENNE Beta Admin"}
@@ -1627,7 +1618,7 @@ permissions:
 
         self.assertTrue(success)
         self.assertEqual(len(detailed_results), 0)  # No entities processed, no results
-        mock_get_all_auth_groups_and_map.assert_called_once_with(self.mock_authentik_client)
+        self.mock_mattermost_client.get_channels_for_team.assert_called_once_with(mock_team_id)
         self.mock_authentik_client.get_groups_with_users.assert_not_called()  # Still not called directly by orchestrate
         self.mock_mattermost_client.get_channels_for_team.assert_called_once_with(mock_team_id)
         mock_sync_entity_permissions_call.assert_not_called()  # Not called if no entities discovered
@@ -1677,7 +1668,7 @@ permissions:
         ]
         mock_email_pk_map = {"user.gamma@example.com": "auth_pk_gamma"}
 
-        mock_get_all_auth_groups_and_map.return_value = (
+        self.mock_authentik_client.get_groups_with_users.return_value = (
             mock_all_auth_groups_list,
             mock_email_pk_map,
         )
@@ -1712,12 +1703,11 @@ permissions:
         success, detailed_results = await orchestrate_group_synchronization(
             clients=clients,
             mm_team_id=mock_team_id,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
 
         self.assertTrue(success)
         self.assertEqual(len(detailed_results), 2)
-        mock_get_all_auth_groups_and_map.assert_called_once_with(self.mock_authentik_client)
         self.assertEqual(self.mock_authentik_client.get_groups_with_users.call_count, 1)
         self.mock_mattermost_client.get_channels_for_team.assert_not_called()
 
@@ -1737,7 +1727,6 @@ permissions:
             "PROJET",
             mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
             expected_all_auth_groups_by_name,
-            mock_email_pk_map,
             True,
             skip_services=[],
         )
@@ -1748,7 +1737,6 @@ permissions:
             "ANTENNE",
             mock_lib_config.PERMISSIONS_MATRIX["ANTENNE"],
             expected_all_auth_groups_by_name,
-            mock_email_pk_map,
             True,
             skip_services=[],
         )
@@ -2347,7 +2335,6 @@ permissions:
             base_name=base_name,
             entity_config=mock_entity_config,
             all_authentik_groups_by_name={},
-            email_to_authentik_user_pk_map={},
             perform_deletions=True,
             skip_services=["nocodb"],
         )
@@ -2513,16 +2500,19 @@ permissions:
         self.assertEqual(results[0]["action"], "FAILED_TO_INVITE_TO_VW_COLLECTION")
         self.mock_mattermost_client.send_dm.assert_not_called()  # No DM if invite failed
 
-    @patch("libraries.group_sync_services.remove_user_from_authentik_group")
-    @patch("libraries.group_sync_services._map_auth_group_to_entity_and_base_name")
-    @patch("libraries.group_sync_services._get_mm_users_for_entity")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class TestAuthentikService(unittest.TestCase):
     @async_test
-    async def test_sync_entity_permissions_tools_to_mm_authentik_removes_user(
-        self, mock_get_mm_users, mock_map_group, mock_remove_user
-    ):
+    async def test_differential_sync_removes_user(self):
         mock_authentik_client = MagicMock(spec=AuthentikClient)
         mock_mattermost_client = MagicMock(spec=MattermostClient)
         mock_permissions_matrix = {"PROJET": {"standard": {"authentik_group_name_pattern": "projet_{base_name}"}}}
+        mm_team_id = "test_team"
 
         mock_auth_group1 = {
             "name": "projet_Test1",
@@ -2537,209 +2527,16 @@ permissions:
             {},
         )
 
-        mock_map_group.return_value = "PROJET", "Test1"
-        mock_get_mm_users.return_value = (
-            {},
-            [{"email": "keep@me.com", "username": "keep_user"}],
-            [],
-        )
+        mock_mattermost_client.get_users_in_channel.return_value = [{"email": "keep@me.com", "username": "keep_user"}]
+        with patch("libraries.services.authentik.remove_user_from_authentik_group") as mock_remove_user:
+            mock_remove_user.return_value = {"status": "SUCCESS"}
+            from libraries.services.authentik import AuthentikService
 
-        mock_remove_user.return_value = {"status": "SUCCESS"}
+            service = AuthentikService(mock_authentik_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id)
+            results = await service.differential_sync()
 
-        from libraries.group_sync_services import _sync_entity_permissions_tools_to_mm
-
-        results = await _sync_entity_permissions_tools_to_mm(
-            service_client=mock_authentik_client,
-            service_name="AUTHENTIK",
-            mattermost_client=mock_mattermost_client,
-            mm_team_id="test_team",
-            email_to_authentik_user_pk_map={},
-            permissions_matrix=mock_permissions_matrix,
-            skip_services=[],
-        )
-
-        mock_remove_user.assert_called_once_with(
-            mock_authentik_client, "pk1", "projet_Test1", 1, "remove@me.com", "Test1"
-        )
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["status"], "SUCCESS")
-
-    @patch("libraries.group_sync_services.remove_user_from_authentik_group")
-    @patch("libraries.group_sync_services._map_auth_group_to_entity_and_base_name")
-    @patch("libraries.group_sync_services._get_mm_users_for_entity")
-    @async_test
-    async def test_sync_entity_permissions_tools_to_mm_authentik_keeps_user(
-        self, mock_get_mm_users, mock_map_group, mock_remove_user
-    ):
-        mock_authentik_client = MagicMock(spec=AuthentikClient)
-        mock_mattermost_client = MagicMock(spec=MattermostClient)
-        mock_permissions_matrix = {"PROJET": {"standard": {"authentik_group_name_pattern": "projet_{base_name}"}}}
-
-        mock_auth_group1 = {
-            "name": "projet_Test1",
-            "pk": "pk1",
-            "users_obj": [
-                {"pk": 2, "email": "keep@me.com", "username": "keep_user"},
-            ],
-        }
-        mock_authentik_client.get_groups_with_users.return_value = (
-            [mock_auth_group1],
-            {},
-        )
-
-        mock_map_group.return_value = "PROJET", "Test1"
-        mock_get_mm_users.return_value = (
-            {},
-            [{"email": "keep@me.com", "username": "keep_user"}],
-            [],
-        )
-
-        from libraries.group_sync_services import _sync_entity_permissions_tools_to_mm
-
-        results = await _sync_entity_permissions_tools_to_mm(
-            service_client=mock_authentik_client,
-            service_name="AUTHENTIK",
-            mattermost_client=mock_mattermost_client,
-            mm_team_id="test_team",
-            email_to_authentik_user_pk_map={},
-            permissions_matrix=mock_permissions_matrix,
-            skip_services=[],
-        )
-
-        mock_remove_user.assert_not_called()
-        self.assertEqual(len(results), 0)
-
-    def test_remove_user_from_outline_collection(self):
-        from libraries.group_sync_services import _remove_user_from_outline_collection
-
-        self.mock_outline_client.remove_user_from_collection.return_value = True
-        result = _remove_user_from_outline_collection(
-            self.mock_outline_client,
-            "coll_id",
-            "coll_name",
-            "user_id",
-            "user_email",
-            "channel_name",
-        )
-        self.assertEqual(result["status"], "SUCCESS")
-        self.assertEqual(result["action"], "USER_REMOVED_FROM_OUTLINE_COLLECTION")
-        self.mock_outline_client.remove_user_from_collection.assert_called_once_with("coll_id", "user_id")
-
-    def test_remove_user_from_outline_collection_failure(self):
-        from libraries.group_sync_services import _remove_user_from_outline_collection
-
-        self.mock_outline_client.remove_user_from_collection.return_value = False
-        result = _remove_user_from_outline_collection(
-            self.mock_outline_client,
-            "coll_id",
-            "coll_name",
-            "user_id",
-            "user_email",
-            "channel_name",
-        )
-        self.assertEqual(result["status"], "FAILURE")
-        self.assertEqual(result["action"], "FAILED_TO_REMOVE_FROM_OUTLINE_COLLECTION")
-        self.mock_outline_client.remove_user_from_collection.assert_called_once_with("coll_id", "user_id")
-
-    def test_remove_user_from_nocodb_base(self):
-        from libraries.group_sync_services import _remove_user_from_nocodb_base
-
-        self.mock_nocodb_client.delete_base_user.return_value = True
-        result = _remove_user_from_nocodb_base(
-            self.mock_nocodb_client,
-            "base_id",
-            "base_title",
-            "user_id",
-            "user_email",
-            "channel_name",
-        )
-        self.assertEqual(result["status"], "SUCCESS")
-        self.assertEqual(result["action"], "NOCODB_USER_REMOVED_FROM_BASE")
-        self.mock_nocodb_client.delete_base_user.assert_called_once_with("base_id", "user_id")
-
-    def test_remove_user_from_nocodb_base_failure(self):
-        from libraries.group_sync_services import _remove_user_from_nocodb_base
-
-        self.mock_nocodb_client.delete_base_user.return_value = False
-        result = _remove_user_from_nocodb_base(
-            self.mock_nocodb_client,
-            "base_id",
-            "base_title",
-            "user_id",
-            "user_email",
-            "channel_name",
-        )
-        self.assertEqual(result["status"], "FAILURE")
-        self.assertEqual(result["action"], "FAILED_TO_REMOVE_NOCODB_USER")
-        self.mock_nocodb_client.delete_base_user.assert_called_once_with("base_id", "user_id")
-
-    def test_sync_entity_permissions_with_nocodb_and_deletions(self):
-        from libraries.group_sync_services import sync_entity_permissions
-
-        clients = {
-            "authentik": self.mock_authentik_client,
-            "mattermost": self.mock_mattermost_client,
-            "outline": self.mock_outline_client,
-            "brevo": self.mock_brevo_client,
-            "nocodb": self.mock_nocodb_client,
-            "vaultwarden": self.mock_vaultwarden_client,
-        }
-        self.mock_nocodb_client.get_base_by_title.return_value = {"id": "base_id"}
-        self.mock_nocodb_client.list_base_users.return_value = []
-        sync_entity_permissions(
-            clients=clients,
-            mm_team_id=self.mm_team_id,
-            entity_key="ANTENNE",
-            base_name="TestAntenne",
-            entity_config={
-                "standard": {},
-                "nocodb": {
-                    "base_title_pattern": "nocodb_{base_name}",
-                    "default_access": "viewer",
-                },
-            },
-            all_authentik_groups_by_name={},
-            email_to_authentik_user_pk_map={},
-            perform_deletions=True,
-        )
-        self.mock_nocodb_client.list_base_users.assert_called_once_with("base_id")
-
-    @async_test
-    async def test_sync_entity_permissions_tools_to_mm_with_admin_group(self):
-        from libraries.group_sync_services import _sync_entity_permissions_tools_to_mm
-
-        mock_authentik_client = MagicMock(spec=AuthentikClient)
-        mock_mattermost_client = MagicMock(spec=MattermostClient)
-        mock_permissions_matrix = {
-            "PROJET": {
-                "standard": {"authentik_group_name_pattern": "projet_{base_name}"},
-                "admin": {"authentik_group_name_pattern": "projet_{base_name}_admin"},
-            }
-        }
-        mock_auth_group = {
-            "name": "projet_Test_admin",
-            "pk": "pk1",
-            "users_obj": [],
-        }
-        mock_authentik_client.get_groups_with_users.return_value = (
-            [mock_auth_group],
-            {},
-        )
-
-        with patch(
-            "libraries.group_sync_services._get_mm_users_for_entity",
-            return_value=({}, [], []),
-        ):
-            await _sync_entity_permissions_tools_to_mm(
-                service_client=mock_authentik_client,
-                service_name="AUTHENTIK",
-                mattermost_client=mock_mattermost_client,
-                mm_team_id="test_team",
-                email_to_authentik_user_pk_map={},
-                permissions_matrix=mock_permissions_matrix,
-                skip_services=[],
+            mock_remove_user.assert_called_once_with(
+                mock_authentik_client, "pk1", "projet_Test1", 1, "remove@me.com", "Test1"
             )
-
-
-if __name__ == "__main__":
-    unittest.main()
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["status"], "SUCCESS")

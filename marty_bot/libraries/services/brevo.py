@@ -1,30 +1,23 @@
 import logging
 from typing import TYPE_CHECKING, Optional
-from .mattermost import _extract_base_name
 
 import config
 from app.enums import SyncStatus
 from clients.brevo_client import BrevoAction
+from .base import SyncService
+from .mattermost import _extract_base_name, _get_mm_users_for_entity
 
 if TYPE_CHECKING:
     from clients.brevo_client import BrevoClient
 
 
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-# Brevo Synchronization Logic (merged from brevo_sync_utils.py)
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 def _ensure_contacts_in_brevo_list(
     brevo_client: "BrevoClient",
     list_id: int,
     list_name: str,
-    mm_users_to_ensure: list[dict],  # Users from Mattermost channel
+    mm_users_to_ensure: list[dict],
     mm_channel_display_name_for_log: str,
-) -> tuple[list[dict], set]:  # Returns results and set of targeted emails
-    """
-    Ensures that the given Mattermost users are contacts in the specified Brevo list.
-    Adds contacts to the list. The Brevo client handles idempotency.
-    Returns a list of action results and a set of emails that were targeted.
-    """
+) -> tuple[list[dict], set]:
     results = []
     targeted_emails = set()
 
@@ -85,17 +78,10 @@ def _ensure_contacts_in_brevo_list(
 def _sync_single_brevo_list(
     brevo_client: "BrevoClient",
     brevo_list_name: str,
-    mm_users_in_channel: list[dict],  # Users from the Mattermost channel
+    mm_users_in_channel: list[dict],
     mm_channel_display_name_for_log: str,
     perform_deletions: bool,
 ) -> list[dict]:
-    """
-    Synchronizes a single Brevo contact list with members of a Mattermost channel.
-    - Creates the list in Brevo if it doesn't exist.
-    - Adds Mattermost channel members to the list.
-    - Removes users from the list if they are no longer in the Mattermost channel (if perform_deletions is True).
-    - Excludes users defined in EXCLUDED_USERS.
-    """
     results = []
     logging.info(
         f"Starting Brevo list sync for '{brevo_list_name}' based on MM channel '{mm_channel_display_name_for_log}'. "
@@ -106,7 +92,6 @@ def _sync_single_brevo_list(
         logging.error("Brevo client not provided to _sync_single_brevo_list.")
         return results
 
-    # 1. Get or Create the Brevo list
     brevo_lists = brevo_client.get_lists(name=brevo_list_name)
     brevo_list_obj = brevo_lists[0] if brevo_lists else None
     if not brevo_list_obj:
@@ -127,14 +112,6 @@ def _sync_single_brevo_list(
     brevo_list_id = brevo_list_obj["id"]
     logging.info(f"Ensured Brevo list '{brevo_list_name}' (ID: {brevo_list_id}) exists.")
 
-    # 2. Process Mattermost users for adding to the list
-    # target_emails_in_list will be populated by _ensure_contacts_in_brevo_list
-    # and also needs to account for excluded users if they were already in the list (though Brevo sync typically doesn't preserve them if not in MM)
-
-    # For Brevo, excluded users are typically NOT added. If they are in a list and removed from MM channel,
-    # they would be removed by the deletion logic if perform_deletions is true.
-    # So, we don't need special handling for target_emails_in_list for excluded users here.
-
     add_results, mm_targeted_emails = _ensure_contacts_in_brevo_list(
         brevo_client,
         brevo_list_id,
@@ -143,9 +120,8 @@ def _sync_single_brevo_list(
         mm_channel_display_name_for_log,
     )
     results.extend(add_results)
-    target_emails_in_list = mm_targeted_emails  # These are the emails that should be in the list based on MM users
+    target_emails_in_list = mm_targeted_emails
 
-    # 3. Handle removals if perform_deletions is True
     if perform_deletions:
         logging.info(f"Performing deletions for Brevo list '{brevo_list_name}' (ID: {brevo_list_id}).")
         current_contacts_in_brevo_list = []
@@ -202,9 +178,6 @@ def _sync_single_brevo_list(
 def _map_brevo_list_to_entity_and_base_name(
     list_name: str, permissions_matrix: dict
 ) -> tuple[Optional[str], Optional[str]]:
-    """
-    Attempts to map a Brevo list name to an entity key and base_name from the PERMISSIONS_MATRIX.
-    """
     for entity_key, entity_cfg in permissions_matrix.items():
         brevo_cfg = entity_cfg.get("brevo")
         if brevo_cfg:
@@ -232,3 +205,11 @@ def _sync_brevo_for_entity(
 ):
     brevo_list_name = config.get("list_name_pattern", "mm_{base_name}").format(base_name=base_name)
     return _sync_single_brevo_list(brevo_client, brevo_list_name, std_mm_users, log_channel_name, perform_deletions)
+
+
+class BrevoService(SyncService):
+    SERVICE_NAME = "BREVO"
+
+    async def differential_sync(self):
+        # Brevo sync is handled by the existing _sync_single_brevo_list
+        return []

@@ -15,6 +15,26 @@ from libraries.services.authentik import (
     _sync_authentik_for_entity,
     remove_user_from_authentik_group,
 )
+
+
+def get_all_authentik_groups_and_user_map(authentik_client: "AuthentikClient"):
+    """
+    Fetches all Authentik groups and constructs a user email-to-PK map.
+    Uses the get_groups_with_users method from AuthentikClient.
+    """
+    logging.info("Fetching all Authentik groups and constructing user email-to-PK map...")
+    if not authentik_client:
+        logging.error("Authentik client not provided to get_all_authentik_groups_and_user_map.")
+        return [], {}
+
+    groups, email_map = authentik_client.get_groups_with_users()
+
+    if not groups:
+        logging.warning("No Authentik groups found or an error occurred during fetching.")
+    if not email_map:
+        logging.warning("Authentik user email-to-PK map is empty or could not be constructed.")
+
+    return groups, email_map
 from libraries.services.brevo import _sync_brevo_for_entity
 from libraries.services.mattermost import (
     _extract_base_name,
@@ -101,6 +121,7 @@ def sync_entity_permissions(
                 "is_admin_channel_member": True,
             }
 
+    email_to_authentik_user_pk_map = {}
     # Service-specific logic
     service_registry = {
         "authentik": {
@@ -139,6 +160,7 @@ def sync_entity_permissions(
                     base_name,
                     service_data["config"],
                     all_authentik_groups_by_name,
+                    email_to_authentik_user_pk_map,
                     std_mm_users_in_channel,
                     adm_mm_users_in_channel,
                     mm_users_for_services,
@@ -295,12 +317,18 @@ async def orchestrate_group_synchronization(
     return True, detailed_results
 
 
+from libraries.services.authentik import AuthentikService
+from libraries.services.brevo import BrevoService
+from libraries.services.nocodb import NocoDBService
+from libraries.services.outline import OutlineService
+from libraries.services.vaultwarden import VaultwardenService
+
+
 async def differential_sync(
     clients: dict,
     mm_team_id: str,
     skip_services: list[str] | None = None,
 ) -> tuple[bool, list[dict]]:
-    authentik_client = clients.get("authentik")
     mattermost_client = clients.get("mattermost")
     skip_services = skip_services or []
     logging.info(f"Starting group diff synchronization task (async)... " f"Skip Services: {skip_services})")
@@ -316,26 +344,20 @@ async def differential_sync(
     check_clients(clients)
 
     logging.info("Iterating through configured services.")
-    service_clients_map = {
-        "AUTHENTIK": authentik_client,
-        "OUTLINE": clients.get("outline"),
-        "BREVO": clients.get("brevo"),
-        "NOCODB": clients.get("nocodb"),
-        "VAULTWARDEN": clients.get("vaultwarden"),
-    }
-    for service_name, service_client in service_clients_map.items():
-        if service_client:
-            service_results = await _sync_entity_permissions_tools_to_mm(
-                service_client=service_client,
-                service_name=service_name,
-                mattermost_client=mattermost_client,
-                mm_team_id=mm_team_id,
-                permissions_matrix=config.PERMISSIONS_MATRIX,
-                skip_services=skip_services,
-            )
+    services = [
+        AuthentikService(clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
+        OutlineService(clients.get("outline"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
+        BrevoService(clients.get("brevo"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
+        NocoDBService(clients.get("nocodb"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
+        VaultwardenService(clients.get("vaultwarden"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
+    ]
+
+    for service in services:
+        if service.client and service.SERVICE_NAME.lower() not in skip_services:
+            service_results = await service.differential_sync()
             detailed_results.extend(service_results)
         else:
-            logging.info(f"Service client for {service_name} not configured, skipping for differential sync.")
+            logging.info(f"Service client for {service.SERVICE_NAME} not configured, skipping for differential sync.")
 
     log_msg = (
         f"Differential Synchronization task completed., "
@@ -346,224 +368,3 @@ async def differential_sync(
     return True, detailed_results
 
 
-async def _sync_entity_permissions_tools_to_mm(
-    service_client: object,
-    service_name: str,
-    mattermost_client: "MattermostClient",
-    mm_team_id: str,
-    permissions_matrix: dict,
-    skip_services: list[str] | None,
-) -> list[dict]:
-    results = []
-    logging.info(f"Starting TOOLS_TO_MM sync for service: {service_name}")
-
-    if service_name.lower() in (skip_services or []):
-        logging.info(f"Skipping {service_name} sync for TOOLS_TO_MM as per skip_services.")
-        return results
-
-    if service_name == "AUTHENTIK":
-        authentik_client = service_client
-        all_auth_groups, _ = authentik_client.get_groups_with_users()
-        if not all_auth_groups:
-            logging.warning("TOOLS_TO_MM: No Authentik groups found to sync.")
-            return results
-
-        for group in all_auth_groups:
-            entity_key, base_name = _map_auth_group_to_entity_and_base_name(group.get("name"), permissions_matrix)
-            if not entity_key or not base_name:
-                logging.debug(
-                    f"TOOLS_TO_MM: Authentik group '{group.get('name')}' did not map to an entity. Skipping."
-                )
-                continue
-
-            logging.info(
-                f"TOOLS_TO_MM: Processing Authentik group '{group.get('name')}' for entity '{base_name}' ({entity_key})"
-            )
-            entity_config = permissions_matrix.get(entity_key, {})
-
-            # Determine if the current Authentik group is an admin or standard group
-            # This heuristic is simple and relies on naming convention. A more robust way would be to check against both patterns.
-            admin_cfg = entity_config.get("admin", {})
-            is_admin_group = False
-            if admin_cfg and _extract_base_name(group.get("name"), admin_cfg.get("authentik_group_name_pattern", "")):
-                is_admin_group = True
-
-            _, std_mm_users, adm_mm_users = _get_mm_users_for_entity(
-                mattermost_client, mm_team_id, base_name, entity_config
-            )
-
-            mm_users_for_this_group = adm_mm_users if is_admin_group else std_mm_users
-
-            mm_user_emails = {user["email"].lower() for user in mm_users_for_this_group if "email" in user}
-
-            auth_users = group.get("users_obj", [])
-            for user in auth_users:
-                user_email = user.get("email", "").lower()
-                if user_email and user_email not in mm_user_emails:
-                    # Check if user is excluded
-                    if user.get("username") in config.EXCLUDED_USERS:
-                        continue
-                    results.append(
-                        remove_user_from_authentik_group(
-                            authentik_client,
-                            group.get("pk"),
-                            group.get("name"),
-                            user.get("pk"),
-                            user_email,
-                            base_name,
-                        )
-                    )
-
-    elif service_name == "OUTLINE":
-        outline_client = service_client
-        try:
-            all_collections = outline_client.list_collections()
-            if not all_collections:
-                logging.warning("TOOLS_TO_MM: No Outline collections found to sync.")
-                return results
-        except (AttributeError, NotImplementedError):
-            logging.error("`outline_client.list_collections()` method not implemented. Skipping Outline sync.")
-            return results
-
-        for collection in all_collections:
-            collection_name = collection.get("name")
-            collection_id = collection.get("id")
-            entity_key, base_name = _map_outline_collection_to_entity_and_base_name(
-                collection_name, permissions_matrix
-            )
-
-            if not entity_key or not base_name:
-                continue
-
-            entity_config = permissions_matrix.get(entity_key, {})
-            mm_users_for_services, _, _ = _get_mm_users_for_entity(
-                mattermost_client, mm_team_id, base_name, entity_config
-            )
-
-            mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
-
-            outline_users_id = outline_client.get_collection_members(collection_id)
-            for id in outline_users_id:
-                user = outline_client.get_user_by_id(id)
-                user_email = user.get("email", "").lower()
-                if user_email and user_email not in mm_user_emails:
-                    results.append(
-                        _remove_user_from_outline_collection(
-                            outline_client,
-                            collection_id,
-                            collection_name,
-                            user["id"],
-                            user_email,
-                            base_name,
-                        )
-                    )
-
-    elif service_name == "NOCODB":
-        nocodb_client = service_client
-        all_bases = nocodb_client.list_bases()
-        if not all_bases:
-            logging.warning("TOOLS_TO_MM: No NoCoDB bases found to sync.")
-            return results
-
-        for base in all_bases["list"]:
-            base_title = base.get("title")
-            base_id = base.get("id")
-            entity_key, base_name = _map_nocodb_base_to_entity_and_base_name(base_title, permissions_matrix)
-
-            if not entity_key or not base_name:
-                continue
-
-            entity_config = permissions_matrix.get(entity_key, {})
-            mm_users_for_services, _, _ = _get_mm_users_for_entity(
-                mattermost_client, mm_team_id, base_name, entity_config
-            )
-            mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
-
-            nocodb_users = nocodb_client.list_base_users(base_id)
-            for user in nocodb_users:
-                user_email = user.get("email", "").lower()
-                if user_email and user_email not in mm_user_emails:
-                    results.append(
-                        _remove_user_from_nocodb_base(
-                            nocodb_client,
-                            base_id,
-                            base_title,
-                            user["id"],
-                            user_email,
-                            base_name,
-                        )
-                    )
-
-    elif service_name == "BREVO":
-        # Brevo sync is handled by the existing _sync_single_brevo_list
-        pass
-
-    elif service_name == "VAULTWARDEN":
-        vaultwarden_client = service_client
-        all_collections = vaultwarden_client.get_collections_details()
-        if not all_collections:
-            logging.warning("TOOLS_TO_MM: No Vaultwarden collections found to sync.")
-            return results
-        rc_list, sout_list, err_list = vaultwarden_client.get_collections()
-        rc_user_list, sout_user_list, err_user_list = vaultwarden_client.get_members()
-        for collection in all_collections:
-            collection_id = collection.get("id")
-
-            collection_name = None
-            if rc_list == 0:
-                collection_name = vaultwarden_client.get_name_from_collections(collection_id, sout_list)
-            else:
-                logging.error(f"Failed to list collections using 'bw list collections': {err_list.strip()}")
-            entity_key, base_name = _map_vaultwarden_collection_to_entity_and_base_name(
-                collection_name, permissions_matrix
-            )
-
-            if not entity_key or not base_name:
-                continue
-
-            entity_config = permissions_matrix.get(entity_key, {})
-            mm_users_for_services, _, _ = _get_mm_users_for_entity(
-                mattermost_client, mm_team_id, base_name, entity_config
-            )
-            mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
-
-            vaultwarden_users_by_collection = collection.get("users", [])
-            users_to_keep = []
-            for user in vaultwarden_users_by_collection:
-                user_id = user.get("id")
-
-                user_email = None
-                if rc_user_list == 0:
-                    user_email = vaultwarden_client.get_email_from_members(user_id, sout_user_list)
-                else:
-                    logging.error(f"Failed to list collections using 'bw list collections': {err_user_list.strip()}")
-
-                if user_email and user_email in mm_user_emails:
-                    users_to_keep.append(user)
-
-            if len(users_to_keep) != len(vaultwarden_users_by_collection):
-                payload = {
-                    "users": users_to_keep,
-                    "groups": collection.get("groups", []),
-                    "externalId": collection.get("externalId"),
-                    "name": collection.get("name"),
-                }
-                if vaultwarden_client.update_collection(collection_id, payload):
-                    results.append(
-                        {
-                            "service": "VAULTWARDEN",
-                            "target_resource_name": collection_name,
-                            "status": SyncStatus.SUCCESS.value,
-                            "action": VaultwardenAction.USER_REMOVED_FROM_COLLECTION.value,
-                        }
-                    )
-                else:
-                    results.append(
-                        {
-                            "service": "VAULTWARDEN",
-                            "target_resource_name": collection_name,
-                            "status": SyncStatus.FAILURE.value,
-                            "action": VaultwardenAction.FAILED_TO_REMOVE_FROM_COLLECTION.value,
-                        }
-                    )
-    return results

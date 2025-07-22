@@ -4,7 +4,8 @@ from typing import TYPE_CHECKING, Optional
 import config
 from app.enums import SyncStatus
 from clients.vaultwarden_client import VaultwardenAction
-from .mattermost import _extract_base_name
+from .base import SyncService
+from .mattermost import _extract_base_name, _get_mm_users_for_entity
 
 if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
@@ -237,3 +238,77 @@ def _sync_vaultwarden_for_entity(
         mm_users_for_services,
         log_channel_name,
     )
+
+
+class VaultwardenService(SyncService):
+    SERVICE_NAME = "VAULTWARDEN"
+
+    async def differential_sync(self):
+        results = []
+        all_collections = self.client.get_collections_details()
+        if not all_collections:
+            logging.warning("TOOLS_TO_MM: No Vaultwarden collections found to sync.")
+            return results
+        rc_list, sout_list, err_list = self.client.get_collections()
+        rc_user_list, sout_user_list, err_user_list = self.client.get_members()
+        for collection in all_collections:
+            collection_id = collection.get("id")
+
+            collection_name = None
+            if rc_list == 0:
+                collection_name = self.client.get_name_from_collections(collection_id, sout_list)
+            else:
+                logging.error(f"Failed to list collections using 'bw list collections': {err_list.strip()}")
+            entity_key, base_name = _map_vaultwarden_collection_to_entity_and_base_name(
+                collection_name, self.permissions_matrix
+            )
+
+            if not entity_key or not base_name:
+                continue
+
+            entity_config = self.permissions_matrix.get(entity_key, {})
+            mm_users_for_services, _, _ = _get_mm_users_for_entity(
+                self.mattermost_client, self.mm_team_id, base_name, entity_config
+            )
+            mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
+
+            vaultwarden_users_by_collection = collection.get("users", [])
+            users_to_keep = []
+            for user in vaultwarden_users_by_collection:
+                user_id = user.get("id")
+
+                user_email = None
+                if rc_user_list == 0:
+                    user_email = self.client.get_email_from_members(user_id, sout_user_list)
+                else:
+                    logging.error(f"Failed to list collections using 'bw list collections': {err_user_list.strip()}")
+
+                if user_email and user_email in mm_user_emails:
+                    users_to_keep.append(user)
+
+            if len(users_to_keep) != len(vaultwarden_users_by_collection):
+                payload = {
+                    "users": users_to_keep,
+                    "groups": collection.get("groups", []),
+                    "externalId": collection.get("externalId"),
+                    "name": collection.get("name"),
+                }
+                if self.client.update_collection(collection_id, payload):
+                    results.append(
+                        {
+                            "service": "VAULTWARDEN",
+                            "target_resource_name": collection_name,
+                            "status": SyncStatus.SUCCESS.value,
+                            "action": VaultwardenAction.USER_REMOVED_FROM_COLLECTION.value,
+                        }
+                    )
+                else:
+                    results.append(
+                        {
+                            "service": "VAULTWARDEN",
+                            "target_resource_name": collection_name,
+                            "status": SyncStatus.FAILURE.value,
+                            "action": VaultwardenAction.FAILED_TO_REMOVE_FROM_COLLECTION.value,
+                        }
+                    )
+        return results
