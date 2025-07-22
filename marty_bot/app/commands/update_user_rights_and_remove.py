@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from .base_command import BaseCommand
-from libraries.group_sync_services import orchestrate_group_synchronization
+from libraries.group_sync_services import differential_sync
 
 
 class UpdateUserRightsAndRemoveCommand(BaseCommand):
@@ -81,25 +81,14 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
             return
 
         try:
-            logging.info(  # Corrected log message for upsert
-                "Calling 'orchestrate_group_synchronization' with sync_mode='MM_TO_TOOLS' for upsert..."
-            )
-            clients = {
-                "authentik": self.bot.authentik_client,
-                "mattermost": self.bot.mattermost_api_client,
-                "outline": self.bot.outline_client,
-                "brevo": self.bot.brevo_client,
-                "nocodb": self.bot.nocodb_client,
-                "vaultwarden": self.bot.vaultwarden_client,
-            }
+            logging.info("Calling 'differential_sync' for upsert...")  # Corrected log message for upsert
+
             (
                 orchestration_success,
                 detailed_results,
-            ) = await orchestrate_group_synchronization(
-                clients=clients,
+            ) = await differential_sync(
+                clients=self.bot._get_clients(),
                 mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
-                perform_deletions=True,
-                sync_mode="TOOLS_TO_MM",
                 skip_services=skip_services_list if skip_services_list else None,
             )
 

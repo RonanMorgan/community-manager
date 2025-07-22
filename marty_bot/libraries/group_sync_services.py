@@ -35,6 +35,7 @@ from libraries.services.vaultwarden import (
     _map_vaultwarden_collection_to_entity_and_base_name,
     _sync_vaultwarden_for_entity,
 )
+from libraries.utils import check_clients
 
 if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
@@ -186,9 +187,6 @@ async def orchestrate_group_synchronization(
             }
         ]
 
-    # Client checks
-    if not authentik_client:
-        logging.error("Authentik client not provided to orchestrator. Authentik sync will be skipped.")
     if not mattermost_client:
         logging.error("Mattermost client not provided to orchestrator. Cannot proceed with core logic.")
         return False, detailed_results
@@ -196,14 +194,7 @@ async def orchestrate_group_synchronization(
         logging.error("Mattermost Team ID not provided to orchestrator. Cannot proceed.")
         return False, detailed_results
 
-    if not outline_client:
-        logging.info("Outline client not provided. Outline synchronization will be skipped.")
-    if not brevo_client:
-        logging.info("Brevo client not provided. Brevo synchronization will be skipped.")
-    if not nocodb_client:
-        logging.info("NocoDB client not provided. NocoDB synchronization will be skipped.")
-    if not vaultwarden_client:
-        logging.info("Vaultwarden client not provided. Vaultwarden synchronization will be skipped.")
+    check_clients(clients)
 
     _, email_to_auth_pk_map = get_all_authentik_groups_and_user_map(authentik_client)
     if not email_to_auth_pk_map and authentik_client:  # Only warn if client was available
@@ -268,7 +259,6 @@ async def orchestrate_group_synchronization(
                 logging.debug(
                     f"MM channel '{channel_display_name}' (slug: {channel_name}) did not map to a known entity pattern for MM_TO_TOOLS sync."
                 )
-    # TOOLS_TO_MM discovery is handled within its loop by _sync_entity_permissions_tools_to_mm
 
     if not entities_to_process and sync_mode not in ["TOOLS_TO_MM"]:
         logging.info(
@@ -293,7 +283,6 @@ async def orchestrate_group_synchronization(
                     mattermost_client=mattermost_client,
                     mm_team_id=mm_team_id,
                     email_to_authentik_user_pk_map=email_to_auth_pk_map if service_name == "AUTHENTIK" else None,
-                    perform_deletions=perform_deletions,
                     permissions_matrix=config.PERMISSIONS_MATRIX,
                     skip_services=skip_services,
                 )
@@ -340,13 +329,70 @@ async def orchestrate_group_synchronization(
     return True, detailed_results
 
 
+async def differential_sync(
+    clients: dict,
+    mm_team_id: str,
+    skip_services: list[str] | None = None,
+) -> tuple[bool, list[dict]]:
+    authentik_client = clients.get("authentik")
+    mattermost_client = clients.get("mattermost")
+    skip_services = skip_services or []
+    logging.info(f"Starting group diff synchronization task (async)... " f"Skip Services: {skip_services})")
+    detailed_results = []
+
+    if not mattermost_client:
+        logging.error("Mattermost client not provided to orchestrator. Cannot proceed with core logic.")
+        return False, detailed_results
+    if not mm_team_id:
+        logging.error("Mattermost Team ID not provided to orchestrator. Cannot proceed.")
+        return False, detailed_results
+
+    check_clients(clients)
+
+    _, email_to_auth_pk_map = get_all_authentik_groups_and_user_map(authentik_client)
+    if not email_to_auth_pk_map and authentik_client:  # Only warn if client was available
+        logging.warning(
+            "Authentik email-to-user-PK map is empty. Authentik sync operations might not find users effectively."
+        )
+
+    logging.info("Iterating through configured services.")
+    service_clients_map = {
+        "AUTHENTIK": authentik_client,
+        "OUTLINE": clients.get("outline"),
+        "BREVO": clients.get("brevo"),
+        "NOCODB": clients.get("nocodb"),
+        "VAULTWARDEN": clients.get("vaultwarden"),
+    }
+    for service_name, service_client in service_clients_map.items():
+        if service_client:
+            service_results = await _sync_entity_permissions_tools_to_mm(
+                service_client=service_client,
+                service_name=service_name,
+                mattermost_client=mattermost_client,
+                mm_team_id=mm_team_id,
+                email_to_authentik_user_pk_map=email_to_auth_pk_map if service_name == "AUTHENTIK" else None,
+                permissions_matrix=config.PERMISSIONS_MATRIX,
+                skip_services=skip_services,
+            )
+            detailed_results.extend(service_results)
+        else:
+            logging.info(f"Service client for {service_name} not configured, skipping for TOOLS_TO_MM sync.")
+
+    log_msg = (
+        f"Differential Synchronization task completed., "
+        f"skip_services: {skip_services}). "
+        f"Total individual operations/results reported: {len(detailed_results)}."
+    )
+    logging.info(log_msg)
+    return True, detailed_results
+
+
 async def _sync_entity_permissions_tools_to_mm(
     service_client: object,
     service_name: str,
     mattermost_client: "MattermostClient",
     mm_team_id: str,
     email_to_authentik_user_pk_map: Optional[dict],
-    perform_deletions: bool,
     permissions_matrix: dict,
     skip_services: list[str] | None,
 ) -> list[dict]:

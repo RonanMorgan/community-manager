@@ -82,6 +82,16 @@ class MartyBot:
         self.shutdown_event.set()
         self.websocket_handler.stop()
 
+    def _get_clients(self):
+        return {
+            "authentik": self.authentik_client,
+            "mattermost": self.mattermost_api_client,
+            "outline": self.outline_client,
+            "brevo": self.brevo_client,
+            "nocodb": self.nocodb_client,
+            "vaultwarden": self.vaultwarden_client,
+        }
+
     def envoyer_message(self, channel_id, message_text, thread_id=None) -> str | None:
         """
         Sends a message to the specified Mattermost channel.
