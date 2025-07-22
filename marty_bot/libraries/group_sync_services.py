@@ -5,7 +5,7 @@
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import config
 from app.enums import SyncStatus
@@ -13,7 +13,6 @@ from clients.vaultwarden_client import VaultwardenAction
 from libraries.services.authentik import (
     _map_auth_group_to_entity_and_base_name,
     _sync_authentik_for_entity,
-    get_all_authentik_groups_and_user_map,
     remove_user_from_authentik_group,
 )
 from libraries.services.brevo import _sync_brevo_for_entity
@@ -55,7 +54,6 @@ def sync_entity_permissions(
     entity_key: str,
     entity_config: dict,
     all_authentik_groups_by_name: dict,
-    email_to_authentik_user_pk_map: dict,
     perform_deletions: bool,
     skip_services: list[str] | None = None,
 ) -> list[dict]:
@@ -141,7 +139,6 @@ def sync_entity_permissions(
                     base_name,
                     service_data["config"],
                     all_authentik_groups_by_name,
-                    email_to_authentik_user_pk_map,
                     std_mm_users_in_channel,
                     adm_mm_users_in_channel,
                     mm_users_for_services,
@@ -159,7 +156,7 @@ async def orchestrate_group_synchronization(
     clients: dict,
     mm_team_id: str,
     perform_deletions: bool = True,
-    sync_mode: str = "FULL_SYNC",
+    sync_mode: str = "WITH_AUTHENTIK",
     skip_services: list[str] | None = None,
 ) -> tuple[bool, list[dict]]:
     authentik_client = clients.get("authentik")
@@ -175,8 +172,8 @@ async def orchestrate_group_synchronization(
     )
     detailed_results = []
 
-    if sync_mode not in ["MM_TO_TOOLS", "TOOLS_TO_MM", "FULL_SYNC"]:
-        logging.error(f"Invalid sync_mode: {sync_mode}. Must be one of MM_TO_TOOLS, TOOLS_TO_MM, FULL_SYNC.")
+    if sync_mode not in ["MM_TO_TOOLS", "WITH_AUTHENTIK"]:
+        logging.error(f"Invalid sync_mode: {sync_mode}. Must be one of MM_TO_TOOLS, WITH_AUTHENTIK.")
         return False, [
             {
                 "service": "ORCHESTRATOR",
@@ -196,16 +193,10 @@ async def orchestrate_group_synchronization(
 
     check_clients(clients)
 
-    _, email_to_auth_pk_map = get_all_authentik_groups_and_user_map(authentik_client)
-    if not email_to_auth_pk_map and authentik_client:  # Only warn if client was available
-        logging.warning(
-            "Authentik email-to-user-PK map is empty. Authentik sync operations might not find users effectively."
-        )
-
     all_auth_groups_by_name = {}
     entities_to_process = {}
 
-    if sync_mode == "FULL_SYNC":
+    if sync_mode == "WITH_AUTHENTIK":
         logging.info("Sync Mode: FULL_SYNC. Discovering entities from Authentik groups...")
         all_auth_groups_list = []
         if authentik_client:
@@ -260,64 +251,39 @@ async def orchestrate_group_synchronization(
                     f"MM channel '{channel_display_name}' (slug: {channel_name}) did not map to a known entity pattern for MM_TO_TOOLS sync."
                 )
 
-    if not entities_to_process and sync_mode not in ["TOOLS_TO_MM"]:
+    if not entities_to_process:
         logging.info(
             f"No entities found to process after discovery phase for sync_mode '{sync_mode}'. Synchronization finished."
         )
         return True, detailed_results
 
-    if sync_mode == "TOOLS_TO_MM":
-        logging.info("TOOLS_TO_MM sync mode: Iterating through configured services.")
-        service_clients_map = {
-            "AUTHENTIK": authentik_client,
-            "OUTLINE": outline_client,
-            "BREVO": brevo_client,
-            "NOCODB": nocodb_client,
-            "VAULTWARDEN": vaultwarden_client,
-        }
-        for service_name, service_client in service_clients_map.items():
-            if service_client:
-                service_results = await _sync_entity_permissions_tools_to_mm(
-                    service_client=service_client,
-                    service_name=service_name,
-                    mattermost_client=mattermost_client,
-                    mm_team_id=mm_team_id,
-                    email_to_authentik_user_pk_map=email_to_auth_pk_map if service_name == "AUTHENTIK" else None,
-                    permissions_matrix=config.PERMISSIONS_MATRIX,
-                    skip_services=skip_services,
-                )
-                detailed_results.extend(service_results)
-            else:
-                logging.info(f"Service client for {service_name} not configured, skipping for TOOLS_TO_MM sync.")
-    else:  # For FULL_SYNC and MM_TO_TOOLS
-        clients = {
-            "authentik": authentik_client,
-            "mattermost": mattermost_client,
-            "outline": outline_client,
-            "brevo": brevo_client,
-            "nocodb": nocodb_client,
-            "vaultwarden": vaultwarden_client,
-        }
-        for (
-            entity_key,
+    clients = {
+        "authentik": authentik_client,
+        "mattermost": mattermost_client,
+        "outline": outline_client,
+        "brevo": brevo_client,
+        "nocodb": nocodb_client,
+        "vaultwarden": vaultwarden_client,
+    }
+    for (
+        entity_key,
+        base_name,
+    ), entity_config_to_use in entities_to_process.items():
+        logging.info(
+            f"Orchestrating sync for entity: {entity_key}, base_name: {base_name}, "
+            f"sync_mode: {sync_mode}, perform_deletions: {perform_deletions}"
+        )
+        entity_sync_results = sync_entity_permissions(
+            clients,
+            mm_team_id,
             base_name,
-        ), entity_config_to_use in entities_to_process.items():
-            logging.info(
-                f"Orchestrating sync for entity: {entity_key}, base_name: {base_name}, "
-                f"sync_mode: {sync_mode}, perform_deletions: {perform_deletions}"
-            )
-            entity_sync_results = sync_entity_permissions(
-                clients,
-                mm_team_id,
-                base_name,
-                entity_key,
-                entity_config_to_use,
-                all_auth_groups_by_name,
-                email_to_auth_pk_map,
-                perform_deletions,
-                skip_services=skip_services,
-            )
-            detailed_results.extend(entity_sync_results)
+            entity_key,
+            entity_config_to_use,
+            all_auth_groups_by_name,
+            perform_deletions,
+            skip_services=skip_services,
+        )
+        detailed_results.extend(entity_sync_results)
 
     log_msg = (
         f"Synchronization task completed. Mode: {sync_mode}, "
@@ -349,12 +315,6 @@ async def differential_sync(
 
     check_clients(clients)
 
-    _, email_to_auth_pk_map = get_all_authentik_groups_and_user_map(authentik_client)
-    if not email_to_auth_pk_map and authentik_client:  # Only warn if client was available
-        logging.warning(
-            "Authentik email-to-user-PK map is empty. Authentik sync operations might not find users effectively."
-        )
-
     logging.info("Iterating through configured services.")
     service_clients_map = {
         "AUTHENTIK": authentik_client,
@@ -370,13 +330,12 @@ async def differential_sync(
                 service_name=service_name,
                 mattermost_client=mattermost_client,
                 mm_team_id=mm_team_id,
-                email_to_authentik_user_pk_map=email_to_auth_pk_map if service_name == "AUTHENTIK" else None,
                 permissions_matrix=config.PERMISSIONS_MATRIX,
                 skip_services=skip_services,
             )
             detailed_results.extend(service_results)
         else:
-            logging.info(f"Service client for {service_name} not configured, skipping for TOOLS_TO_MM sync.")
+            logging.info(f"Service client for {service_name} not configured, skipping for differential sync.")
 
     log_msg = (
         f"Differential Synchronization task completed., "
@@ -392,7 +351,6 @@ async def _sync_entity_permissions_tools_to_mm(
     service_name: str,
     mattermost_client: "MattermostClient",
     mm_team_id: str,
-    email_to_authentik_user_pk_map: Optional[dict],
     permissions_matrix: dict,
     skip_services: list[str] | None,
 ) -> list[dict]:
