@@ -19,7 +19,7 @@ def async_test(f):
     return wrapper
 
 
-class TestNewGroupSyncServices(unittest.TestCase):
+class TestGroupSyncServices(unittest.TestCase):
     def setUp(self):
         self.mock_authentik_client = MagicMock(spec=AuthentikClient)
         self.mock_mattermost_client = MagicMock(spec=MattermostClient)
