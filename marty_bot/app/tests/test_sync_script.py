@@ -355,85 +355,70 @@ class TestSyncLogic(unittest.TestCase):
         mock_orchestrate_lib.assert_not_called()
 
 
-class TestVaultwardenSync(unittest.TestCase):
-    @patch("clients.authentik_client.AuthentikClient")
-    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
-    @patch("libraries.group_sync_services._get_mm_users_for_entity")
-    @patch("libraries.group_sync_services._map_vaultwarden_collection_to_entity_and_base_name")
-    def test_sync_vaultwarden_removes_user(
-        self,
-        mock_map_collection,
-        mock_get_users,
-        mock_get_auth_groups,
-        mock_auth_client_class,
-    ):
+from libraries.services.vaultwarden import VaultwardenService
+
+class TestVaultwardenDifferentialSync(unittest.TestCase):
+    @async_test
+    async def test_differential_sync_removes_user(self):
         # Arrange
-        mock_auth_instance = mock_auth_client_class.return_value
-        mock_auth_instance.get_groups_with_users.return_value = ([], {})
-        mock_get_auth_groups.return_value = (
-            [],
-            {"user1@test.com": "user1-pk", "user2@test.com": "user2-pk"},
-        )
         mock_vw_client = MagicMock(spec=VaultwardenClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
         mm_team_id = "test-team-id"
+        permissions_matrix = {
+            "PROJET": {
+                "vaultwarden": {"collection_name_pattern": "projet-{base_name}"}
+            }
+        }
+
+        # Mock Vaultwarden client methods
         mock_vw_client.get_collections_details.return_value = [
             {
                 "id": "coll1",
                 "name": "projet-test",
-                "users": [{"id": "user1-pk"}, {"id": "user2-pk"}],
+                "users": [{"id": "user-to-keep-id"}, {"id": "user-to-remove-id"}],
+                "groups": [],
+                "externalId": None,
             }
         ]
-        mock_vw_client.get_collections.return_value = (
-            0,
-            json.dumps(
-                [
-                    {
-                        "id": "coll1",
-                        "name": "projet-test",
-                        "organizationId": "test-org-id",
-                    }
-                ]
-            ),
-            "",
-        )
-        mock_vw_client.get_members.return_value = (
-            0,
-            json.dumps(
-                [
-                    {"id": "user1-pk", "email": "user1@test.com"},
-                    {"id": "user2-pk", "email": "user2@test.com"},
-                ]
-            ),
-            "",
-        )
+        mock_vw_client.get_collections.return_value = (0, json.dumps([{"id": "coll1", "name": "projet-test"}]), "")
+        mock_vw_client.get_members.return_value = (0, json.dumps([
+            {"id": "user-to-keep-id", "email": "keep@test.com"},
+            {"id": "user-to-remove-id", "email": "remove@test.com"},
+        ]), "")
         mock_vw_client.get_name_from_collections.return_value = "projet-test"
-        mock_vw_client.get_email_from_members.side_effect = [
-            "user1@test.com",
-            "user2@test.com",
-        ]
-        mock_map_collection.return_value = ("PROJET", "test")
-        mock_get_users.return_value = ({"user1@test.com": {}}, [], [])
+        mock_vw_client.get_email_from_members.side_effect = ["keep@test.com", "remove@test.com"]
+        mock_vw_client.update_collection.return_value = True
 
-        # Act
-        clients = {
-            "authentik": mock_auth_instance,
-            "mattermost": mock_mm_client,
-            "outline": None,
-            "brevo": None,
-            "nocodb": None,
-            "vaultwarden": mock_vw_client,
-        }
-        success, results = asyncio.run(
-            differential_sync(
-                clients=clients,
+        # Mock Mattermost client to return only the user to keep
+        with patch("libraries.services.vaultwarden._get_mm_users_for_entity") as mock_get_mm_users:
+            mock_get_mm_users.return_value = ({"keep@test.com": {}}, [], [])
+
+            # Instantiate the service with mocked clients
+            vaultwarden_service = VaultwardenService(
+                client=mock_vw_client,
+                mattermost_client=mock_mm_client,
+                permissions_matrix=permissions_matrix,
                 mm_team_id=mm_team_id,
             )
-        )
+
+            # Act
+            results = await vaultwarden_service.differential_sync()
 
         # Assert
         self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "SUCCESS")
         self.assertEqual(results[0]["action"], "USER_REMOVED_FROM_VAULTWARDEN_COLLECTION")
+
+        # Verify that update_collection was called with the correct payload
+        mock_vw_client.update_collection.assert_called_once()
+        call_args = mock_vw_client.update_collection.call_args[0]
+        collection_id_arg = call_args[0]
+        payload_arg = call_args[1]
+
+        self.assertEqual(collection_id_arg, "coll1")
+        self.assertEqual(payload_arg["name"], "projet-test")
+        self.assertEqual(len(payload_arg["users"]), 1)
+        self.assertEqual(payload_arg["users"][0]["id"], "user-to-keep-id")
 
 
 if __name__ == "__main__":
