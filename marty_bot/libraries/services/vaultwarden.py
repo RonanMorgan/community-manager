@@ -40,7 +40,9 @@ class VaultwardenService(SyncService):
             return results
 
         if not access_token:
-            logging.error(f"No Vaultwarden access token provided for collection '{collection_name}'. Cannot invite users.")
+            logging.error(
+                f"No Vaultwarden access token provided for collection '{collection_name}'. Cannot invite users."
+            )
             results.append(
                 {
                     "service": "VAULTWARDEN",
@@ -117,7 +119,9 @@ class VaultwardenService(SyncService):
                         )
                         invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_URL.value
                 else:
-                    invite_result["action"] = VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_MM_USER_ID.value
+                    invite_result["action"] = (
+                        VaultwardenAction.USER_INVITED_TO_COLLECTION_DM_SKIPPED_NO_MM_USER_ID.value
+                    )
             else:
                 invite_result.update(
                     {
@@ -147,7 +151,9 @@ class VaultwardenService(SyncService):
         )
 
         if not vaultwarden_client.api_username or not vaultwarden_client.api_password:
-            logging.warning(f"Vaultwarden API credentials not configured. Skipping member sync for '{collection_name}'.")
+            logging.warning(
+                f"Vaultwarden API credentials not configured. Skipping member sync for '{collection_name}'."
+            )
             return [
                 {
                     "service": "VAULTWARDEN",
@@ -199,7 +205,9 @@ class VaultwardenService(SyncService):
         results.extend(invite_results)
 
         # Vaultwarden sync is additive only, no removal logic based on MM channel membership.
-        logging.info(f"Finished Vaultwarden collection member sync for '{collection_name}'. Total results: {len(results)}")
+        logging.info(
+            f"Finished Vaultwarden collection member sync for '{collection_name}'. Total results: {len(results)}"
+        )
         return results
 
     def _map_vaultwarden_collection_to_entity_and_base_name(

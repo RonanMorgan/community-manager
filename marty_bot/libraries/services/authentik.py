@@ -56,7 +56,9 @@ class AuthentikService(SyncService):
             }
 
             if mm_username in config.EXCLUDED_USERS:
-                logging.debug(f"User '{mm_username}' is excluded. Skipping ensure in Authentik group '{auth_group_name}'.")
+                logging.debug(
+                    f"User '{mm_username}' is excluded. Skipping ensure in Authentik group '{auth_group_name}'."
+                )
                 continue
 
             if not mm_user_email_lower:
@@ -258,9 +260,9 @@ class AuthentikService(SyncService):
         )
         std_auth_group_obj = all_authentik_groups_by_name.get(std_auth_group_name)
         if not std_auth_group_obj:
-            std_auth_group_obj = authentik_client.get_group_by_name(std_auth_group_name) or authentik_client.create_group(
+            std_auth_group_obj = authentik_client.get_group_by_name(
                 std_auth_group_name
-            )
+            ) or authentik_client.create_group(std_auth_group_name)
         if std_auth_group_obj:
             results.extend(
                 self._sync_single_authentik_group(

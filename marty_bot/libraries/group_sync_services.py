@@ -80,7 +80,9 @@ def sync_entity_permissions(
 
     email_to_authentik_user_pk_map = {}
     # Service-specific logic
-    authentik_service = AuthentikService(clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
+    authentik_service = AuthentikService(
+        clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id
+    )
     outline_service = OutlineService(clients.get("outline"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
     brevo_service = BrevoService(clients.get("brevo"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
     nocodb_service = NocoDBService(clients.get("nocodb"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
@@ -179,7 +181,9 @@ async def orchestrate_group_synchronization(
 
     all_auth_groups_by_name = {}
     entities_to_process = {}
-    authentik_service = AuthentikService(clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id)
+    authentik_service = AuthentikService(
+        clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id
+    )
 
     if sync_mode == "WITH_AUTHENTIK":
         logging.info("Sync Mode: WITH_AUTHENTIK. Discovering entities from Authentik groups...")

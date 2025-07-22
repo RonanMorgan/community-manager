@@ -2199,10 +2199,10 @@ class TestAuthentikService(unittest.TestCase):
         mock_mattermost_client.get_users_in_channel.return_value = [{"email": "keep@me.com", "username": "keep_user"}]
         from libraries.services.authentik import AuthentikService
 
-        service = AuthentikService(
-            mock_authentik_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id
-        )
-        with patch.object(service, "remove_user_from_authentik_group", return_value={"status": "SUCCESS"}) as mock_remove_user:
+        service = AuthentikService(mock_authentik_client, mock_mattermost_client, mock_permissions_matrix, mm_team_id)
+        with patch.object(
+            service, "remove_user_from_authentik_group", return_value={"status": "SUCCESS"}
+        ) as mock_remove_user:
             results = await service.differential_sync()
             mock_remove_user.assert_called_once_with(
                 mock_authentik_client, "pk1", "projet_Test1", 1, "remove@me.com", "Test1"

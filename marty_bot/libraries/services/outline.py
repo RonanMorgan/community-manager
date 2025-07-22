@@ -135,7 +135,9 @@ class OutlineService(SyncService):
                 outline_result["action"] = current_action
             else:
                 verb_failed = (
-                    "FAILED_TO_UPDATE_OUTLINE_PERMISSION" if is_already_member else "FAILED_TO_ADD_TO_OUTLINE_COLLECTION"
+                    "FAILED_TO_UPDATE_OUTLINE_PERMISSION"
+                    if is_already_member
+                    else "FAILED_TO_ADD_TO_OUTLINE_COLLECTION"
                 )
                 outline_result.update({"action": verb_failed, "error_message": "API call to Outline failed."})
 
@@ -161,7 +163,9 @@ class OutlineService(SyncService):
         outline_collection_obj = outline_client.create_group(collection_name)  # Renamed from get_collection_by_name
 
         if not outline_collection_obj or not outline_collection_obj.get("id"):
-            logging.error(f"Failed to get or create Outline collection '{collection_name}'. Cannot sync this collection.")
+            logging.error(
+                f"Failed to get or create Outline collection '{collection_name}'. Cannot sync this collection."
+            )
             return [
                 {
                     "service": "OUTLINE",

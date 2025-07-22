@@ -99,7 +99,9 @@ class BrevoService(SyncService):
         if not brevo_list_obj:
             brevo_list_obj = brevo_client.create_list(brevo_list_name)
             if not brevo_list_obj:
-                logging.error(f"Failed to create or retrieve Brevo list '{brevo_list_name}'. Skipping sync for this list.")
+                logging.error(
+                    f"Failed to create or retrieve Brevo list '{brevo_list_name}'. Skipping sync for this list."
+                )
                 results.append(
                     {
                         "service": "BREVO",
