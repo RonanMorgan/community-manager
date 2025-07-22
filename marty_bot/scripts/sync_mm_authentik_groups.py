@@ -123,8 +123,8 @@ async def main_sync_logic():  # Changed to async
         vaultwarden_client,
     ) = initialize_clients()
 
-    if not authentik_client:  # Keeping Authentik mandatory for FULL_SYNC mode often initiated by script
-        logging.critical("Authentik client not initialized in script. Aborting FULL_SYNC.")
+    if not authentik_client:  # Keeping Authentik mandatory for WITH_AUTHENTIK mode often initiated by script
+        logging.critical("Authentik client not initialized in script. Aborting WITH_AUTHENTIK.")
         return
     if not mattermost_client:
         logging.critical("Mattermost client not initialized in script. Aborting sync.")
@@ -134,7 +134,7 @@ async def main_sync_logic():  # Changed to async
         return
 
     logging.info(
-        "Clients initialized by script. Calling group synchronization function from library (FULL_SYNC mode)..."
+        "Clients initialized by script. Calling group synchronization function from library (WITH_AUTHENTIK mode)..."
     )
 
     clients = {
@@ -148,25 +148,26 @@ async def main_sync_logic():  # Changed to async
     success, detailed_results = await orchestrate_group_synchronization(
         clients=clients,
         mm_team_id=config.MATTERMOST_TEAM_ID,
-        perform_deletions=True,
-        sync_mode="FULL_SYNC",
+        sync_mode="WITH_AUTHENTIK",
         skip_services=None,
     )
 
     if success:
         logging.info(
-            f"Group synchronization process (FULL_SYNC) orchestrated by script completed. Success: {success}. Results count: {len(detailed_results)}"
+            f"Group synchronization process (WITH_AUTHENTIK) orchestrated by script completed. Success: {success}. Results count: {len(detailed_results)}"
         )
         actions_summary = {}
         for res in detailed_results:
             action = res.get("action", "UNKNOWN_ACTION")
             actions_summary[action] = actions_summary.get(action, 0) + 1
         if detailed_results:
-            logging.info(f"Script run (FULL_SYNC) actions summary: {actions_summary}")
+            logging.info(f"Script run (WITH_AUTHENTIK) actions summary: {actions_summary}")
         else:
-            logging.info("Script run (FULL_SYNC) completed with no specific actions performed or results reported.")
+            logging.info(
+                "Script run (WITH_AUTHENTIK) completed with no specific actions performed or results reported."
+            )
     else:
-        logging.error("Synchronization process (FULL_SYNC) orchestrated by script encountered errors or failed.")
+        logging.error("Synchronization process (WITH_AUTHENTIK) orchestrated by script encountered errors or failed.")
 
 
 if __name__ == "__main__":

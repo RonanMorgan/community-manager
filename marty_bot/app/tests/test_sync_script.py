@@ -20,6 +20,7 @@ from clients.vaultwarden_client import VaultwardenClient  # Added
 from libraries.group_sync_services import (  # sync_entity_permissions removed as it's not directly used by these tests after refactor
     get_all_authentik_groups_and_user_map,
     orchestrate_group_synchronization,
+    differential_sync,
 )
 
 # Adjust path to import from the project root directory
@@ -158,174 +159,13 @@ class TestSyncLogic(unittest.TestCase):
         self.assertEqual(groups, [])
         self.assertEqual(email_map, {})
 
-    @patch("libraries.group_sync_services.sync_entity_permissions")
-    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
     @patch("libraries.group_sync_services.config")
     @async_test  # Added decorator
-    async def test_library_orchestrate_sync_success_all_clients(
-        self, mock_lib_config, mock_get_groups_map, mock_sync_entity_permissions
-    ):
+    async def test_library_orchestrate_sync_no_groups_found(self, mock_lib_config):
         mock_auth_client = MagicMock(spec=AuthentikClient)
         mock_mm_client = MagicMock(spec=MattermostClient)
         mock_outline_client = MagicMock(spec=OutlineClient)
         mock_team_id = "team123"
-        mock_groups_list = [
-            {"name": "projet_alpha", "pk": "g1_std", "users": [], "users_obj": []},
-            {
-                "name": "projet_alpha Admin",
-                "pk": "g1_adm",
-                "users": [],
-                "users_obj": [],
-            },
-            {"name": "antenne_beta", "pk": "g2_std", "users": [], "users_obj": []},
-        ]
-        mock_email_pk_map = {"user1@example.com": "upk1"}
-        mock_get_groups_map.return_value = (
-            mock_groups_list,
-            mock_email_pk_map,
-        )  # For the email map part
-        # Also mock the direct call to authentik_client.get_groups_with_users for group discovery
-        mock_auth_client.get_groups_with_users.return_value = (
-            mock_groups_list,
-            mock_email_pk_map,
-        )
-
-        mock_lib_config.PERMISSIONS_MATRIX = {
-            "PROJET": {
-                "standard": {"authentik_group_name_pattern": "projet_{base_name}"},
-                "admin": {"authentik_group_name_pattern": "projet_{base_name} Admin"},
-            },
-            "ANTENNE": {"standard": {"authentik_group_name_pattern": "antenne_{base_name}"}},
-        }
-        mock_sync_entity_permissions.side_effect = [
-            [{"service": "PROJET_ALPHA_SYNC", "status": "SUCCESS"}],
-            [{"service": "ANTENNE_BETA_SYNC", "status": "SUCCESS"}],
-        ]
-        expected_detailed_results = [
-            {"service": "PROJET_ALPHA_SYNC", "status": "SUCCESS"},
-            {"service": "ANTENNE_BETA_SYNC", "status": "SUCCESS"},
-        ]
-        clients = {
-            "authentik": mock_auth_client,
-            "mattermost": mock_mm_client,
-            "outline": mock_outline_client,
-            "brevo": self.mock_brevo_client_instance,
-            "nocodb": MagicMock(spec=NocoDBClient),
-            "vaultwarden": MagicMock(spec=VaultwardenClient),
-        }
-        success, detailed_results = await orchestrate_group_synchronization(
-            clients=clients,
-            mm_team_id=mock_team_id,
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
-        )
-        self.assertTrue(success)
-        self.assertEqual(detailed_results, expected_detailed_results)
-        mock_get_groups_map.assert_called_once_with(mock_auth_client)
-        self.assertEqual(mock_sync_entity_permissions.call_count, 2)
-        clients = {
-            "authentik": mock_auth_client,
-            "mattermost": mock_mm_client,
-            "outline": mock_outline_client,
-            "brevo": self.mock_brevo_client_instance,
-            "nocodb": unittest.mock.ANY,
-            "vaultwarden": unittest.mock.ANY,
-        }
-        mock_sync_entity_permissions.assert_any_call(
-            clients,
-            mock_team_id,
-            "alpha",
-            "PROJET",
-            mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
-            unittest.mock.ANY,
-            mock_email_pk_map,
-            True,
-            skip_services=[],
-        )
-        mock_sync_entity_permissions.assert_any_call(
-            clients,
-            mock_team_id,
-            "beta",
-            "ANTENNE",
-            mock_lib_config.PERMISSIONS_MATRIX["ANTENNE"],
-            unittest.mock.ANY,
-            mock_email_pk_map,
-            True,
-            skip_services=[],
-        )
-
-    @patch("libraries.group_sync_services.sync_entity_permissions")
-    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
-    @patch("libraries.group_sync_services.config")
-    @async_test  # Added decorator
-    async def test_library_orchestrate_sync_success_outline_client_none(
-        self, mock_lib_config, mock_get_groups_map, mock_sync_entity_permissions
-    ):
-        mock_auth_client = MagicMock(spec=AuthentikClient)
-        mock_mm_client = MagicMock(spec=MattermostClient)
-        mock_team_id = "team123"
-        mock_outline_client_none = None
-        mock_groups_list = [{"name": "projet_gamma", "pk": "g_gamma", "users": [], "users_obj": []}]
-        mock_email_pk_map = {"usergamma@example.com": "upk_gamma"}
-        mock_get_groups_map.return_value = (
-            mock_groups_list,
-            mock_email_pk_map,
-        )  # For email map
-        mock_auth_client.get_groups_with_users.return_value = (
-            mock_groups_list,
-            mock_email_pk_map,
-        )  # For group discovery
-
-        mock_lib_config.PERMISSIONS_MATRIX = {
-            "PROJET": {"standard": {"authentik_group_name_pattern": "projet_{base_name}"}}
-        }
-        mock_sync_entity_permissions.return_value = [{"service": "AUTHENTIK_ONLY", "status": "SUCCESS"}]
-        expected_detailed_results = [{"service": "AUTHENTIK_ONLY", "status": "SUCCESS"}]
-        clients = {
-            "authentik": mock_auth_client,
-            "mattermost": mock_mm_client,
-            "outline": mock_outline_client_none,
-            "brevo": self.mock_brevo_client_instance,
-            "nocodb": MagicMock(spec=NocoDBClient),
-            "vaultwarden": MagicMock(spec=VaultwardenClient),
-        }
-        success, detailed_results = await orchestrate_group_synchronization(
-            clients=clients,
-            mm_team_id=mock_team_id,
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
-        )
-        self.assertTrue(success)
-        self.assertEqual(detailed_results, expected_detailed_results)
-        clients = {
-            "authentik": mock_auth_client,
-            "mattermost": mock_mm_client,
-            "outline": mock_outline_client_none,
-            "brevo": self.mock_brevo_client_instance,
-            "nocodb": unittest.mock.ANY,
-            "vaultwarden": unittest.mock.ANY,
-        }
-        mock_sync_entity_permissions.assert_called_once_with(
-            clients,
-            mock_team_id,
-            "gamma",
-            "PROJET",
-            mock_lib_config.PERMISSIONS_MATRIX["PROJET"],
-            unittest.mock.ANY,
-            mock_email_pk_map,
-            True,
-            skip_services=[],
-        )
-
-    @patch("libraries.group_sync_services.get_all_authentik_groups_and_user_map")
-    @patch("libraries.group_sync_services.config")
-    @async_test  # Added decorator
-    async def test_library_orchestrate_sync_no_groups_found(self, mock_lib_config, mock_get_groups_map):
-        mock_auth_client = MagicMock(spec=AuthentikClient)
-        mock_mm_client = MagicMock(spec=MattermostClient)
-        mock_outline_client = MagicMock(spec=OutlineClient)
-        mock_team_id = "team123"
-        mock_get_groups_map.return_value = ([], {})  # For email map part
         mock_auth_client.get_groups_with_users.return_value = (
             [],
             {},
@@ -342,12 +182,10 @@ class TestSyncLogic(unittest.TestCase):
         success, detailed_results = await orchestrate_group_synchronization(
             clients=clients,
             mm_team_id=mock_team_id,
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
         self.assertTrue(success)
         self.assertEqual(detailed_results, [])
-        mock_get_groups_map.assert_called_once_with(mock_auth_client)
 
     # This test needs to be wrapped if it's to be run by unittest's default discovery with async methods
     # For pytest, @pytest.mark.asyncio would be used, or a helper like async_test from test_bot.py
@@ -368,8 +206,7 @@ class TestSyncLogic(unittest.TestCase):
         success_auth, results_auth = await orchestrate_group_synchronization(
             clients=clients,
             mm_team_id="team_id",
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
         self.assertTrue(success_auth)
         self.assertEqual(results_auth, [])
@@ -386,8 +223,7 @@ class TestSyncLogic(unittest.TestCase):
         success_mm, results_mm = await orchestrate_group_synchronization(
             clients=clients_mm,
             mm_team_id="team_id",
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
         self.assertFalse(success_mm)
         self.assertEqual(results_mm, [])
@@ -404,8 +240,7 @@ class TestSyncLogic(unittest.TestCase):
         success_team, results_team = await orchestrate_group_synchronization(
             clients=clients_team,
             mm_team_id=None,
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
         )
         self.assertFalse(success_team)
         self.assertEqual(results_team, [])
@@ -461,8 +296,7 @@ class TestSyncLogic(unittest.TestCase):
         mock_orchestrate_lib.assert_called_once_with(
             clients=clients,
             mm_team_id="script_team_id",
-            perform_deletions=True,
-            sync_mode="FULL_SYNC",
+            sync_mode="WITH_AUTHENTIK",
             skip_services=None,
         )
 
@@ -580,7 +414,6 @@ class TestVaultwardenSync(unittest.TestCase):
         ]
         mock_map_collection.return_value = ("PROJET", "test")
         mock_get_users.return_value = ({"user1@test.com": {}}, [], [])
-        mock_vw_client.update_collection.return_value = True
 
         # Act
         clients = {
@@ -592,16 +425,13 @@ class TestVaultwardenSync(unittest.TestCase):
             "vaultwarden": mock_vw_client,
         }
         success, results = asyncio.run(
-            orchestrate_group_synchronization(
+            differential_sync(
                 clients=clients,
                 mm_team_id=mm_team_id,
-                perform_deletions=True,
-                sync_mode="TOOLS_TO_MM",
             )
         )
 
         # Assert
-        mock_vw_client.update_collection.assert_called_once()
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["action"], "USER_REMOVED_FROM_VAULTWARDEN_COLLECTION")
 

@@ -1,10 +1,11 @@
 import logging
 from typing import TYPE_CHECKING, Optional
-from .mattermost import _extract_base_name
 
 import config
 from app.enums import SyncStatus
 from clients.nocodb_client import NocoDBAction
+from .base import SyncService
+from .mattermost import _extract_base_name, _get_mm_users_for_entity
 
 if TYPE_CHECKING:
     from clients.mattermost_client import MattermostClient
@@ -13,23 +14,21 @@ if TYPE_CHECKING:
 
 def _sync_single_nocodb_base(
     nocodb_client: "NocoDBClient",
-    mattermost_client: "MattermostClient",  # Added MattermostClient for DMs
+    mattermost_client: "MattermostClient",
     base_title_pattern: str,
-    entity_base_name: str,  # e.g., "AntenneParis"
-    mm_users_for_permission: dict,  # email_lower -> {username, mm_user_id, is_admin_channel_member}
+    entity_base_name: str,
+    mm_users_for_permission: dict,
     default_permission: str,
     admin_permission: str,
-    mm_channel_context_name: str,  # For logging/reporting context
-    perform_deletions: bool,
+    mm_channel_context_name: str,
 ) -> list[dict]:
     results = []
     nocodb_base_title = base_title_pattern.format(base_name=entity_base_name)
-    # Main entry log changed to DEBUG, INFO will be for specific actions taken.
-    logging.debug(f"Starting NoCoDB base sync for '{nocodb_base_title}'. Deletions: {perform_deletions}")
+    logging.debug(f"Starting NoCoDB base sync for '{nocodb_base_title}'.")
 
     nocodb_base_obj = nocodb_client.get_base_by_title(nocodb_base_title)
     if not nocodb_base_obj or not nocodb_base_obj.get("id"):
-        logging.warning(  # This is an important warning, so kept as WARNING.
+        logging.warning(
             f"NoCoDB base '{nocodb_base_title}' not found. Skipping sync. It should be created by 'create_antenne/pole' command."
         )
         return [
@@ -44,13 +43,11 @@ def _sync_single_nocodb_base(
 
     base_id = nocodb_base_obj["id"]
     current_nocodb_users_list = nocodb_client.list_base_users(base_id)
-    # Create a map of email_lower -> user_obj for current NoCoDB users for quick lookup
     current_nocodb_users_map = {
         user.get("email", "").lower(): user for user in current_nocodb_users_list if user.get("email")
     }
     target_nocodb_user_emails = set()
 
-    # Preserve excluded users if they are already in the base
     for email_l, mm_user_d in mm_users_for_permission.items():
         if mm_user_d.get("username") in config.EXCLUDED_USERS:
             if email_l in current_nocodb_users_map:
@@ -59,7 +56,6 @@ def _sync_single_nocodb_base(
                     f"User '{mm_user_d.get('username')}' ({email_l}) is excluded and already in NoCoDB base '{nocodb_base_title}'. Will be preserved."
                 )
 
-    # Ensure users from Mattermost are in the NoCoDB base with correct roles
     add_update_results, mm_targeted_emails = _ensure_users_in_nocodb_base(
         nocodb_client=nocodb_client,
         mattermost_client=mattermost_client,
@@ -74,65 +70,56 @@ def _sync_single_nocodb_base(
     results.extend(add_update_results)
     target_nocodb_user_emails.update(mm_targeted_emails)
 
-    if perform_deletions:
-        # The existing_email_lower here is from current_nocodb_users_map.keys()
-        # This is correct.
-        for existing_email_lower, nocodb_user_obj in current_nocodb_users_map.items():
-            nocodb_user_id_to_remove = nocodb_user_obj["id"]
-            # Try to find original Mattermost username for logging if possible, otherwise use email.
-            # This requires mm_users_for_permission to be comprehensive or another source for username if not in current MM channels.
-            # For simplicity, we'll use the email as the primary identifier from NoCoDB's user list.
-            username_for_log = nocodb_user_obj.get("firstname", "") + " " + nocodb_user_obj.get("lastname", "")
-            if not username_for_log.strip():  # Fallback if no name
-                username_for_log = existing_email_lower
+    # if perform_deletions:
+    #    for existing_email_lower, nocodb_user_obj in current_nocodb_users_map.items():
+    #        nocodb_user_id_to_remove = nocodb_user_obj["id"]
+    #        username_for_log = nocodb_user_obj.get("firstname", "") + " " + nocodb_user_obj.get("lastname", "")
+    #        if not username_for_log.strip():
+    #            username_for_log = existing_email_lower
 
-            # Check if this NoCoDB user (by email) is in the EXCLUDED_USERS list via their MM username
-            # This requires a reverse lookup: find if any mm_user_data maps to this email_lower and has an excluded username
-            is_excluded = False
-            for mm_email, mm_data in mm_users_for_permission.items():
-                if mm_email == existing_email_lower and mm_data.get("username") in config.EXCLUDED_USERS:
-                    is_excluded = True
-                    break
-            # Also, if the user was directly added to target_nocodb_user_emails due to exclusion earlier, respect that.
-            if existing_email_lower in target_nocodb_user_emails and any(
-                mm_data.get("username") in config.EXCLUDED_USERS
-                for mm_data in mm_users_for_permission.values()
-                if mm_data.get("email") == existing_email_lower
-            ):
-                is_excluded = True
+    #        is_excluded = False
+    #        for mm_email, mm_data in mm_users_for_permission.items():
+    #            if mm_email == existing_email_lower and mm_data.get("username") in config.EXCLUDED_USERS:
+    #                is_excluded = True
+    #                break
+    #        if existing_email_lower in target_nocodb_user_emails and any(
+    #            mm_data.get("username") in config.EXCLUDED_USERS
+    #            for mm_data in mm_users_for_permission.values()
+    #            if mm_data.get("email") == existing_email_lower
+    #        ):
+    #            is_excluded = True
 
-            if not is_excluded and existing_email_lower not in target_nocodb_user_emails:
-                removal_base_info = {
-                    "mm_username": username_for_log,  # Best effort username from NoCoDB
-                    "mm_user_email": existing_email_lower,
-                    "mm_channel_display_name": mm_channel_context_name,
-                    "target_resource_name": nocodb_base_title,
-                    "service": "NOCODB",
-                }
-                removal_result = {
-                    **removal_base_info,
-                    "status": SyncStatus.FAILURE.value,
-                    "action": "FAILED_TO_REMOVE_NOCODB_USER",
-                }
-                if nocodb_client.delete_base_user(base_id, nocodb_user_id_to_remove):
-                    removal_result.update(
-                        {
-                            "status": SyncStatus.SUCCESS.value,
-                            "action": NocoDBAction.USER_REMOVED_FROM_BASE.value,
-                        }
-                    )
-                else:
-                    removal_result["error_message"] = (
-                        "API call to remove user (set no-access) from NoCoDB base failed."
-                    )
-                results.append(removal_result)
-            elif is_excluded:
-                logging.debug(  # DEBUG for excluded user preservation details
-                    f"User '{username_for_log}' ({existing_email_lower}) is in NoCoDB base "
-                    f"'{nocodb_base_title}' and is excluded from sync-based removal."
-                )
+    #        if not is_excluded and existing_email_lower not in target_nocodb_user_emails:
+    #            removal_base_info = {
+    #                "mm_username": username_for_log,
+    #                "mm_user_email": existing_email_lower,
+    #                "mm_channel_display_name": mm_channel_context_name,
+    #                "target_resource_name": nocodb_base_title,
+    #                "service": "NOCODB",
+    #            }
+    #            removal_result = {
+    #                **removal_base_info,
+    #                "status": SyncStatus.FAILURE.value,
+    #                "action": "FAILED_TO_REMOVE_NOCODB_USER",
+    #            }
+    #            if nocodb_client.delete_base_user(base_id, nocodb_user_id_to_remove):
+    #                removal_result.update(
+    #                    {
+    #                        "status": SyncStatus.SUCCESS.value,
+    #                        "action": NocoDBAction.USER_REMOVED_FROM_BASE.value,
+    #                    }
+    #                )
+    #            else:
+    #                removal_result["error_message"] = (
+    #                    "API call to remove user (set no-access) from NoCoDB base failed."
+    #                )
+    #            results.append(removal_result)
+    #        elif is_excluded:
+    #            logging.debug(
+    #                f"User '{username_for_log}' ({existing_email_lower}) is in NoCoDB base "
+    #                f"'{nocodb_base_title}' and is excluded from sync-based removal."
+    #            )
 
-    # Summary log changed to DEBUG. INFO logs will be for specific successful/failed actions.
     logging.debug(f"Finished NoCoDB base sync for '{nocodb_base_title}'. Total results: {len(results)}")
     return results
 
@@ -142,18 +129,12 @@ def _ensure_users_in_nocodb_base(
     mattermost_client: "MattermostClient",
     base_id: str,
     base_title: str,
-    mm_users_for_permission: dict,  # email_lower -> {username, mm_user_id, is_admin_channel_member}
+    mm_users_for_permission: dict,
     default_permission: str,
     admin_permission: str,
-    current_nocodb_users_map: dict,  # email_lower -> NoCoDB user object
+    current_nocodb_users_map: dict,
     mm_channel_context_name: str,
-) -> tuple[list[dict], set]:  # Returns results and set of targeted NocoDB user emails
-    """
-    Ensures that the given Mattermost users are members of the specified NoCoDB base
-    with the correct permissions. Invites, adds, or updates users in the base.
-    Sends DMs for new invites.
-    Returns a list of action results and a set of emails that were targeted.
-    """
+) -> tuple[list[dict], set]:
     results = []
     targeted_emails_in_base = set()
 
@@ -296,7 +277,6 @@ def _sync_nocodb_for_entity(
     admin_mm_users,
     mm_users_for_services,
     log_channel_name,
-    perform_deletions,
     entity_key,
 ):
     if entity_key not in ["ANTENNE", "POLES"]:
@@ -313,5 +293,45 @@ def _sync_nocodb_for_entity(
         default_permission,
         admin_permission,
         log_channel_name,
-        perform_deletions,
     )
+
+
+class NocoDBService(SyncService):
+    SERVICE_NAME = "NOCODB"
+
+    async def differential_sync(self):
+        results = []
+        all_bases = self.client.list_bases()
+        if not all_bases:
+            logging.warning("TOOLS_TO_MM: No NoCoDB bases found to sync.")
+            return results
+
+        for base in all_bases["list"]:
+            base_title = base.get("title")
+            base_id = base.get("id")
+            entity_key, base_name = _map_nocodb_base_to_entity_and_base_name(base_title, self.permissions_matrix)
+
+            if not entity_key or not base_name:
+                continue
+
+            entity_config = self.permissions_matrix.get(entity_key, {})
+            mm_users_for_services, _, _ = _get_mm_users_for_entity(
+                self.mattermost_client, self.mm_team_id, base_name, entity_config
+            )
+            mm_user_emails = {email.lower() for email in mm_users_for_services.keys()}
+
+            nocodb_users = self.client.list_base_users(base_id)
+            for user in nocodb_users:
+                user_email = user.get("email", "").lower()
+                if user_email and user_email not in mm_user_emails:
+                    results.append(
+                        _remove_user_from_nocodb_base(
+                            self.client,
+                            base_id,
+                            base_title,
+                            user["id"],
+                            user_email,
+                            base_name,
+                        )
+                    )
+        return results
