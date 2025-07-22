@@ -643,8 +643,8 @@ class TestMartyBot(unittest.TestCase):
 
         asyncio.run(actual_test_logic())
 
-    @patch("app.commands.update_user_rights_and_remove.orchestrate_group_synchronization")
-    def test_handle_update_user_rights_and_remove_command_success_admin_user(self, mock_orchestrate_sync):
+    @patch("app.commands.update_user_rights_and_remove.differential_sync")
+    def test_handle_update_user_rights_and_remove_command_success_admin_user(self, mock_differential_sync):
         async def actual_test_logic():
             command_name = "update_user_rights_and_remove"
             admin_user_id = "admin_user_id_for_sync"
@@ -653,7 +653,7 @@ class TestMartyBot(unittest.TestCase):
                 "system_user",
             ]
 
-            mock_orchestrate_sync.return_value = (
+            mock_differential_sync.return_value = (
                 True,
                 [
                     {
@@ -676,11 +676,9 @@ class TestMartyBot(unittest.TestCase):
                 "nocodb": self.bot.nocodb_client,
                 "vaultwarden": self.bot.vaultwarden_client,
             }
-            mock_orchestrate_sync.assert_called_once_with(
+            mock_differential_sync.assert_called_once_with(
                 clients=clients,
                 mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
-                perform_deletions=True,
-                sync_mode="TOOLS_TO_MM",
                 skip_services=None,
             )
             self.assertGreaterEqual(self.bot.envoyer_message.call_count, 2)
@@ -696,8 +694,8 @@ class TestMartyBot(unittest.TestCase):
 
     @async_test
     @patch("app.commands.update_all_user_rights.orchestrate_group_synchronization")
-    @patch("app.commands.update_user_rights_and_remove.orchestrate_group_synchronization")
-    async def test_sync_commands_permission_denied_non_admin(self, mock_sync_upsert_and_remove, mock_sync_all_rights):
+    @patch("app.commands.update_user_rights_and_remove.differential_sync")
+    async def test_sync_commands_permission_denied_non_admin(self, mock_differential_sync, mock_sync_all_rights):
         commands_to_test = [
             "update_all_user_rights",
             "update_user_rights_and_remove",
@@ -709,7 +707,7 @@ class TestMartyBot(unittest.TestCase):
             with self.subTest(command=command_key):
                 self.bot.envoyer_message.reset_mock()
                 self.bot.mattermost_api_client.get_user_roles.reset_mock()
-                mock_sync_upsert_and_remove.reset_mock()
+                mock_differential_sync.reset_mock()
                 mock_sync_all_rights.reset_mock()
 
                 await self._send_test_message(
@@ -718,7 +716,7 @@ class TestMartyBot(unittest.TestCase):
                 )
 
                 self.bot.mattermost_api_client.get_user_roles.assert_called_once_with(non_admin_user_id)
-                mock_sync_upsert_and_remove.assert_not_called()
+                mock_differential_sync.assert_not_called()
                 mock_sync_all_rights.assert_not_called()
                 self.bot.envoyer_message.assert_called_once()
                 sent_message = self.bot.envoyer_message.call_args[0][1]
@@ -730,12 +728,12 @@ class TestMartyBot(unittest.TestCase):
         return_value=(False, []),
     )
     @patch(
-        "app.commands.update_user_rights_and_remove.orchestrate_group_synchronization",
+        "app.commands.update_user_rights_and_remove.differential_sync",
         return_value=(False, []),
     )
     async def test_sync_commands_orchestration_failure_admin_user(
         self,
-        mock_sync_upsert_and_remove,
+        mock_differential_sync,
         mock_sync_all_rights,
     ):
         commands_to_test = ["update_all_user_rights", "update_user_rights_and_remove"]
@@ -746,7 +744,7 @@ class TestMartyBot(unittest.TestCase):
             with self.subTest(command=command_key):
                 self.bot.envoyer_message.reset_mock()
                 self.bot.mattermost_api_client.get_user_roles.reset_mock()
-                mock_sync_upsert_and_remove.reset_mock()
+                mock_differential_sync.reset_mock()
                 mock_sync_all_rights.reset_mock()
 
                 await self._send_test_message(f"@{self.mock_config.BOT_NAME} {command_key}", user_id=admin_user_id)
@@ -755,9 +753,9 @@ class TestMartyBot(unittest.TestCase):
 
                 if command_key == "update_all_user_rights":
                     mock_sync_all_rights.assert_called_once()
-                    mock_sync_upsert_and_remove.assert_not_called()
+                    mock_differential_sync.assert_not_called()
                 else:
-                    mock_sync_upsert_and_remove.assert_called_once()
+                    mock_differential_sync.assert_called_once()
                     mock_sync_all_rights.assert_not_called()
 
                 self.assertEqual(self.bot.envoyer_message.call_count, 2)
@@ -828,8 +826,8 @@ class TestMartyBot(unittest.TestCase):
         )
 
     @async_test
-    @patch("app.commands.update_user_rights_and_remove.orchestrate_group_synchronization")
-    async def test_handle_update_user_rights_and_remove_command_with_skip_nocodb(self, mock_orchestrate_sync):
+    @patch("app.commands.update_user_rights_and_remove.differential_sync")
+    async def test_handle_update_user_rights_and_remove_command_with_skip_nocodb(self, mock_differential_sync):
         command_name = "update_user_rights_and_remove"
         arg_string = "nocodb=false"
         admin_user_id = "admin_for_skip_nocodb"
@@ -837,7 +835,7 @@ class TestMartyBot(unittest.TestCase):
             "system_admin",
             "system_user",
         ]
-        mock_orchestrate_sync.return_value = (True, [])
+        mock_differential_sync.return_value = (True, [])
 
         await self._send_test_message(
             f"@{self.mock_config.BOT_NAME} {command_name} {arg_string}",
@@ -853,11 +851,9 @@ class TestMartyBot(unittest.TestCase):
             "nocodb": self.bot.nocodb_client,
             "vaultwarden": self.bot.vaultwarden_client,
         }
-        mock_orchestrate_sync.assert_called_once_with(
+        mock_differential_sync.assert_called_once_with(
             clients=clients,
             mm_team_id=self.bot.config.MATTERMOST_TEAM_ID,
-            perform_deletions=True,
-            sync_mode="TOOLS_TO_MM",
             skip_services=["nocodb"],
         )
         self.assertGreaterEqual(self.bot.envoyer_message.call_count, 1)
