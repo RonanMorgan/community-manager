@@ -44,7 +44,7 @@ def _map_authentik_attributes_to_brevo(authentik_attrs: dict) -> dict:
     return brevo_attrs
 
 
-def sync_authentik_users_to_brevo_list():
+def sync_authentik_users_to_brevo_list(authentik_users_data: list):
     """
     Synchronizes users from Authentik to a specific Brevo list, including attributes.
     Fetches all users from Authentik and all contacts from the specified Brevo list.
@@ -52,24 +52,20 @@ def sync_authentik_users_to_brevo_list():
     """
     logging.info("Starting Authentik to Brevo users synchronization with attributes.")
 
-    AUTHENTIK_URL = os.getenv("AUTHENTIK_URL")
-    AUTHENTIK_TOKEN = os.getenv("AUTHENTIK_TOKEN")
     BREVO_API_URL = os.getenv("BREVO_API_URL")
     BREVO_API_KEY = os.getenv("BREVO_API_KEY")
     BREVO_AUTHENTIK_USERS_LIST_ID_STR = os.getenv("BREVO_AUTHENTIK_USERS_LIST_ID")
 
     if not all(
         [
-            AUTHENTIK_URL,
-            AUTHENTIK_TOKEN,
             BREVO_API_URL,
             BREVO_API_KEY,
             BREVO_AUTHENTIK_USERS_LIST_ID_STR,
         ]
     ):
         logging.error(
-            "Missing one or more required environment variables for Authentik/Brevo sync: "
-            "AUTHENTIK_URL, AUTHENTIK_TOKEN, BREVO_API_URL, BREVO_API_KEY, BREVO_AUTHENTIK_USERS_LIST_ID"
+            "Missing one or more required environment variables for Brevo sync: "
+            "BREVO_API_URL, BREVO_API_KEY, BREVO_AUTHENTIK_USERS_LIST_ID"
         )
         return
 
@@ -82,22 +78,13 @@ def sync_authentik_users_to_brevo_list():
         return
 
     try:
-        auth_client = AuthentikClient(base_url=AUTHENTIK_URL, token=AUTHENTIK_TOKEN)
         brevo_client = BrevoClient(api_url=BREVO_API_URL, api_key=BREVO_API_KEY)
-
-        # 1. Récupérer tous les utilisateurs et leurs attributs d'Authentik
-        logging.info("Fetching all users data from Authentik...")
-        authentik_users_data = auth_client.get_all_users_data()  # Returns list of {'email': ..., 'attributes': ...}
-
-        if authentik_users_data is None:
-            logging.error("Failed to fetch users data from Authentik. Aborting sync.")
-            return
 
         if not authentik_users_data:
             logging.info("No users found in Authentik.")
             return
 
-        logging.info(f"Fetched data for {len(authentik_users_data)} users from Authentik.")
+        logging.info(f"Received {len(authentik_users_data)} users from Authentik.")
 
         # Create a dictionary for quick lookup of Authentik users by email
         authentik_users_map = {

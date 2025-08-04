@@ -10,30 +10,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def remove_inactive_users(services: List[str]):
+def remove_inactive_users(services: List[str], authentik_users_data: list):
     """
     Remove users from specified services if they are not present in Authentik.
     """
     logging.info(f"Starting user removal process for services: {services}")
 
-    AUTHENTIK_URL = os.getenv("AUTHENTIK_URL")
-    AUTHENTIK_TOKEN = os.getenv("AUTHENTIK_TOKEN")
-
-    if not all([AUTHENTIK_URL, AUTHENTIK_TOKEN]):
-        logging.error("Missing required environment variables for Authentik: AUTHENTIK_URL, AUTHENTIK_TOKEN")
-        return
-
     try:
-        auth_client = AuthentikClient(base_url=AUTHENTIK_URL, token=AUTHENTIK_TOKEN)
-
-        logging.info("Fetching all users from Authentik...")
-        authentik_users = auth_client.get_all_users_data()
-        if authentik_users is None:
-            logging.error("Failed to fetch users from Authentik. Aborting.")
+        if not authentik_users_data:
+            logging.info("No users found in Authentik.")
             return
 
-        authentik_user_emails = {user['email'].lower() for user in authentik_users if 'email' in user}
-        logging.info(f"Found {len(authentik_user_emails)} users in Authentik.")
+        authentik_user_emails = {user['email'].lower() for user in authentik_users_data if 'email' in user}
+        logging.info(f"Received {len(authentik_user_emails)} users from Authentik.")
 
         if 'outline' in services:
             remove_inactive_outline_users(authentik_user_emails)

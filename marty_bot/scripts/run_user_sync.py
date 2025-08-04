@@ -10,6 +10,7 @@ project_root = os.path.dirname(current_script_dir)  # marty_bot/
 sys.path.insert(0, project_root)
 
 try:
+    from clients.authentik_client import AuthentikClient
     from dotenv import load_dotenv
     from libraries.brevo_user_sync import sync_authentik_users_to_brevo_list
     from libraries.user_management import remove_inactive_users
@@ -67,8 +68,21 @@ if __name__ == "__main__":
 
     logging.info("Démarrage du script de synchronisation des utilisateurs.")
     try:
-        sync_authentik_users_to_brevo_list()
-        remove_inactive_users(['outline', 'nocodb', 'mattermost'])
+        AUTHENTIK_URL = os.getenv("AUTHENTIK_URL")
+        AUTHENTIK_TOKEN = os.getenv("AUTHENTIK_TOKEN")
+        if not all([AUTHENTIK_URL, AUTHENTIK_TOKEN]):
+            logging.error("Missing required environment variables for Authentik: AUTHENTIK_URL, AUTHENTIK_TOKEN")
+            sys.exit(1)
+
+        auth_client = AuthentikClient(base_url=AUTHENTIK_URL, token=AUTHENTIK_TOKEN)
+        authentik_users = auth_client.get_all_users_data()
+
+        if authentik_users is not None:
+            sync_authentik_users_to_brevo_list(authentik_users)
+            remove_inactive_users(['outline', 'nocodb', 'mattermost'], authentik_users)
+        else:
+            logging.error("Could not fetch Authentik users. Skipping sync.")
+
         logging.info("Script de synchronisation des utilisateurs terminé avec succès.")
     except Exception as e:
         logging.error(
