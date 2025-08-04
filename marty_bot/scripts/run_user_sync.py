@@ -68,7 +68,7 @@ if __name__ == "__main__":
     logging.info("Démarrage du script de synchronisation des utilisateurs.")
     try:
         sync_authentik_users_to_brevo_list()
-        remove_inactive_users()
+        remove_inactive_users(['outline', 'nocodb', 'mattermost'])
         logging.info("Script de synchronisation des utilisateurs terminé avec succès.")
     except Exception as e:
         logging.error(

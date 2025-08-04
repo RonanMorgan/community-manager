@@ -1,36 +1,31 @@
 import logging
 import os
+from typing import List
 
 from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
+from clients.nocodb_client import NocoDBClient
+from clients.mattermost_client import MattermostClient
 from dotenv import load_dotenv
 
 load_dotenv()
 
-
-def remove_inactive_users():
+def remove_inactive_users(services: List[str]):
     """
-    Remove users from services if they are not present in Authentik.
+    Remove users from specified services if they are not present in Authentik.
     """
-    logging.info("Starting user removal process for inactive users.")
+    logging.info(f"Starting user removal process for services: {services}")
 
     AUTHENTIK_URL = os.getenv("AUTHENTIK_URL")
     AUTHENTIK_TOKEN = os.getenv("AUTHENTIK_TOKEN")
-    OUTLINE_URL = os.getenv("OUTLINE_URL")
-    OUTLINE_TOKEN = os.getenv("OUTLINE_TOKEN")
 
-    if not all([AUTHENTIK_URL, AUTHENTIK_TOKEN, OUTLINE_URL, OUTLINE_TOKEN]):
-        logging.error(
-            "Missing one or more required environment variables for user removal: "
-            "AUTHENTIK_URL, AUTHENTIK_TOKEN, OUTLINE_URL, OUTLINE_TOKEN"
-        )
+    if not all([AUTHENTIK_URL, AUTHENTIK_TOKEN]):
+        logging.error("Missing required environment variables for Authentik: AUTHENTIK_URL, AUTHENTIK_TOKEN")
         return
 
     try:
         auth_client = AuthentikClient(base_url=AUTHENTIK_URL, token=AUTHENTIK_TOKEN)
-        outline_client = OutlineClient(base_url=OUTLINE_URL, token=OUTLINE_TOKEN)
 
-        # 1. Get all users from Authentik
         logging.info("Fetching all users from Authentik...")
         authentik_users = auth_client.get_all_users_data()
         if authentik_users is None:
@@ -40,42 +35,136 @@ def remove_inactive_users():
         authentik_user_emails = {user['email'].lower() for user in authentik_users if 'email' in user}
         logging.info(f"Found {len(authentik_user_emails)} users in Authentik.")
 
-        # For now, only Outline is supported. This can be extended to a loop of services.
-        # 2. Get all users from Outline
-        logging.info("Fetching all users from Outline...")
-        outline_users = outline_client.list_users()
-        if outline_users is None:
-            logging.error("Failed to fetch users from Outline. Aborting.")
-            return
+        if 'outline' in services:
+            remove_inactive_outline_users(authentik_user_emails)
 
-        outline_users_map = {user['email'].lower(): user['id'] for user in outline_users if 'email' in user}
-        logging.info(f"Found {len(outline_users_map)} users in Outline.")
+        if 'nocodb' in services:
+            remove_inactive_nocodb_users(authentik_user_emails)
 
-        # 3. Identify users to remove from Outline
-        users_to_remove_from_outline = []
-        for email, user_id in outline_users_map.items():
-            if email not in authentik_user_emails:
-                users_to_remove_from_outline.append({'id': user_id, 'email': email})
-
-        if not users_to_remove_from_outline:
-            logging.info("No users to remove from Outline.")
-        else:
-            logging.info(f"Found {len(users_to_remove_from_outline)} users to remove from Outline.")
-            deleted_count = 0
-            failed_count = 0
-            for user in users_to_remove_from_outline:
-                logging.info(f"Removing user {user['email']} (ID: {user['id']}) from Outline.")
-                if outline_client.delete_user(user['id']):
-                    deleted_count += 1
-                else:
-                    failed_count += 1
-            logging.info(f"Finished removing users from Outline. Deleted: {deleted_count}, Failed: {failed_count}.")
+        if 'mattermost' in services:
+            remove_inactive_mattermost_users(authentik_user_emails)
 
         logging.info("User removal process finished.")
 
     except Exception as e:
         logging.error(f"An unexpected error occurred during user removal process: {e}", exc_info=True)
 
+def remove_inactive_outline_users(authentik_user_emails: set):
+    logging.info("Processing Outline user removal...")
+    OUTLINE_URL = os.getenv("OUTLINE_URL")
+    OUTLINE_TOKEN = os.getenv("OUTLINE_TOKEN")
+
+    if not all([OUTLINE_URL, OUTLINE_TOKEN]):
+        logging.error("Missing required environment variables for Outline: OUTLINE_URL, OUTLINE_TOKEN")
+        return
+
+    outline_client = OutlineClient(base_url=OUTLINE_URL, token=OUTLINE_TOKEN)
+    outline_users = outline_client.list_users()
+    if outline_users is None:
+        logging.error("Failed to fetch users from Outline.")
+        return
+
+    outline_users_map = {user['email'].lower(): user['id'] for user in outline_users if 'email' in user}
+    logging.info(f"Found {len(outline_users_map)} users in Outline.")
+
+    users_to_remove = [
+        {'id': user_id, 'email': email}
+        for email, user_id in outline_users_map.items()
+        if email not in authentik_user_emails
+    ]
+
+    if not users_to_remove:
+        logging.info("No users to remove from Outline.")
+        return
+
+    logging.info(f"Found {len(users_to_remove)} users to remove from Outline.")
+    deleted_count, failed_count = 0, 0
+    for user in users_to_remove:
+        logging.info(f"Removing user {user['email']} (ID: {user['id']}) from Outline.")
+        if outline_client.delete_user(user['id']):
+            deleted_count += 1
+        else:
+            failed_count += 1
+    logging.info(f"Finished removing users from Outline. Deleted: {deleted_count}, Failed: {failed_count}.")
+
+def remove_inactive_nocodb_users(authentik_user_emails: set):
+    logging.info("Processing NocoDB user removal...")
+    NOCODB_URL = os.getenv("NOCODB_URL")
+    NOCODB_TOKEN = os.getenv("NOCODB_TOKEN")
+
+    if not all([NOCODB_URL, NOCODB_TOKEN]):
+        logging.error("Missing required environment variables for NocoDB: NOCODB_URL, NOCODB_TOKEN")
+        return
+
+    nocodb_client = NocoDBClient(nocodb_url=NOCODB_URL, token=NOCODB_TOKEN)
+    nocodb_users = nocodb_client.list_users()
+    if nocodb_users is None:
+        logging.error("Failed to fetch users from NocoDB.")
+        return
+
+    logging.info(f"Found {len(nocodb_users)} users in NocoDB.")
+
+    bases_response = nocodb_client.list_bases()
+    if not bases_response or "list" not in bases_response:
+        logging.error("Failed to retrieve the list of bases from NocoDB.")
+        return
+
+    all_bases = bases_response["list"]
+
+    for user in nocodb_users:
+        user_email = user.get('email', '').lower()
+        if user_email and user_email not in authentik_user_emails:
+            user_id = user.get('id')
+            logging.info(f"User {user_email} (ID: {user_id}) is inactive. Removing from all NocoDB bases.")
+            for base in all_bases:
+                base_id = base.get("id")
+                if base_id:
+                    logging.info(f"Removing user {user_email} from base {base.get('title')} (ID: {base_id}).")
+                    nocodb_client.delete_user(base_id, user_id)
+
+def remove_inactive_mattermost_users(authentik_user_emails: set):
+    logging.info("Processing Mattermost user removal...")
+    MATTERMOST_URL = os.getenv("MATTERMOST_URL")
+    MATTERMOST_TOKEN = os.getenv("BOT_TOKEN")
+    MATTERMOST_TEAM_ID = os.getenv("MATTERMOST_TEAM_ID")
+
+
+    if not all([MATTERMOST_URL, MATTERMOST_TOKEN, MATTERMOST_TEAM_ID]):
+        logging.error("Missing required environment variables for Mattermost: MATTERMOST_URL, BOT_TOKEN, MATTERMOST_TEAM_ID")
+        return
+
+    mattermost_client = MattermostClient(base_url=MATTERMOST_URL, token=MATTERMOST_TOKEN, team_id=MATTERMOST_TEAM_ID)
+    mattermost_users = mattermost_client.list_users()
+    if mattermost_users is None:
+        logging.error("Failed to fetch users from Mattermost.")
+        return
+
+    logging.info(f"Found {len(mattermost_users)} users in Mattermost.")
+
+    users_to_remove = [
+        user for user in mattermost_users
+        if user.get('email', '').lower() not in authentik_user_emails
+    ]
+
+    if not users_to_remove:
+        logging.info("No users to remove from Mattermost.")
+        return
+
+    logging.info(f"Found {len(users_to_remove)} users to remove from Mattermost.")
+    deleted_count, failed_count = 0, 0
+    for user in users_to_remove:
+        user_id = user.get('id')
+        user_email = user.get('email')
+        logging.info(f"Deactivating user {user_email} (ID: {user_id}) in Mattermost.")
+        if mattermost_client.delete_user(user_id):
+            deleted_count += 1
+        else:
+            failed_count += 1
+    logging.info(f"Finished deactivating users from Mattermost. Deactivated: {deleted_count}, Failed: {failed_count}.")
+
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-    remove_inactive_users()
+    # Example usage:
+    # remove_inactive_users(['outline', 'nocodb', 'mattermost'])
+    remove_inactive_users(['outline'])

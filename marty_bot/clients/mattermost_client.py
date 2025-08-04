@@ -529,6 +529,83 @@ class MattermostClient:
             logging.error(f"Error decoding JSON from user roles response for {user_id}: {e}")
             return []
 
+    def list_users(self, per_page: int = 200) -> list[dict] | None:
+        """
+        Fetches all users from the Mattermost instance, handling pagination.
+        Corresponds to Mattermost API: GET /api/v4/users
+        :param per_page: The number of users to fetch per page. Max 200.
+        :return: A list of user objects if successful, None otherwise.
+        """
+        all_users = []
+        page = 0
+
+        logging.info("Mattermost API >> Listing all users...")
+
+        while True:
+            api_url = f"{self.base_url}/api/v4/users?page={page}&per_page={per_page}"
+            logging.debug(f"Fetching page {page} of users from {api_url}")
+            try:
+                response = requests.get(api_url, headers=self.headers)
+                response.raise_for_status()
+                users_page = response.json()
+
+                if not users_page:
+                    break
+
+                all_users.extend(users_page)
+
+                if len(users_page) < per_page:
+                    break
+
+                page += 1
+
+            except requests.exceptions.HTTPError as e:
+                logging.error(f"HTTP error fetching users (page {page}): {e.response.status_code} - {e.response.text}")
+                return None
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Request exception fetching users (page {page}): {e}")
+                return None
+            except json.JSONDecodeError as e:
+                logging.error(f"Error decoding JSON from users response (page {page}): {e}")
+                return None
+
+        logging.info(f"Successfully fetched {len(all_users)} users from Mattermost.")
+        return all_users
+
+    def delete_user(self, user_id: str) -> bool:
+        """
+        Deactivates a user in Mattermost. Note: Mattermost typically deactivates, not permanently deletes, via this API.
+        Corresponds to Mattermost API: DELETE /api/v4/users/{user_id}
+        :param user_id: The ID of the user to deactivate.
+        :return: True if successful, False otherwise.
+        """
+        if not user_id:
+            logging.error("User ID must be provided to delete a user.")
+            return False
+
+        api_url = f"{self.base_url}/api/v4/users/{user_id}"
+        logging.info(f"Mattermost API >> Deactivating user {user_id} from {api_url}")
+
+        try:
+            response = requests.delete(api_url, headers=self.headers)
+            response.raise_for_status()
+            # Successful deactivation returns a 200 OK with a status object
+            if response.json().get("status") == "ok":
+                logging.info(f"User {user_id} successfully deactivated in Mattermost.")
+                return True
+            else:
+                logging.warning(f"User deactivation for {user_id} may not have succeeded. Response: {response.text}")
+                return False
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"HTTP error deactivating user {user_id}: {e.response.status_code} - {e.response.text}")
+            return False
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception deactivating user {user_id}: {e}")
+            return False
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from user deactivation response for {user_id}: {e}")
+            return False
+
 
 if __name__ == "__main__":
     import os
