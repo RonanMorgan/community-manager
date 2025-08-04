@@ -6,6 +6,7 @@ from clients.authentik_client import AuthentikClient
 from clients.outline_client import OutlineClient
 from clients.nocodb_client import NocoDBClient
 from clients.mattermost_client import MattermostClient
+from clients.vaultwarden_client import VaultwardenClient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -32,6 +33,9 @@ def remove_inactive_users(services: List[str], authentik_users_data: list):
 
         if 'mattermost' in services:
             remove_inactive_mattermost_users(authentik_user_emails)
+
+        if 'vaultwarden' in services:
+            remove_inactive_vaultwarden_users(authentik_user_emails)
 
         logging.info("User removal process finished.")
 
@@ -152,8 +156,55 @@ def remove_inactive_mattermost_users(authentik_user_emails: set):
     logging.info(f"Finished deactivating users from Mattermost. Deactivated: {deleted_count}, Failed: {failed_count}.")
 
 
+def remove_inactive_vaultwarden_users(authentik_user_emails: set):
+    logging.info("Processing Vaultwarden user removal...")
+    VAULTWARDEN_API_URL = os.getenv("VAULTWARDEN_API_URL")
+    VAULTWARDEN_API_USERNAME = os.getenv("VAULTWARDEN_API_USERNAME")
+    VAULTWARDEN_API_PASSWORD = os.getenv("VAULTWARDEN_API_PASSWORD")
+    VAULTWARDEN_ORGANIZATION_ID = os.getenv("VAULTWARDEN_ORGANIZATION_ID")
+
+    if not all([VAULTWARDEN_API_URL, VAULTWARDEN_API_USERNAME, VAULTWARDEN_API_PASSWORD, VAULTWARDEN_ORGANIZATION_ID]):
+        logging.error("Missing required environment variables for Vaultwarden")
+        return
+
+    vaultwarden_client = VaultwardenClient(
+        server_url=VAULTWARDEN_API_URL,
+        api_username=VAULTWARDEN_API_USERNAME,
+        api_password=VAULTWARDEN_API_PASSWORD,
+        organization_id=VAULTWARDEN_ORGANIZATION_ID
+    )
+
+    vaultwarden_users = vaultwarden_client.list_users()
+    if vaultwarden_users is None:
+        logging.error("Failed to fetch users from Vaultwarden.")
+        return
+
+    logging.info(f"Found {len(vaultwarden_users)} users in Vaultwarden.")
+
+    users_to_remove = [
+        user for user in vaultwarden_users
+        if user.get('email', '').lower() not in authentik_user_emails
+    ]
+
+    if not users_to_remove:
+        logging.info("No users to remove from Vaultwarden.")
+        return
+
+    logging.info(f"Found {len(users_to_remove)} users to remove from Vaultwarden.")
+    deleted_count, failed_count = 0, 0
+    for user in users_to_remove:
+        user_id = user.get('id')
+        user_email = user.get('email')
+        logging.info(f"Deleting user {user_email} (ID: {user_id}) from Vaultwarden.")
+        if vaultwarden_client.delete_user(user_id):
+            deleted_count += 1
+        else:
+            failed_count += 1
+    logging.info(f"Finished deleting users from Vaultwarden. Deleted: {deleted_count}, Failed: {failed_count}.")
+
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     # Example usage:
-    # remove_inactive_users(['outline', 'nocodb', 'mattermost'])
+    # remove_inactive_users(['outline', 'nocodb', 'mattermost', 'vaultwarden'])
     remove_inactive_users(['outline'])

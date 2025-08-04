@@ -552,6 +552,42 @@ class VaultwardenClient:
             logging.error(f"Error updating collection: {e}")
             return False
 
+    def list_users(self) -> list | None:
+        """
+        Fetches all users from the Vaultwarden organization.
+        """
+        access_token = self._get_api_token()
+        if not access_token:
+            return None
+
+        users_url = f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/users"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        try:
+            response = requests.get(users_url, headers=headers)
+            response.raise_for_status()
+            return response.json().get("data", [])
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error getting users from organization: {e}")
+            return None
+
+    def delete_user(self, user_id: str) -> bool:
+        """
+        Deletes a user from the Vaultwarden organization.
+        """
+        access_token = self._get_api_token()
+        if not access_token:
+            return False
+
+        delete_url = f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/users/{user_id}"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        try:
+            response = requests.delete(delete_url, headers=headers)
+            response.raise_for_status()
+            return True
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error deleting user from organization: {e}")
+            return False
+
 
 if __name__ == "__main__":
     log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
