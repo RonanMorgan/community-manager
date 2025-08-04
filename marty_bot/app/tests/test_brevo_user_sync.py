@@ -2,8 +2,8 @@ import os
 import unittest
 from unittest.mock import patch
 
-# Assuming the script is in marty_bot.libraries.authentik_brevo_sync
-from libraries.authentik_brevo_sync import sync_authentik_users_to_brevo_list
+# Assuming the script is in marty_bot.libraries.brevo_user_sync
+from libraries.brevo_user_sync import sync_authentik_users_to_brevo_list
 
 # Define fake environment variables for the test duration
 FAKE_AUTHENTIK_URL = "http://fake-auth-url.com"
@@ -24,8 +24,8 @@ FAKE_BREVO_LIST_ID = "123"  # String, as it comes from getenv
     },
 )
 class TestAuthentikBrevoSync(unittest.TestCase):
-    @patch("libraries.authentik_brevo_sync.AuthentikClient")
-    @patch("libraries.authentik_brevo_sync.BrevoClient")
+    @patch("libraries.brevo_user_sync.AuthentikClient")
+    @patch("libraries.brevo_user_sync.BrevoClient")
     def test_sync_success_add_users(self, MockBrevoClient, MockAuthentikClient):
         # --- Setup Mocks ---
         # Mock AuthentikClient instance and its methods
@@ -96,8 +96,8 @@ class TestAuthentikBrevoSync(unittest.TestCase):
             attributes={},  # Empty mapped attributes
         )
 
-    @patch("libraries.authentik_brevo_sync.AuthentikClient")
-    @patch("libraries.authentik_brevo_sync.BrevoClient")
+    @patch("libraries.brevo_user_sync.AuthentikClient")
+    @patch("libraries.brevo_user_sync.BrevoClient")
     def test_sync_no_new_users_to_add(self, MockBrevoClient, MockAuthentikClient):
         mock_auth_instance = MockAuthentikClient.return_value
         mock_auth_instance.get_all_users_data.return_value = [  # Now returns list of dicts
@@ -111,9 +111,9 @@ class TestAuthentikBrevoSync(unittest.TestCase):
 
         mock_brevo_instance.add_contact_to_list.assert_not_called()
 
-    @patch("libraries.authentik_brevo_sync.AuthentikClient")
-    @patch("libraries.authentik_brevo_sync.BrevoClient")
-    @patch("libraries.authentik_brevo_sync.logging")  # Mock logging to check error messages
+    @patch("libraries.brevo_user_sync.AuthentikClient")
+    @patch("libraries.brevo_user_sync.BrevoClient")
+    @patch("libraries.brevo_user_sync.logging")  # Mock logging to check error messages
     def test_sync_authentik_fetch_fails(self, mock_logging, MockBrevoClient, MockAuthentikClient):
         mock_auth_instance = MockAuthentikClient.return_value
         # Simulate failure by returning None
@@ -125,9 +125,9 @@ class TestAuthentikBrevoSync(unittest.TestCase):
         MockBrevoClient.return_value.get_contacts_from_list.assert_not_called()
         MockBrevoClient.return_value.add_contact_to_list.assert_not_called()
 
-    @patch("libraries.authentik_brevo_sync.AuthentikClient")
-    @patch("libraries.authentik_brevo_sync.BrevoClient")
-    @patch("libraries.authentik_brevo_sync.logging")
+    @patch("libraries.brevo_user_sync.AuthentikClient")
+    @patch("libraries.brevo_user_sync.BrevoClient")
+    @patch("libraries.brevo_user_sync.logging")
     def test_sync_brevo_fetch_fails(self, mock_logging, MockBrevoClient, MockAuthentikClient):
         mock_auth_instance = MockAuthentikClient.return_value
         mock_auth_instance.get_all_users_data.return_value = [  # Now returns list of dicts
@@ -144,9 +144,9 @@ class TestAuthentikBrevoSync(unittest.TestCase):
         )
         mock_brevo_instance.add_contact_to_list.assert_not_called()
 
-    @patch("libraries.authentik_brevo_sync.AuthentikClient")
-    @patch("libraries.authentik_brevo_sync.BrevoClient")
-    @patch("libraries.authentik_brevo_sync.logging")
+    @patch("libraries.brevo_user_sync.AuthentikClient")
+    @patch("libraries.brevo_user_sync.BrevoClient")
+    @patch("libraries.brevo_user_sync.logging")
     def test_sync_add_user_fails_in_brevo(self, mock_logging, MockBrevoClient, MockAuthentikClient):
         mock_auth_instance = MockAuthentikClient.return_value
         mock_auth_instance.get_all_users_data.return_value = [  # Now returns list of dicts
@@ -169,7 +169,7 @@ class TestAuthentikBrevoSync(unittest.TestCase):
         mock_logging.info.assert_any_call("Finished adding users to Brevo. Added: 0, Failed: 1.")
 
     @patch.dict(os.environ, {"BREVO_AUTHENTIK_USERS_LIST_ID": "not-an-int"})
-    @patch("libraries.authentik_brevo_sync.logging")
+    @patch("libraries.brevo_user_sync.logging")
     def test_sync_invalid_brevo_list_id_env(self, mock_logging):
         # Need to ensure other env vars are set if sync_authentik_users_to_brevo_list checks them all first
         with patch.dict(
@@ -188,7 +188,7 @@ class TestAuthentikBrevoSync(unittest.TestCase):
             )
 
     @patch.dict(os.environ, {"AUTHENTIK_URL": ""})  # Missing one required env var
-    @patch("libraries.authentik_brevo_sync.logging")
+    @patch("libraries.brevo_user_sync.logging")
     def test_sync_missing_env_var(self, mock_logging):
         # Ensure all other potentially checked env vars are present to isolate the test
         with patch.dict(

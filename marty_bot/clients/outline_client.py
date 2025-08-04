@@ -489,6 +489,99 @@ class OutlineClient:
             )
             return False
 
+    def list_users(self, limit: int = 100) -> list[dict] | None:
+        """
+        Retrieves all users from Outline, handling pagination.
+        :param limit: The number of users to return per page. Max 100.
+        :return: A list of user objects, or None on failure.
+        """
+        api_url = f"{self.base_url}/api/users.list"
+        all_users = []
+        offset = 0
+
+        logging.info("Outline API >> Listing all users...")
+
+        try:
+            while True:
+                # The payload should be `json=None` as the user mentioned, but the API probably expects a body for POST.
+                # An empty json body `{}` is safer. Or `json=payload`.
+                # The user mentioned `offset` and `limit` as parameters, so I will use them.
+                payload = {"limit": min(limit, 100), "offset": offset}
+                response = requests.post(api_url, headers=self.headers, json=payload)
+                response.raise_for_status()
+                response_data = response.json()
+                users = response_data.get("data", [])
+
+                all_users.extend(users)
+
+                pagination = response_data.get("pagination", {})
+                total = pagination.get("total") # Can be None if not provided by API
+
+                # Stop if we've received all users
+                if not users or (total is not None and len(all_users) >= total):
+                    break
+
+                offset += len(users)
+
+            logging.info(f"Successfully fetched {len(all_users)} Outline users.")
+            return all_users
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"HTTP error fetching Outline users: {e.response.status_code} - {e.response.text}")
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed while fetching Outline users: {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from Outline users.list response: {e}")
+            return None
+
+    def delete_user(self, user_id: str) -> bool:
+        """
+        Deletes a user from Outline.
+        :param user_id: The ID of the user to delete.
+        :return: True if successful, False otherwise.
+        """
+        if not user_id:
+            logging.error("User ID must be provided to delete a user.")
+            return False
+
+        api_url = f"{self.base_url}/api/users.delete"
+        payload = {"id": user_id}
+        logging.info(f"Outline API >> Deleting user ID '{user_id}'. Payload: {json.dumps(payload)}")
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+
+            # A successful deletion might return 204 No Content
+            if response.status_code == 204:
+                logging.info(f"Successfully deleted user ID '{user_id}' from Outline.")
+                return True
+
+            response_data = response.json()
+            if response_data.get("success"):
+                logging.info(f"Successfully deleted user ID '{user_id}' from Outline.")
+                return True
+            else:
+                logging.warning(
+                    f"Outline users.delete for user ID '{user_id}' "
+                    f"did not report success or returned unexpected data: {response.text}"
+                )
+                return False
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error deleting user ID '{user_id}' from Outline: "
+                f"{e.response.status_code} - {e.response.text}"
+            )
+            return False
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception deleting user ID '{user_id}' from Outline: {e}")
+            return False
+        except json.JSONDecodeError as e:
+            logging.error(
+                f"Error decoding JSON from Outline users.delete response for user '{user_id}': {e}. Response text: {response.text}"
+            )
+            return False
+
 
 if __name__ == "__main__":
     import os

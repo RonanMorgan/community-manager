@@ -272,6 +272,83 @@ class TestOutlineClient(unittest.TestCase):
         self.assertFalse(self.client.remove_user_from_collection("", "user_id_1"))
         self.assertFalse(self.client.remove_user_from_collection("coll_id_1", ""))
 
+    @patch("requests.post")
+    def test_list_users_success(self, mock_post):
+        # Test listing all users with pagination
+        mock_post.side_effect = [
+            Mock(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {"id": "user-1", "name": "User One"},
+                        {"id": "user-2", "name": "User Two"},
+                    ],
+                    "pagination": {"limit": 2, "offset": 0, "total": 3},
+                },
+            ),
+            Mock(
+                status_code=200,
+                json=lambda: {
+                    "data": [{"id": "user-3", "name": "User Three"}],
+                    "pagination": {"limit": 2, "offset": 2, "total": 3},
+                },
+            ),
+        ]
+        users = self.client.list_users()
+        self.assertIsInstance(users, list)
+        self.assertEqual(len(users), 3)
+        self.assertEqual(users[2]["name"], "User Three")
+        self.assertEqual(mock_post.call_count, 2)
+
+    @patch("requests.post")
+    def test_list_users_http_error(self, mock_post):
+        mock_post.side_effect = requests.exceptions.HTTPError(response=Mock(status_code=500, text="Server Error"))
+        users = self.client.list_users()
+        self.assertIsNone(users)
+
+    @patch("requests.post")
+    def test_delete_user_success(self, mock_post):
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = {"success": True}
+        mock_post.return_value = mock_response
+
+        result = self.client.delete_user("user_id_1")
+        self.assertTrue(result)
+        expected_url = f"{self.mock_url}/api/users.delete"
+        expected_payload = {"id": "user_id_1"}
+        mock_post.assert_called_once_with(expected_url, headers=self.client.headers, json=expected_payload)
+
+    @patch("requests.post")
+    def test_delete_user_success_204(self, mock_post):
+        mock_response = Mock(status_code=204)
+        mock_post.return_value = mock_response
+
+        result = self.client.delete_user("user_id_1")
+        self.assertTrue(result)
+
+    @patch("requests.post")
+    def test_delete_user_failure(self, mock_post):
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = {"success": False}
+        mock_post.return_value = mock_response
+
+        result = self.client.delete_user("user_id_1")
+        self.assertFalse(result)
+
+    @patch("requests.post")
+    def test_delete_user_http_error(self, mock_post):
+        mock_err_response = Mock(status_code=403)
+        mock_err_response.text = "Forbidden action"
+        mock_err_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_err_response)
+        mock_post.return_value = mock_err_response
+
+        result = self.client.delete_user("user_id_1")
+        self.assertFalse(result)
+
+    def test_delete_user_missing_id(self):
+        self.assertFalse(self.client.delete_user(None))
+        self.assertFalse(self.client.delete_user(""))
+
 
 if __name__ == "__main__":
     unittest.main()
