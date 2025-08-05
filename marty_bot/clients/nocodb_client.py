@@ -252,6 +252,57 @@ class NocoDBClient:
         logger.debug(f"User with email '{email}' not found in base ID '{base_id}'.")
         return None
 
+    def list_users(self) -> list[dict] | None:
+        """
+        Retrieves all users from all bases in NocoDB.
+        :return: A list of user objects, or None on failure.
+        """
+        logging.info("NocoDB API >> Listing all users from all bases...")
+        bases_response = self.list_bases()
+        if not bases_response or "list" not in bases_response:
+            logging.error("Failed to retrieve the list of bases from NocoDB.")
+            return None
+
+        all_users = {}  # Use a dict to store users by ID to handle duplicates
+        for base in bases_response["list"]:
+            base_id = base.get("id")
+            if not base_id:
+                continue
+
+            base_users = self.list_base_users(base_id)
+            for user in base_users:
+                user_id = user.get("id")
+                if user_id and user_id not in all_users:
+                    all_users[user_id] = user
+
+        users_list = list(all_users.values())
+        logging.info(f"Successfully fetched {len(users_list)} unique users across all bases.")
+        return users_list
+
+    def delete_user(self, base_id: str, user_id: str) -> bool:
+        """
+        Deletes a user from a specific base in NocoDB.
+        API: DELETE /api/v1/db/meta/projects/{baseId}/users/{userId}
+        """
+        if not base_id or not user_id:
+            logging.error("Base ID and User ID must be provided to delete a user.")
+            return False
+
+        logger.info(f"Attempting to delete user ID '{user_id}' from NocoDB base ID '{base_id}'.")
+        endpoint = f"projects/{base_id}/users/{user_id}"
+        response_data = self._make_request("delete", endpoint)
+
+        # A successful DELETE might return a 204 No Content or a success message
+        if response_data is None: # Likely a 204 No Content success
+            logger.info(f"Successfully deleted user ID '{user_id}' from base ID '{base_id}'.")
+            return True
+        if isinstance(response_data, dict) and response_data.get("msg") == "The user has been deleted successfully":
+            logger.info(f"Successfully deleted user ID '{user_id}' from base ID '{base_id}'.")
+            return True
+
+        logger.warning(f"Failed to delete user ID '{user_id}' from base ID '{base_id}'. Response: {response_data}")
+        return False
+
 
 if __name__ == "__main__":
     # This block is for example usage and local testing.

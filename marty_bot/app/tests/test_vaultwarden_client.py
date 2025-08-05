@@ -433,6 +433,47 @@ class TestVaultwardenClient(unittest.TestCase):
             result = self.client.update_collection("1", {"name": "test"})
             self.assertTrue(result)
 
+    def test_list_users_success(self):
+        self.client._get_api_token = MagicMock(return_value="test_token")
+        with patch("requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.json.return_value = {"data": [{"id": "1", "name": "test"}]}
+            mock_response.raise_for_status.return_value = None
+            mock_get.return_value = mock_response
+
+            result = self.client.list_users()
+            self.assertEqual(result, [{"id": "1", "name": "test"}])
+
+    def test_list_users_no_token(self):
+        self.client._get_api_token = MagicMock(return_value=None)
+        result = self.client.list_users()
+        self.assertIsNone(result)
+
+    def test_delete_user_success(self):
+        self.client._get_api_token = MagicMock(return_value="test_token")
+        with patch("requests.delete") as mock_delete:
+            mock_response = MagicMock()
+            mock_response.raise_for_status.return_value = None
+            mock_delete.return_value = mock_response
+
+            result = self.client.delete_user("1")
+            self.assertTrue(result)
+
+    def test_delete_user_no_token(self):
+        self.client._get_api_token = MagicMock(return_value=None)
+        result = self.client.delete_user("1")
+        self.assertFalse(result)
+
+    def test_delete_user_http_error(self):
+        self.client._get_api_token = MagicMock(return_value="test_token")
+        with patch("requests.delete") as mock_delete:
+            mock_response = MagicMock()
+            mock_response.raise_for_status.side_effect = requests.exceptions.RequestException("API error")
+            mock_delete.return_value = mock_response
+
+            result = self.client.delete_user("1")
+            self.assertFalse(result)
+
 
 if __name__ == "__main__":
     unittest.main()

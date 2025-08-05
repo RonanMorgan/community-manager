@@ -223,6 +223,56 @@ class TestNocoDBClient(unittest.TestCase):
         )  # Search with lowercase
         self.assertEqual(found_user, user_obj)
 
+    @patch.object(NocoDBClient, "list_bases")
+    @patch.object(NocoDBClient, "list_base_users")
+    def test_list_users_success(self, mock_list_base_users, mock_list_bases):
+        mock_list_bases.return_value = {"list": [{"id": "base1"}, {"id": "base2"}]}
+        mock_list_base_users.side_effect = [
+            [{"id": "user1", "email": "user1@test.com"}, {"id": "user2", "email": "user2@test.com"}],
+            [{"id": "user2", "email": "user2@test.com"}, {"id": "user3", "email": "user3@test.com"}],
+        ]
+
+        users = self.client.list_users()
+        self.assertIsNotNone(users)
+        self.assertEqual(len(users), 3)
+        emails = {user["email"] for user in users}
+        self.assertIn("user1@test.com", emails)
+        self.assertIn("user2@test.com", emails)
+        self.assertIn("user3@test.com", emails)
+
+    @patch.object(NocoDBClient, "list_bases")
+    def test_list_users_no_bases(self, mock_list_bases):
+        mock_list_bases.return_value = {"list": []}
+        users = self.client.list_users()
+        self.assertEqual(users, [])
+
+    @patch.object(NocoDBClient, "list_bases")
+    @patch.object(NocoDBClient, "list_base_users")
+    def test_list_users_one_base_no_users(self, mock_list_base_users, mock_list_bases):
+        mock_list_bases.return_value = {"list": [{"id": "base1"}]}
+        mock_list_base_users.return_value = []
+        users = self.client.list_users()
+        self.assertEqual(users, [])
+
+    @patch.object(NocoDBClient, "_make_request")
+    def test_delete_user_success(self, mock_make_request):
+        mock_make_request.return_value = {"msg": "The user has been deleted successfully"}
+        success = self.client.delete_user(self.base_id_test, self.user_id_test)
+        self.assertTrue(success)
+        mock_make_request.assert_called_once_with("delete", f"projects/{self.base_id_test}/users/{self.user_id_test}")
+
+    @patch.object(NocoDBClient, "_make_request")
+    def test_delete_user_failure(self, mock_make_request):
+        mock_make_request.return_value = {"msg": "Some error"}
+        success = self.client.delete_user(self.base_id_test, self.user_id_test)
+        self.assertFalse(success)
+
+    def test_delete_user_missing_ids(self):
+        self.assertFalse(self.client.delete_user(None, self.user_id_test))
+        self.assertFalse(self.client.delete_user(self.base_id_test, None))
+        self.assertFalse(self.client.delete_user("", self.user_id_test))
+        self.assertFalse(self.client.delete_user(self.base_id_test, ""))
+
 
 if __name__ == "__main__":
     unittest.main()
