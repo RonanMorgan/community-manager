@@ -1,10 +1,26 @@
 import json  # Added import for json
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 import requests
 from clients.mattermost_client import MattermostClient
 from libraries.services.mattermost import slugify
+
+
+def mock_mattermost_response(status_code, json_data=None, text_data=None, content=None, cookies=None):
+    """Helper to create a mock requests.Response object for Mattermost tests."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = status_code
+    mock_resp.json.return_value = json_data
+    mock_resp.text = text_data if text_data is not None else (str(json_data) if json_data else "")
+    mock_resp.content = content if content is not None else bytes(mock_resp.text, "utf-8")
+    mock_resp.cookies = cookies or {}
+
+    if status_code >= 400:
+        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_resp)
+    else:
+        mock_resp.raise_for_status.return_value = None
+    return mock_resp
 
 
 class TestMattermostClient(unittest.TestCase):
@@ -862,19 +878,20 @@ class TestMattermostClientFocalboard(unittest.TestCase):
         mock_post.reset_mock()
 
     @patch("requests.get")
-    @patch("requests.patch")
+    @patch("requests.put")
     @patch("requests.post")
-    def test_create_board_from_template_success(self, mock_post, mock_patch, mock_get):
+    def test_create_board_from_template_success(self, mock_post, mock_put, mock_get):
         # Mock duplicate board call
-        mock_post.return_value.status_code = 201
-        mock_post.return_value.json.return_value = {"id": "new_board_id", "title": "Copy of template"}
+        mock_post.return_value = mock_mattermost_response(201, json_data={"id": "new_board_id", "title": "Copy of template"})
+
+        # Mock get board for rename and for final fetch
+        mock_get.side_effect = [
+            mock_mattermost_response(200, json_data={"id": "new_board_id", "title": "Copy of template"}),
+            mock_mattermost_response(200, json_data={"id": "new_board_id", "title": self.mock_new_board_name}),
+        ]
 
         # Mock rename board call
-        mock_patch.return_value.status_code = 200
-
-        # Mock get board call
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {"id": "new_board_id", "title": self.mock_new_board_name}
+        mock_put.return_value = mock_mattermost_response(200)
 
         result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
 
@@ -889,18 +906,19 @@ class TestMattermostClientFocalboard(unittest.TestCase):
         result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
         self.assertIsNone(result)
 
-    @patch("requests.patch")
+    @patch("requests.put")
     @patch("requests.post")
-    def test_create_board_from_template_rename_fails(self, mock_post, mock_patch):
+    def test_create_board_from_template_rename_fails(self, mock_post, mock_put):
         # Mock duplicate board call
-        mock_post.return_value.status_code = 201
-        mock_post.return_value.json.return_value = {"id": "new_board_id", "title": "Copy of template"}
+        mock_post.return_value = mock_mattermost_response(201, json_data={"id": "new_board_id", "title": "Copy of template"})
 
-        # Mock rename board call to fail
-        mock_patch.side_effect = requests.exceptions.RequestException("API Error")
+        # Mock get board for rename to succeed
+        with patch.object(self.client, 'get_board', return_value={"id": "new_board_id", "title": "Copy of template"}):
+            # Mock rename board call to fail
+            mock_put.side_effect = requests.exceptions.RequestException("API Error")
 
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
-        self.assertIsNone(result)
+            result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
+            self.assertIsNone(result)
 
     def test_create_board_from_template_no_tokens(self):
         self.client.user_auth_token = None

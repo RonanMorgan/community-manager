@@ -18,6 +18,9 @@ permissions:
     # No nocodb section for PROJET as requested
     vaultwarden:
       collection_name_pattern: "projet_{base_name}"
+    mattermost_board:
+      create: true
+      board_name_pattern: "{base_name}"
 
   ANTENNE:
     standard:

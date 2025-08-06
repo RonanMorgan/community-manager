@@ -72,9 +72,12 @@ async def create_resources_for_entity(
             mm_msg_std += ":information_source: Client non configuré."
         item_results_log.append(mm_msg_std)
 
-    # Mattermost Board (for PROJET only)
-    if entity_key == "PROJET":
-        mm_board_msg = f"    - Mattermost Board `{base_name}`: "
+    # Mattermost Board (from matrix)
+    mm_board_config = entity_config.get("mattermost_board")
+    if mm_board_config and mm_board_config.get("create"):
+        board_name_pattern = mm_board_config.get("board_name_pattern", "{base_name}")
+        board_name = board_name_pattern.format(base_name=base_name)
+        mm_board_msg = f"    - Mattermost Board `{board_name}`: "
         if clients.get("mattermost"):
             template_id = os.getenv("PROJECT_BOARD_TEMPLATE_ID")
             if not template_id:
@@ -85,7 +88,7 @@ async def create_resources_for_entity(
                     new_board = await asyncio.to_thread(
                         clients.get("mattermost").create_board_from_template,
                         template_id,
-                        base_name,
+                        board_name,
                     )
                     if new_board and new_board.get("id"):
                         mm_board_msg += f":white_check_mark: Créé (ID: {new_board['id']})."

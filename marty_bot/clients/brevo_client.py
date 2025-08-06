@@ -99,6 +99,17 @@ class BrevoClient:
         logging.info(f"Successfully fetched {len(all_lists)} Brevo lists.")
         return all_lists
 
+    def get_list_by_name(self, list_name: str) -> dict | None:
+        """
+        Retrieves a specific list by its name.
+        :param list_name: The name of the list to find.
+        :return: The list object if found, None otherwise.
+        """
+        lists = self.get_lists(name=list_name)
+        if lists:
+            return lists[0]
+        return None
+
     def create_list(self, list_name: str, folder_id: int = 1) -> dict | None:
         """
         Creates a contact list in Brevo.

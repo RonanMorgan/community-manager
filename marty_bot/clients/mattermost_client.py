@@ -672,22 +672,30 @@ class MattermostClient:
             return None
 
     def rename_board(self, board_id: str, new_title: str) -> bool:
-        """Renames a Mattermost board by updating its title."""
+        """Renames a Mattermost board by updating its title using PUT."""
+        # First, get the board
+        board = self.get_board(board_id)
+        if not board:
+            logging.error(f"Could not get board {board_id} to rename it.")
+            return False
+
+        # Modify the title
+        board["title"] = new_title
+
+        # Now, PUT the updated board
         headers = self._get_focalboard_headers()
         if not headers:
             return False
 
         api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{board_id}"
-        payload = {"title": new_title}
-        logging.info(f"MattermostClient: Renaming board {board_id} to '{new_title}'")
+        logging.info(f"MattermostClient: Renaming board {board_id} to '{new_title}' using PUT.")
         try:
-            # Using PATCH to update the board title
-            response = requests.patch(api_url, headers=headers, json=payload)
+            response = requests.put(api_url, headers=headers, json=board)
             response.raise_for_status()
-            logging.info(f"Successfully renamed board {board_id}.")
+            logging.info(f"Successfully renamed board {board_id} with PUT.")
             return True
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error renaming board {board_id}: {e}", exc_info=True)
+            logging.error(f"Error renaming board {board_id} with PUT: {e}", exc_info=True)
             return False
 
     def get_board(self, board_id: str) -> dict | None:
@@ -724,20 +732,25 @@ class MattermostClient:
             return None
 
         # Step 1: Duplicate the board
+        logging.info("Attempting to duplicate board...")
         duplicated_board = self.duplicate_board(template_board_id)
         if not duplicated_board or not duplicated_board.get("id"):
-            logging.error("Failed to duplicate board from template.")
+            logging.error(f"Failed to duplicate board from template. Response from duplicate_board: {duplicated_board}")
             return None
 
         new_board_id = duplicated_board["id"]
+        logging.info(f"Duplication successful. New board ID: {new_board_id}")
 
         # Step 2: Rename the new board
+        logging.info("Attempting to rename board...")
         if not self.rename_board(new_board_id, new_board_name):
             logging.error(f"Failed to rename the new board (ID: {new_board_id}) to '{new_board_name}'.")
             # For now, we will not clean up the duplicated board, just log the failure.
             return None
+        logging.info("Rename successful.")
 
         # Step 3: Fetch the updated board data to return it
+        logging.info("Attempting to fetch final board data...")
         updated_board = self.get_board(new_board_id)
         if not updated_board:
             logging.warning(f"Could not fetch the final updated board data for board ID {new_board_id}. Returning initial data with updated title.")
@@ -745,6 +758,7 @@ class MattermostClient:
             duplicated_board['title'] = new_board_name
             return duplicated_board
 
+        logging.info("Successfully fetched final board data.")
         return updated_board
 
 
