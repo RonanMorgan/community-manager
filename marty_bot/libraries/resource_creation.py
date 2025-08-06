@@ -72,6 +72,32 @@ async def create_resources_for_entity(
             mm_msg_std += ":information_source: Client non configuré."
         item_results_log.append(mm_msg_std)
 
+    # Mattermost Board (for PROJET only)
+    if entity_key == "PROJET":
+        mm_board_msg = f"    - Mattermost Board `{base_name}`: "
+        if clients.get("mattermost"):
+            template_id = os.getenv("PROJECT_BOARD_TEMPLATE_ID")
+            if not template_id:
+                mm_board_msg += ":warning: Échec - `PROJECT_BOARD_TEMPLATE_ID` non configuré."
+                logging.warning("PROJECT_BOARD_TEMPLATE_ID is not set in the environment.")
+            else:
+                try:
+                    new_board = await asyncio.to_thread(
+                        clients.get("mattermost").create_board_from_template,
+                        template_id,
+                        base_name,
+                    )
+                    if new_board and new_board.get("id"):
+                        mm_board_msg += f":white_check_mark: Créé (ID: {new_board['id']})."
+                    else:
+                        mm_board_msg += ":warning: Échec création."
+                except Exception as e:
+                    mm_board_msg += f":x: Erreur ({e})."
+                    logging.error(f"Error creating Mattermost board for project '{base_name}': {e}", exc_info=True)
+        else:
+            mm_board_msg += ":information_source: Client non configuré."
+        item_results_log.append(mm_board_msg)
+
     # Admin resources (if configured)
     admin_config = entity_config.get("admin")
     if admin_config:

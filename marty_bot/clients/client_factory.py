@@ -43,7 +43,11 @@ def create_clients() -> dict:
     if config.MATTERMOST_URL and config.BOT_TOKEN and config.MATTERMOST_TEAM_ID:
         try:
             clients["mattermost"] = MattermostClient(
-                config.MATTERMOST_URL, config.BOT_TOKEN, config.MATTERMOST_TEAM_ID
+                base_url=config.MATTERMOST_URL,
+                token=config.BOT_TOKEN,
+                team_id=config.MATTERMOST_TEAM_ID,
+                login_id=config.MATTERMOST_LOGIN_ID,
+                password=config.MATTERMOST_PASSWORD,
             )
             logging.info("MattermostClient initialized successfully.")
         except ValueError as e:
