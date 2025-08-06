@@ -716,14 +716,40 @@ class MattermostClient:
             logging.error(f"Error decoding JSON from get board response: {e}")
             return None
 
-    def create_board_from_template(self, template_board_id: str, new_board_name: str) -> dict | None:
+    def add_user_to_board(self, board_id: str, user_id: str) -> bool:
+        """Adds a user to a Mattermost board."""
+        headers = self._get_focalboard_headers()
+        if not headers:
+            return False
+
+        api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{board_id}/members"
+        payload = {
+            "boardId": board_id,
+            "userId": user_id,
+            "roles": "editor",
+            "schemeCommenter": False,
+            "schemeEditor": True,
+            "schemeViewer": False,
+        }
+        logging.info(f"Adding user {user_id} to board {board_id}")
+        try:
+            response = requests.post(api_url, headers=headers, json=payload)
+            response.raise_for_status()
+            logging.info(f"Successfully added user {user_id} to board {board_id}.")
+            return True
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error adding user {user_id} to board {board_id}: {e}", exc_info=True)
+            return False
+
+    def create_board_from_template(self, template_board_id: str, new_board_name: str, user_id: str) -> dict | None:
         """
-        Creates a new board by duplicating a template and then renaming it.
+        Creates a new board by duplicating a template, renaming it, and adding a user.
         :param template_board_id: The ID of the board to duplicate.
         :param new_board_name: The new name for the duplicated board.
+        :param user_id: The ID of the user to add to the board.
         :return: The final board data if successful, None otherwise.
         """
-        logging.info(f"Starting board creation from template {template_board_id} with name '{new_board_name}'")
+        logging.info(f"Starting board creation from template {template_board_id} with name '{new_board_name}' for user {user_id}")
         if not self.user_auth_token or not self.csrf_token:
             logging.error("Cannot create board from template: Missing user auth or CSRF token. Please check credentials.")
             return None
@@ -742,16 +768,23 @@ class MattermostClient:
         logging.info("Attempting to rename board...")
         if not self.rename_board(new_board_id, new_board_name):
             logging.error(f"Failed to rename the new board (ID: {new_board_id}) to '{new_board_name}'.")
-            # For now, we will not clean up the duplicated board, just log the failure.
             return None
         logging.info("Rename successful.")
 
-        # Step 3: Fetch the updated board data to return it
+        # Step 3: Add user to the new board
+        logging.info(f"Attempting to add user {user_id} to board {new_board_id}...")
+        if not self.add_user_to_board(new_board_id, user_id):
+            logging.error(f"Failed to add user {user_id} to board {new_board_id}.")
+            # The board is created, but the user is not added. We can decide to return the board anyway or None.
+            # For now, let's consider it a failure.
+            return None
+        logging.info("User added successfully.")
+
+        # Step 4: Fetch the updated board data to return it
         logging.info("Attempting to fetch final board data...")
         updated_board = self.get_board(new_board_id)
         if not updated_board:
             logging.warning(f"Could not fetch the final updated board data for board ID {new_board_id}. Returning initial data with updated title.")
-            # Fallback to the duplicated board data but with the correct title
             duplicated_board['title'] = new_board_name
             return duplicated_board
 

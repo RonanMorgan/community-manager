@@ -89,6 +89,7 @@ async def create_resources_for_entity(
                         clients.get("mattermost").create_board_from_template,
                         template_id,
                         board_name,
+                        requesting_user_id,
                     )
                     if new_board and new_board.get("id"):
                         mm_board_msg += f":white_check_mark: Créé (ID: {new_board['id']})."

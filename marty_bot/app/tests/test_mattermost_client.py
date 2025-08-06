@@ -890,7 +890,7 @@ class TestMattermostClientFocalboard(unittest.TestCase):
         # Mock get board call
         mock_get.return_value = mock_mattermost_response(200, json_data={"id": "new_board_id", "title": self.mock_new_board_name})
 
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id")
 
         self.assertIsNotNone(result)
         self.assertEqual(result["id"], "new_board_id")
@@ -900,7 +900,7 @@ class TestMattermostClientFocalboard(unittest.TestCase):
     def test_create_board_from_template_duplicate_fails(self, mock_post):
         mock_post.side_effect = requests.exceptions.RequestException("API Error")
 
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id")
         self.assertIsNone(result)
 
     @patch("requests.patch")
@@ -912,14 +912,24 @@ class TestMattermostClientFocalboard(unittest.TestCase):
         # Mock rename board call to fail
         mock_patch.side_effect = requests.exceptions.RequestException("API Error")
 
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id")
         self.assertIsNone(result)
 
     def test_create_board_from_template_no_tokens(self):
         self.client.user_auth_token = None
         self.client.csrf_token = None
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id")
         self.assertIsNone(result)
+
+    @patch("requests.post")
+    def test_add_user_to_board_success(self, mock_post):
+        mock_post.return_value = mock_mattermost_response(200)
+
+        success = self.client.add_user_to_board("board_id", "user_id")
+        self.assertTrue(success)
+        mock_post.assert_called_once()
+        _, kwargs = mock_post.call_args
+        self.assertEqual(kwargs["json"]["userId"], "user_id")
 
 
 if __name__ == "__main__":
