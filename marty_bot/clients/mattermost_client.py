@@ -7,25 +7,36 @@ from libraries.services.mattermost import slugify
 
 # Removed direct import of config
 class MattermostClient:
-    def __init__(self, base_url: str, token: str, team_id: str):
+    def __init__(self, base_url: str, token: str, team_id: str, login_id: str = None, password: str = None, debug: bool = False):
         """
         Initializes the MattermostClient.
         :param base_url: The base URL of the Mattermost instance (e.g., http://localhost:8065).
         :param token: The Bot's Access Token for Mattermost API operations.
         :param team_id: The default Mattermost Team ID to use for operations like channel creation.
+        :param login_id: The user login ID (email/username) for board creation.
+        :param password: The user password for board creation.
+        :param debug: A boolean to enable debug logging.
         """
         if not base_url or not token or not team_id:
             raise ValueError("Mattermost base_url, token, and team_id must be provided.")
-        self.base_url = base_url.rstrip("/")  # Ensure no trailing slash
+        self.base_url = base_url.rstrip("/")
         self.token = token
-        self.team_id = team_id  # Default team_id
+        self.team_id = team_id
+        self.login_id = login_id
+        self.password = password
+        self.debug = debug
         self.headers = {
-            "Content-Type": "application/json",  # Good default for POST/PUT
+            "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": f"Bearer {self.token}",
         }
-        self.bot_user_id: str | None = None  # Will store the bot's own user ID
+        self.bot_user_id: str | None = None
         self._initialize_bot_user_id()
+
+        self.user_auth_token: str | None = None
+        self.csrf_token: str | None = None
+        if self.login_id and self.password:
+            self._login()
 
     def _initialize_bot_user_id(self) -> None:
         """
@@ -605,6 +616,183 @@ class MattermostClient:
         except json.JSONDecodeError as e:
             logging.error(f"Error decoding JSON from user deactivation response for {user_id}: {e}")
             return False
+
+
+    def _login(self) -> None:
+        """
+        Logs in as a user to get an auth token and CSRF token for board operations.
+        """
+        api_url = f"{self.base_url}/api/v4/users/login"
+        payload = {"login_id": self.login_id, "password": self.password}
+        headers = {"X-Requested-With": "XMLHttpRequest"}
+        logging.info(f"MattermostClient: Logging in as user {self.login_id} to get CSRF token.")
+        try:
+            response = requests.post(api_url, json=payload, headers=headers)
+            response.raise_for_status()
+            self.user_auth_token = response.cookies.get("MMAUTHTOKEN")
+            self.csrf_token = response.cookies.get("MMCSRF")
+            if self.user_auth_token and self.csrf_token:
+                logging.info("MattermostClient: Successfully logged in and got CSRF and Auth tokens.")
+            else:
+                logging.error("MattermostClient: Login successful, but failed to get MMAUTHTOKEN or MMCSRF from cookies.")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"MattermostClient: Error during login to get CSRF token: {e}")
+
+    def _get_focalboard_headers(self) -> dict | None:
+        """Helper to get headers for Focalboard API calls."""
+        if not self.user_auth_token or not self.csrf_token:
+            logging.error("Cannot make Focalboard API call: user_auth_token or csrf_token is missing.")
+            return None
+        return {
+            "Authorization": f"Bearer {self.user_auth_token}",
+            "X-CSRF-Token": self.csrf_token,
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+    def duplicate_board(self, template_board_id: str) -> dict | None:
+        """Duplicates a Mattermost board."""
+        headers = self._get_focalboard_headers()
+        if not headers:
+            return None
+
+        api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{template_board_id}/duplicate?asTemplate=false&toTeam={self.team_id}"
+        logging.info(f"MattermostClient: Duplicating board from template {template_board_id} to team {self.team_id}")
+        try:
+            # An empty JSON body is required for this POST request.
+            response = requests.post(api_url, headers=headers, json={})
+            response.raise_for_status()
+            response_data = response.json()
+            if self.debug:
+                logging.info(f"Duplicate board response: {response_data}")
+            if response_data and "boards" in response_data and response_data["boards"]:
+                new_board = response_data["boards"][0]
+                logging.info(f"Successfully duplicated board. New board ID: {new_board.get('id')}")
+                return new_board
+            else:
+                logging.error(f"Could not find board data in duplicate response: {response_data}")
+                return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error duplicating board {template_board_id}: {e}", exc_info=True)
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from duplicate board response: {e}")
+            return None
+
+    def rename_board(self, board_id: str, new_title: str, channel_id: str) -> bool:
+        """Renames a Mattermost board and links it to a channel."""
+        headers = self._get_focalboard_headers()
+        if not headers:
+            return False
+
+        api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{board_id}"
+        payload = {"title": new_title, "channelId": channel_id}
+        logging.info(f"MattermostClient: Renaming board {board_id} to '{new_title}' and linking to channel {channel_id}")
+        try:
+            # Using PATCH to update the board title
+            response = requests.patch(api_url, headers=headers, json=payload)
+            response.raise_for_status()
+            if self.debug:
+                logging.info(f"Rename board response: {response.text}")
+            logging.info(f"Successfully renamed board {board_id}.")
+            return True
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error renaming board {board_id}: {e}", exc_info=True)
+            return False
+
+    def get_board(self, board_id: str) -> dict | None:
+        """Fetches a Mattermost board by its ID."""
+        headers = self._get_focalboard_headers()
+        if not headers:
+            return None
+
+        api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{board_id}"
+        logging.info(f"MattermostClient: Fetching board {board_id}")
+        try:
+            response = requests.get(api_url, headers=headers)
+            response.raise_for_status()
+            board = response.json()
+            logging.info(f"Successfully fetched board {board_id}.")
+            return board
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error fetching board {board_id}: {e}", exc_info=True)
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from get board response: {e}")
+            return None
+
+    def add_user_to_board(self, board_id: str, user_id: str) -> bool:
+        """Adds a user to a Mattermost board."""
+        headers = self._get_focalboard_headers()
+        if not headers:
+            return False
+
+        api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{board_id}/members"
+        payload = {
+            "boardId": board_id,
+            "userId": user_id,
+            "roles": "editor",
+            "schemeCommenter": False,
+            "schemeEditor": True,
+            "schemeViewer": False,
+        }
+        logging.info(f"Adding user {user_id} to board {board_id}")
+        try:
+            response = requests.post(api_url, headers=headers, json=payload)
+            response.raise_for_status()
+            if self.debug:
+                logging.info(f"Add user to board response: {response.text}")
+            logging.info(f"Successfully added user {user_id} to board {board_id}.")
+            return True
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error adding user {user_id} to board {board_id}: {e}", exc_info=True)
+            return False
+
+    def create_board_from_template(self, template_board_id: str, new_board_name: str, user_id: str, channel_id: str) -> dict | None:
+        """
+        Creates a new board by duplicating a template, renaming it, linking it to a channel, and adding a user.
+        :param template_board_id: The ID of the board to duplicate.
+        :param new_board_name: The new name for the duplicated board.
+        :param user_id: The ID of the user to add to the board.
+        :param channel_id: The ID of the channel to link to the board.
+        :return: The final board data if successful, None otherwise.
+        """
+        logging.info(f"Starting board creation from template {template_board_id} with name '{new_board_name}' for user {user_id} and channel {channel_id}")
+        if not self.user_auth_token or not self.csrf_token:
+            logging.error("Cannot create board from template: Missing user auth or CSRF token. Please check credentials.")
+            return None
+
+        # Step 1: Duplicate the board
+        logging.info("Attempting to duplicate board...")
+        duplicated_board = self.duplicate_board(template_board_id)
+        if not duplicated_board or not duplicated_board.get("id"):
+            logging.error(f"Failed to duplicate board from template. Response from duplicate_board: {duplicated_board}")
+            return None
+
+        new_board_id = duplicated_board["id"]
+        logging.info(f"Duplication successful. New board ID: {new_board_id}")
+
+        # Step 2: Rename the new board and link to channel
+        logging.info("Attempting to rename board and link to channel...")
+        if not self.rename_board(new_board_id, new_board_name, channel_id):
+            logging.error(f"Failed to rename and link the new board (ID: {new_board_id}) to '{new_board_name}' and channel {channel_id}.")
+            return None
+        logging.info("Rename successful.")
+
+        # Step 3: Add user to the new board
+        logging.info(f"Attempting to add user {user_id} to board {new_board_id}...")
+        if not self.add_user_to_board(new_board_id, user_id):
+            logging.error(f"Failed to add user {user_id} to board {new_board_id}.")
+            # The board is created, but the user is not added. We can decide to return the board anyway or None.
+            # For now, let's consider it a failure.
+            return None
+        logging.info("User added successfully.")
+
+        # The board is created and user added. Return the duplicated board data.
+        # The title in this object will be the old one, but this is acceptable.
+        duplicated_board["title"] = new_board_name
+        return duplicated_board
 
 
 if __name__ == "__main__":

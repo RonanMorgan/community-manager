@@ -100,6 +100,25 @@ class TestBrevoClient(unittest.TestCase):
         result = self.client.get_lists(name="Any List")
         self.assertIsNone(result)
 
+    @patch.object(BrevoClient, "get_lists")
+    def test_get_list_by_name_found(self, mock_get_lists):
+        """Test get_list_by_name when the list is found."""
+        list_name = "My List"
+        mock_get_lists.return_value = [{"id": 123, "name": list_name}]
+
+        result = self.client.get_list_by_name(list_name)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["name"], list_name)
+        mock_get_lists.assert_called_once_with(name=list_name)
+
+    @patch.object(BrevoClient, "get_lists")
+    def test_get_list_by_name_not_found(self, mock_get_lists):
+        """Test get_list_by_name when the list is not found."""
+        mock_get_lists.return_value = []
+
+        result = self.client.get_list_by_name("Unknown List")
+        self.assertIsNone(result)
+
     @patch("requests.request")
     def test_create_list_success(self, mock_request):
         """Test creating a new list successfully."""

@@ -1,10 +1,26 @@
 import json  # Added import for json
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 import requests
 from clients.mattermost_client import MattermostClient
 from libraries.services.mattermost import slugify
+
+
+def mock_mattermost_response(status_code, json_data=None, text_data=None, content=None, cookies=None):
+    """Helper to create a mock requests.Response object for Mattermost tests."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = status_code
+    mock_resp.json.return_value = json_data
+    mock_resp.text = text_data if text_data is not None else (str(json_data) if json_data else "")
+    mock_resp.content = content if content is not None else bytes(mock_resp.text, "utf-8")
+    mock_resp.cookies = cookies or {}
+
+    if status_code >= 400:
+        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_resp)
+    else:
+        mock_resp.raise_for_status.return_value = None
+    return mock_resp
 
 
 class TestMattermostClient(unittest.TestCase):
@@ -825,6 +841,100 @@ class TestMattermostClient(unittest.TestCase):
 
     def test_delete_user_missing_id(self):
         self.assertFalse(self.client.delete_user(""))
+
+
+class TestMattermostClientFocalboard(unittest.TestCase):
+    @patch("requests.post")
+    @patch("requests.get")
+    def setUp(self, mock_get, mock_post):
+        # Mock get_me for __init__
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"id": "bot_user_id"}
+
+        # Mock login for __init__
+        self.mock_user_auth_token = "fake_user_auth_token"
+        self.mock_csrf_token = "fake_csrf_token"
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.cookies = {"MMAUTHTOKEN": self.mock_user_auth_token, "MMCSRF": self.mock_csrf_token}
+        mock_post.return_value.raise_for_status.return_value = None
+
+        self.mock_url = "http://fake-mattermost-url.com"
+        self.mock_token = "fake_mm_admin_token"
+        self.mock_team_id = "fake_team_id"
+        self.mock_login_id = "testuser"
+        self.mock_password = "testpassword"
+        self.mock_template_id = "template_board_id"
+        self.mock_new_board_name = "New Project Board"
+
+        self.client = MattermostClient(
+            base_url=self.mock_url,
+            token=self.mock_token,
+            team_id=self.mock_team_id,
+            login_id=self.mock_login_id,
+            password=self.mock_password,
+        )
+
+        mock_get.reset_mock()
+        mock_post.reset_mock()
+
+    @patch("requests.get")
+    @patch("requests.patch")
+    @patch("requests.post")
+    def test_create_board_from_template_success(self, mock_post, mock_patch, mock_get):
+        # Mock duplicate board call
+        mock_post.return_value = mock_mattermost_response(201, json_data={"boards": [{"id": "new_board_id", "title": "Copy of template"}]})
+
+        # Mock rename board call
+        mock_patch.return_value = mock_mattermost_response(200)
+
+        # Mock get board call
+        mock_get.return_value = mock_mattermost_response(200, json_data={"id": "new_board_id", "title": self.mock_new_board_name})
+
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], "new_board_id")
+        self.assertEqual(result["title"], self.mock_new_board_name)
+        mock_patch.assert_called_once_with(
+            f"{self.client.base_url}/plugins/focalboard/api/v2/boards/new_board_id",
+            headers=self.client._get_focalboard_headers(),
+            json={"title": self.mock_new_board_name, "channelId": "channel_id"},
+        )
+
+    @patch("requests.post")
+    def test_create_board_from_template_duplicate_fails(self, mock_post):
+        mock_post.side_effect = requests.exceptions.RequestException("API Error")
+
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
+        self.assertIsNone(result)
+
+    @patch("requests.patch")
+    @patch("requests.post")
+    def test_create_board_from_template_rename_fails(self, mock_post, mock_patch):
+        # Mock duplicate board call
+        mock_post.return_value = mock_mattermost_response(201, json_data={"boards": [{"id": "new_board_id", "title": "Copy of template"}]})
+
+        # Mock rename board call to fail
+        mock_patch.side_effect = requests.exceptions.RequestException("API Error")
+
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
+        self.assertIsNone(result)
+
+    def test_create_board_from_template_no_tokens(self):
+        self.client.user_auth_token = None
+        self.client.csrf_token = None
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
+        self.assertIsNone(result)
+
+    @patch("requests.post")
+    def test_add_user_to_board_success(self, mock_post):
+        mock_post.return_value = mock_mattermost_response(200)
+
+        success = self.client.add_user_to_board("board_id", "user_id")
+        self.assertTrue(success)
+        mock_post.assert_called_once()
+        _, kwargs = mock_post.call_args
+        self.assertEqual(kwargs["json"]["userId"], "user_id")
 
 
 if __name__ == "__main__":
