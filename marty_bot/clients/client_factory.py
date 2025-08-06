@@ -48,6 +48,7 @@ def create_clients() -> dict:
                 team_id=config.MATTERMOST_TEAM_ID,
                 login_id=config.MATTERMOST_LOGIN_ID,
                 password=config.MATTERMOST_PASSWORD,
+                debug=config.DEBUG,
             )
             logging.info("MattermostClient initialized successfully.")
         except ValueError as e:

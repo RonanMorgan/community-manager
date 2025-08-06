@@ -7,7 +7,7 @@ from libraries.services.mattermost import slugify
 
 # Removed direct import of config
 class MattermostClient:
-    def __init__(self, base_url: str, token: str, team_id: str, login_id: str = None, password: str = None):
+    def __init__(self, base_url: str, token: str, team_id: str, login_id: str = None, password: str = None, debug: bool = False):
         """
         Initializes the MattermostClient.
         :param base_url: The base URL of the Mattermost instance (e.g., http://localhost:8065).
@@ -15,6 +15,7 @@ class MattermostClient:
         :param team_id: The default Mattermost Team ID to use for operations like channel creation.
         :param login_id: The user login ID (email/username) for board creation.
         :param password: The user password for board creation.
+        :param debug: A boolean to enable debug logging.
         """
         if not base_url or not token or not team_id:
             raise ValueError("Mattermost base_url, token, and team_id must be provided.")
@@ -23,6 +24,7 @@ class MattermostClient:
         self.team_id = team_id
         self.login_id = login_id
         self.password = password
+        self.debug = debug
         self.headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -662,7 +664,8 @@ class MattermostClient:
             response = requests.post(api_url, headers=headers, json={})
             response.raise_for_status()
             response_data = response.json()
-            logging.info(f"Duplicate board response: {response_data}")
+            if self.debug:
+                logging.info(f"Duplicate board response: {response_data}")
             if response_data and "boards" in response_data and response_data["boards"]:
                 new_board = response_data["boards"][0]
                 logging.info(f"Successfully duplicated board. New board ID: {new_board.get('id')}")
@@ -690,7 +693,8 @@ class MattermostClient:
             # Using PATCH to update the board title
             response = requests.patch(api_url, headers=headers, json=payload)
             response.raise_for_status()
-            logging.info(f"Rename board response: {response.text}")
+            if self.debug:
+                logging.info(f"Rename board response: {response.text}")
             logging.info(f"Successfully renamed board {board_id}.")
             return True
         except requests.exceptions.RequestException as e:
@@ -737,7 +741,8 @@ class MattermostClient:
         try:
             response = requests.post(api_url, headers=headers, json=payload)
             response.raise_for_status()
-            logging.info(f"Add user to board response: {response.text}")
+            if self.debug:
+                logging.info(f"Add user to board response: {response.text}")
             logging.info(f"Successfully added user {user_id} to board {board_id}.")
             return True
         except requests.exceptions.RequestException as e:
