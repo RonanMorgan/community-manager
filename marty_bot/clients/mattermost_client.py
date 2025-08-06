@@ -661,9 +661,14 @@ class MattermostClient:
             # An empty JSON body is required for this POST request.
             response = requests.post(api_url, headers=headers, json={})
             response.raise_for_status()
-            new_board = response.json()
-            logging.info(f"Successfully duplicated board. New board ID: {new_board.get('id')}")
-            return new_board
+            response_data = response.json()
+            if response_data and "boards" in response_data and response_data["boards"]:
+                new_board = response_data["boards"][0]
+                logging.info(f"Successfully duplicated board. New board ID: {new_board.get('id')}")
+                return new_board
+            else:
+                logging.error(f"Could not find board data in duplicate response: {response_data}")
+                return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Error duplicating board {template_board_id}: {e}", exc_info=True)
             return None
@@ -672,30 +677,22 @@ class MattermostClient:
             return None
 
     def rename_board(self, board_id: str, new_title: str) -> bool:
-        """Renames a Mattermost board by updating its title using PUT."""
-        # First, get the board
-        board = self.get_board(board_id)
-        if not board:
-            logging.error(f"Could not get board {board_id} to rename it.")
-            return False
-
-        # Modify the title
-        board["title"] = new_title
-
-        # Now, PUT the updated board
+        """Renames a Mattermost board by updating its title."""
         headers = self._get_focalboard_headers()
         if not headers:
             return False
 
         api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{board_id}"
-        logging.info(f"MattermostClient: Renaming board {board_id} to '{new_title}' using PUT.")
+        payload = {"title": new_title}
+        logging.info(f"MattermostClient: Renaming board {board_id} to '{new_title}'")
         try:
-            response = requests.put(api_url, headers=headers, json=board)
+            # Using PATCH to update the board title
+            response = requests.patch(api_url, headers=headers, json=payload)
             response.raise_for_status()
-            logging.info(f"Successfully renamed board {board_id} with PUT.")
+            logging.info(f"Successfully renamed board {board_id}.")
             return True
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error renaming board {board_id} with PUT: {e}", exc_info=True)
+            logging.error(f"Error renaming board {board_id}: {e}", exc_info=True)
             return False
 
     def get_board(self, board_id: str) -> dict | None:

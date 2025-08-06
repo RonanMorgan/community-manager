@@ -878,20 +878,17 @@ class TestMattermostClientFocalboard(unittest.TestCase):
         mock_post.reset_mock()
 
     @patch("requests.get")
-    @patch("requests.put")
+    @patch("requests.patch")
     @patch("requests.post")
-    def test_create_board_from_template_success(self, mock_post, mock_put, mock_get):
+    def test_create_board_from_template_success(self, mock_post, mock_patch, mock_get):
         # Mock duplicate board call
-        mock_post.return_value = mock_mattermost_response(201, json_data={"id": "new_board_id", "title": "Copy of template"})
-
-        # Mock get board for rename and for final fetch
-        mock_get.side_effect = [
-            mock_mattermost_response(200, json_data={"id": "new_board_id", "title": "Copy of template"}),
-            mock_mattermost_response(200, json_data={"id": "new_board_id", "title": self.mock_new_board_name}),
-        ]
+        mock_post.return_value = mock_mattermost_response(201, json_data={"boards": [{"id": "new_board_id", "title": "Copy of template"}]})
 
         # Mock rename board call
-        mock_put.return_value = mock_mattermost_response(200)
+        mock_patch.return_value = mock_mattermost_response(200)
+
+        # Mock get board call
+        mock_get.return_value = mock_mattermost_response(200, json_data={"id": "new_board_id", "title": self.mock_new_board_name})
 
         result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
 
@@ -906,19 +903,17 @@ class TestMattermostClientFocalboard(unittest.TestCase):
         result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
         self.assertIsNone(result)
 
-    @patch("requests.put")
+    @patch("requests.patch")
     @patch("requests.post")
-    def test_create_board_from_template_rename_fails(self, mock_post, mock_put):
+    def test_create_board_from_template_rename_fails(self, mock_post, mock_patch):
         # Mock duplicate board call
-        mock_post.return_value = mock_mattermost_response(201, json_data={"id": "new_board_id", "title": "Copy of template"})
+        mock_post.return_value = mock_mattermost_response(201, json_data={"boards": [{"id": "new_board_id", "title": "Copy of template"}]})
 
-        # Mock get board for rename to succeed
-        with patch.object(self.client, 'get_board', return_value={"id": "new_board_id", "title": "Copy of template"}):
-            # Mock rename board call to fail
-            mock_put.side_effect = requests.exceptions.RequestException("API Error")
+        # Mock rename board call to fail
+        mock_patch.side_effect = requests.exceptions.RequestException("API Error")
 
-            result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
-            self.assertIsNone(result)
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name)
+        self.assertIsNone(result)
 
     def test_create_board_from_template_no_tokens(self):
         self.client.user_auth_token = None
