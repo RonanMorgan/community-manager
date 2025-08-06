@@ -895,6 +895,11 @@ class TestMattermostClientFocalboard(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["id"], "new_board_id")
         self.assertEqual(result["title"], self.mock_new_board_name)
+        mock_post.assert_any_call(
+            f"{self.client.base_url}/plugins/focalboard/api/v2/boards/{self.mock_template_id}/duplicate?asTemplate=false&toTeam={self.client.team_id}",
+            headers=self.client._get_focalboard_headers(),
+            json={},
+        )
 
     @patch("requests.post")
     def test_create_board_from_template_duplicate_fails(self, mock_post):

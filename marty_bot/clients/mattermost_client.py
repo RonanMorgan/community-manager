@@ -655,8 +655,8 @@ class MattermostClient:
         if not headers:
             return None
 
-        api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{template_board_id}/duplicate"
-        logging.info(f"MattermostClient: Duplicating board from template {template_board_id}")
+        api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{template_board_id}/duplicate?asTemplate=false&toTeam={self.team_id}"
+        logging.info(f"MattermostClient: Duplicating board from template {template_board_id} to team {self.team_id}")
         try:
             # An empty JSON body is required for this POST request.
             response = requests.post(api_url, headers=headers, json={})
