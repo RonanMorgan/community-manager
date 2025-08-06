@@ -662,6 +662,7 @@ class MattermostClient:
             response = requests.post(api_url, headers=headers, json={})
             response.raise_for_status()
             response_data = response.json()
+            logging.info(f"Duplicate board response: {response_data}")
             if response_data and "boards" in response_data and response_data["boards"]:
                 new_board = response_data["boards"][0]
                 logging.info(f"Successfully duplicated board. New board ID: {new_board.get('id')}")
@@ -689,6 +690,7 @@ class MattermostClient:
             # Using PATCH to update the board title
             response = requests.patch(api_url, headers=headers, json=payload)
             response.raise_for_status()
+            logging.info(f"Rename board response: {response.text}")
             logging.info(f"Successfully renamed board {board_id}.")
             return True
         except requests.exceptions.RequestException as e:
@@ -735,6 +737,7 @@ class MattermostClient:
         try:
             response = requests.post(api_url, headers=headers, json=payload)
             response.raise_for_status()
+            logging.info(f"Add user to board response: {response.text}")
             logging.info(f"Successfully added user {user_id} to board {board_id}.")
             return True
         except requests.exceptions.RequestException as e:
@@ -780,16 +783,10 @@ class MattermostClient:
             return None
         logging.info("User added successfully.")
 
-        # Step 4: Fetch the updated board data to return it
-        logging.info("Attempting to fetch final board data...")
-        updated_board = self.get_board(new_board_id)
-        if not updated_board:
-            logging.warning(f"Could not fetch the final updated board data for board ID {new_board_id}. Returning initial data with updated title.")
-            duplicated_board['title'] = new_board_name
-            return duplicated_board
-
-        logging.info("Successfully fetched final board data.")
-        return updated_board
+        # The board is created and user added. Return the duplicated board data.
+        # The title in this object will be the old one, but this is acceptable.
+        duplicated_board["title"] = new_board_name
+        return duplicated_board
 
 
 if __name__ == "__main__":
