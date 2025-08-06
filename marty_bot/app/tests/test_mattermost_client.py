@@ -890,22 +890,22 @@ class TestMattermostClientFocalboard(unittest.TestCase):
         # Mock get board call
         mock_get.return_value = mock_mattermost_response(200, json_data={"id": "new_board_id", "title": self.mock_new_board_name})
 
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id")
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
 
         self.assertIsNotNone(result)
         self.assertEqual(result["id"], "new_board_id")
         self.assertEqual(result["title"], self.mock_new_board_name)
-        mock_post.assert_any_call(
-            f"{self.client.base_url}/plugins/focalboard/api/v2/boards/{self.mock_template_id}/duplicate?asTemplate=false&toTeam={self.client.team_id}",
+        mock_patch.assert_called_once_with(
+            f"{self.client.base_url}/plugins/focalboard/api/v2/boards/new_board_id",
             headers=self.client._get_focalboard_headers(),
-            json={},
+            json={"title": self.mock_new_board_name, "channelId": "channel_id"},
         )
 
     @patch("requests.post")
     def test_create_board_from_template_duplicate_fails(self, mock_post):
         mock_post.side_effect = requests.exceptions.RequestException("API Error")
 
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id")
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
         self.assertIsNone(result)
 
     @patch("requests.patch")
@@ -917,13 +917,13 @@ class TestMattermostClientFocalboard(unittest.TestCase):
         # Mock rename board call to fail
         mock_patch.side_effect = requests.exceptions.RequestException("API Error")
 
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id")
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
         self.assertIsNone(result)
 
     def test_create_board_from_template_no_tokens(self):
         self.client.user_auth_token = None
         self.client.csrf_token = None
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id")
+        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
         self.assertIsNone(result)
 
     @patch("requests.post")

@@ -53,13 +53,15 @@ async def create_resources_for_entity(
 
         # Mattermost Channel (Standard)
         mm_msg_std = f"    - Mattermost Canal `{std_mm_chan_name}` (type: {std_mm_chan_type}): "
+        standard_channel_id = None
         if clients.get("mattermost"):
             try:
                 ch_std = clients.get("mattermost").create_channel(std_mm_chan_name, channel_type=std_mm_chan_type)
                 if ch_std and ch_std.get("id"):
-                    mm_msg_std += f":white_check_mark: Créé (ID: {ch_std['id']})."
+                    standard_channel_id = ch_std["id"]
+                    mm_msg_std += f":white_check_mark: Créé (ID: {standard_channel_id})."
                     if requesting_user_id and clients.get("mattermost").add_user_to_channel(
-                        ch_std["id"], requesting_user_id
+                        standard_channel_id, requesting_user_id
                     ):
                         mm_msg_std += " Demandeur ajouté."
                     elif requesting_user_id:
@@ -78,7 +80,7 @@ async def create_resources_for_entity(
         board_name_pattern = mm_board_config.get("board_name_pattern", "{base_name}")
         board_name = board_name_pattern.format(base_name=base_name)
         mm_board_msg = f"    - Mattermost Board `{board_name}`: "
-        if clients.get("mattermost"):
+        if clients.get("mattermost") and standard_channel_id:
             template_id = os.getenv("PROJECT_BOARD_TEMPLATE_ID")
             if not template_id:
                 mm_board_msg += ":warning: Échec - `PROJECT_BOARD_TEMPLATE_ID` non configuré."
@@ -90,6 +92,7 @@ async def create_resources_for_entity(
                         template_id,
                         board_name,
                         requesting_user_id,
+                        standard_channel_id,
                     )
                     if new_board and new_board.get("id"):
                         mm_board_msg += f":white_check_mark: Créé (ID: {new_board['id']})."

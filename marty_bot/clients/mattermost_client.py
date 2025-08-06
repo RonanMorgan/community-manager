@@ -677,15 +677,15 @@ class MattermostClient:
             logging.error(f"Error decoding JSON from duplicate board response: {e}")
             return None
 
-    def rename_board(self, board_id: str, new_title: str) -> bool:
-        """Renames a Mattermost board by updating its title."""
+    def rename_board(self, board_id: str, new_title: str, channel_id: str) -> bool:
+        """Renames a Mattermost board and links it to a channel."""
         headers = self._get_focalboard_headers()
         if not headers:
             return False
 
         api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{board_id}"
-        payload = {"title": new_title}
-        logging.info(f"MattermostClient: Renaming board {board_id} to '{new_title}'")
+        payload = {"title": new_title, "channelId": channel_id}
+        logging.info(f"MattermostClient: Renaming board {board_id} to '{new_title}' and linking to channel {channel_id}")
         try:
             # Using PATCH to update the board title
             response = requests.patch(api_url, headers=headers, json=payload)
@@ -744,15 +744,16 @@ class MattermostClient:
             logging.error(f"Error adding user {user_id} to board {board_id}: {e}", exc_info=True)
             return False
 
-    def create_board_from_template(self, template_board_id: str, new_board_name: str, user_id: str) -> dict | None:
+    def create_board_from_template(self, template_board_id: str, new_board_name: str, user_id: str, channel_id: str) -> dict | None:
         """
-        Creates a new board by duplicating a template, renaming it, and adding a user.
+        Creates a new board by duplicating a template, renaming it, linking it to a channel, and adding a user.
         :param template_board_id: The ID of the board to duplicate.
         :param new_board_name: The new name for the duplicated board.
         :param user_id: The ID of the user to add to the board.
+        :param channel_id: The ID of the channel to link to the board.
         :return: The final board data if successful, None otherwise.
         """
-        logging.info(f"Starting board creation from template {template_board_id} with name '{new_board_name}' for user {user_id}")
+        logging.info(f"Starting board creation from template {template_board_id} with name '{new_board_name}' for user {user_id} and channel {channel_id}")
         if not self.user_auth_token or not self.csrf_token:
             logging.error("Cannot create board from template: Missing user auth or CSRF token. Please check credentials.")
             return None
@@ -767,10 +768,10 @@ class MattermostClient:
         new_board_id = duplicated_board["id"]
         logging.info(f"Duplication successful. New board ID: {new_board_id}")
 
-        # Step 2: Rename the new board
-        logging.info("Attempting to rename board...")
-        if not self.rename_board(new_board_id, new_board_name):
-            logging.error(f"Failed to rename the new board (ID: {new_board_id}) to '{new_board_name}'.")
+        # Step 2: Rename the new board and link to channel
+        logging.info("Attempting to rename board and link to channel...")
+        if not self.rename_board(new_board_id, new_board_name, channel_id):
+            logging.error(f"Failed to rename and link the new board (ID: {new_board_id}) to '{new_board_name}' and channel {channel_id}.")
             return None
         logging.info("Rename successful.")
 
