@@ -515,7 +515,7 @@ class OutlineClient:
                 all_users.extend(users)
 
                 pagination = response_data.get("pagination", {})
-                total = pagination.get("total") # Can be None if not provided by API
+                total = pagination.get("total")  # Can be None if not provided by API
 
                 # Stop if we've received all users
                 if not users or (total is not None and len(all_users) >= total):

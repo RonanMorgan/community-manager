@@ -73,9 +73,7 @@ class TestAuthentikBrevoSync(unittest.TestCase):
 
     @patch("libraries.brevo_user_sync.BrevoClient")
     def test_sync_no_new_users_to_add(self, MockBrevoClient):
-        authentik_users_data = [
-            {"email": "user1@example.com", "attributes": {"attributes.ville": "Lyon"}}
-        ]
+        authentik_users_data = [{"email": "user1@example.com", "attributes": {"attributes.ville": "Lyon"}}]
         mock_brevo_instance = MockBrevoClient.return_value
         mock_brevo_instance.get_contacts_from_list.return_value = ["user1@example.com"]
         sync_authentik_users_to_brevo_list(authentik_users_data)
@@ -84,9 +82,7 @@ class TestAuthentikBrevoSync(unittest.TestCase):
     @patch("libraries.brevo_user_sync.BrevoClient")
     @patch("libraries.brevo_user_sync.logging")
     def test_sync_brevo_fetch_fails(self, mock_logging, MockBrevoClient):
-        authentik_users_data = [
-            {"email": "user1@example.com", "attributes": {}}
-        ]
+        authentik_users_data = [{"email": "user1@example.com", "attributes": {}}]
         mock_brevo_instance = MockBrevoClient.return_value
         mock_brevo_instance.get_contacts_from_list.return_value = None
         sync_authentik_users_to_brevo_list(authentik_users_data)
@@ -98,9 +94,7 @@ class TestAuthentikBrevoSync(unittest.TestCase):
     @patch("libraries.brevo_user_sync.BrevoClient")
     @patch("libraries.brevo_user_sync.logging")
     def test_sync_add_user_fails_in_brevo(self, mock_logging, MockBrevoClient):
-        authentik_users_data = [
-            {"email": "newuser@example.com", "attributes": {"attributes.ville": "Nice"}}
-        ]
+        authentik_users_data = [{"email": "newuser@example.com", "attributes": {"attributes.ville": "Nice"}}]
         mock_brevo_instance = MockBrevoClient.return_value
         mock_brevo_instance.get_contacts_from_list.return_value = []
         mock_brevo_instance.add_contact_to_list.return_value = False
@@ -117,9 +111,7 @@ class TestAuthentikBrevoSync(unittest.TestCase):
     @patch("libraries.brevo_user_sync.logging")
     def test_sync_invalid_brevo_list_id_env(self, mock_logging):
         sync_authentik_users_to_brevo_list([])
-        mock_logging.error.assert_any_call(
-            "Invalid BREVO_AUTHENTIK_USERS_LIST_ID: 'not-an-int'. Must be an integer."
-        )
+        mock_logging.error.assert_any_call("Invalid BREVO_AUTHENTIK_USERS_LIST_ID: 'not-an-int'. Must be an integer.")
 
     @patch.dict(os.environ, {"BREVO_API_URL": ""})
     @patch("libraries.brevo_user_sync.logging")

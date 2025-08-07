@@ -293,7 +293,7 @@ class NocoDBClient:
         response_data = self._make_request("delete", endpoint)
 
         # A successful DELETE might return a 204 No Content or a success message
-        if response_data is None: # Likely a 204 No Content success
+        if response_data is None:  # Likely a 204 No Content success
             logger.info(f"Successfully deleted user ID '{user_id}' from base ID '{base_id}'.")
             return True
         if isinstance(response_data, dict) and response_data.get("msg") == "The user has been deleted successfully":

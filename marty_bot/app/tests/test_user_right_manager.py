@@ -1,5 +1,4 @@
-import asyncio
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -36,9 +35,7 @@ async def test_is_channel_admin_true(mock_bot):
     }
     mock_bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "user_id"}]
     mock_bot.config.PERMISSIONS_MATRIX = {
-        "projet": {
-            "admin": {"mattermost_channel_name_pattern": "projet-{base_name}-admin"}
-        }
+        "projet": {"admin": {"mattermost_channel_name_pattern": "projet-{base_name}-admin"}}
     }
     user_right_manager = UserRightManager(mock_bot)
     assert await user_right_manager.is_channel_admin("user_id", "channel_id") is True
@@ -52,9 +49,7 @@ async def test_is_channel_admin_false_not_admin_channel(mock_bot):
     }
     mock_bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "user_id"}]
     mock_bot.config.PERMISSIONS_MATRIX = {
-        "projet": {
-            "admin": {"mattermost_channel_name_pattern": "projet-{base_name}-admin"}
-        }
+        "projet": {"admin": {"mattermost_channel_name_pattern": "projet-{base_name}-admin"}}
     }
     user_right_manager = UserRightManager(mock_bot)
     assert await user_right_manager.is_channel_admin("user_id", "channel_id") is False
@@ -68,9 +63,7 @@ async def test_is_channel_admin_false_not_member(mock_bot):
     }
     mock_bot.mattermost_api_client.get_users_in_channel.return_value = [{"id": "other_user_id"}]
     mock_bot.config.PERMISSIONS_MATRIX = {
-        "projet": {
-            "admin": {"mattermost_channel_name_pattern": "projet-{base_name}-admin"}
-        }
+        "projet": {"admin": {"mattermost_channel_name_pattern": "projet-{base_name}-admin"}}
     }
     user_right_manager = UserRightManager(mock_bot)
     assert await user_right_manager.is_channel_admin("user_id", "channel_id") is False

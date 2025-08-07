@@ -7,7 +7,9 @@ from libraries.services.mattermost import slugify
 
 # Removed direct import of config
 class MattermostClient:
-    def __init__(self, base_url: str, token: str, team_id: str, login_id: str = None, password: str = None, debug: bool = False):
+    def __init__(
+        self, base_url: str, token: str, team_id: str, login_id: str = None, password: str = None, debug: bool = False
+    ):
         """
         Initializes the MattermostClient.
         :param base_url: The base URL of the Mattermost instance (e.g., http://localhost:8065).
@@ -617,7 +619,6 @@ class MattermostClient:
             logging.error(f"Error decoding JSON from user deactivation response for {user_id}: {e}")
             return False
 
-
     def _login(self) -> None:
         """
         Logs in as a user to get an auth token and CSRF token for board operations.
@@ -634,7 +635,9 @@ class MattermostClient:
             if self.user_auth_token and self.csrf_token:
                 logging.info("MattermostClient: Successfully logged in and got CSRF and Auth tokens.")
             else:
-                logging.error("MattermostClient: Login successful, but failed to get MMAUTHTOKEN or MMCSRF from cookies.")
+                logging.error(
+                    "MattermostClient: Login successful, but failed to get MMAUTHTOKEN or MMCSRF from cookies."
+                )
         except requests.exceptions.RequestException as e:
             logging.error(f"MattermostClient: Error during login to get CSRF token: {e}")
 
@@ -688,7 +691,9 @@ class MattermostClient:
 
         api_url = f"{self.base_url}/plugins/focalboard/api/v2/boards/{board_id}"
         payload = {"title": new_title, "channelId": channel_id}
-        logging.info(f"MattermostClient: Renaming board {board_id} to '{new_title}' and linking to channel {channel_id}")
+        logging.info(
+            f"MattermostClient: Renaming board {board_id} to '{new_title}' and linking to channel {channel_id}"
+        )
         try:
             # Using PATCH to update the board title
             response = requests.patch(api_url, headers=headers, json=payload)
@@ -749,7 +754,9 @@ class MattermostClient:
             logging.error(f"Error adding user {user_id} to board {board_id}: {e}", exc_info=True)
             return False
 
-    def create_board_from_template(self, template_board_id: str, new_board_name: str, user_id: str, channel_id: str) -> dict | None:
+    def create_board_from_template(
+        self, template_board_id: str, new_board_name: str, user_id: str, channel_id: str
+    ) -> dict | None:
         """
         Creates a new board by duplicating a template, renaming it, linking it to a channel, and adding a user.
         :param template_board_id: The ID of the board to duplicate.
@@ -758,16 +765,22 @@ class MattermostClient:
         :param channel_id: The ID of the channel to link to the board.
         :return: The final board data if successful, None otherwise.
         """
-        logging.info(f"Starting board creation from template {template_board_id} with name '{new_board_name}' for user {user_id} and channel {channel_id}")
+        logging.info(
+            f"Starting board creation from template {template_board_id} with name '{new_board_name}' for user {user_id} and channel {channel_id}"
+        )
         if not self.user_auth_token or not self.csrf_token:
-            logging.error("Cannot create board from template: Missing user auth or CSRF token. Please check credentials.")
+            logging.error(
+                "Cannot create board from template: Missing user auth or CSRF token. Please check credentials."
+            )
             return None
 
         # Step 1: Duplicate the board
         logging.info("Attempting to duplicate board...")
         duplicated_board = self.duplicate_board(template_board_id)
         if not duplicated_board or not duplicated_board.get("id"):
-            logging.error(f"Failed to duplicate board from template. Response from duplicate_board: {duplicated_board}")
+            logging.error(
+                f"Failed to duplicate board from template. Response from duplicate_board: {duplicated_board}"
+            )
             return None
 
         new_board_id = duplicated_board["id"]
@@ -776,7 +789,9 @@ class MattermostClient:
         # Step 2: Rename the new board and link to channel
         logging.info("Attempting to rename board and link to channel...")
         if not self.rename_board(new_board_id, new_board_name, channel_id):
-            logging.error(f"Failed to rename and link the new board (ID: {new_board_id}) to '{new_board_name}' and channel {channel_id}.")
+            logging.error(
+                f"Failed to rename and link the new board (ID: {new_board_id}) to '{new_board_name}' and channel {channel_id}."
+            )
             return None
         logging.info("Rename successful.")
 
