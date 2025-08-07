@@ -71,12 +71,11 @@ class SendEmailCommand(BaseCommand):
             )
             return
 
-        current_channel_info = await asyncio.to_thread(
-            self.bot.mattermost_api_client.get_channel_by_id, channel_id
-        )
+        current_channel_info = await asyncio.to_thread(self.bot.mattermost_api_client.get_channel_by_id, channel_id)
         from libraries.group_sync_services import (
             _map_mm_channel_to_entity_and_base_name,
         )
+
         entity_key_found, base_name_found = _map_mm_channel_to_entity_and_base_name(
             current_channel_info.get("name"),
             current_channel_info.get("display_name"),
