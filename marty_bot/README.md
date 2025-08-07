@@ -57,6 +57,60 @@ You should see log output in your console indicating the bot is attempting to co
 
 The bot runs as a standalone Python application.
 
+## Running with Docker
+
+To build and run the bot using Docker, follow these steps.
+
+### 1. Build the Docker Image
+
+From the `marty_bot` directory (where the `Dockerfile` is located), run the following command to build the Docker image:
+
+```bash
+docker build -t marty-bot .
+```
+
+### 2. Run the Docker Container
+
+Once the image is built, you can run it as a container. Make sure you have a `.env` file with your configuration in the `marty_bot` directory.
+
+```bash
+docker run -d --name marty-bot-container --env-file .env marty-bot
+```
+
+*   `-d`: Runs the container in detached mode (in the background).
+*   `--name marty-bot-container`: Assigns a name to the container for easier management.
+*   `--env-file .env`: Passes the environment variables from your `.env` file to the container.
+
+To view the logs of the running container:
+
+```bash
+docker logs -f marty-bot-container
+```
+
+### 3. Using Docker Compose
+
+Alternatively, you can use the provided `docker-compose.yml` file to manage the bot's container. This is the recommended method for running the bot in production.
+
+First, ensure you have a complete `.env` file in the `marty_bot` directory. Then, you can start the bot with:
+
+```bash
+docker-compose up -d
+```
+
+This command will build the image (if it doesn't exist) and start the container in the background.
+
+To view the logs:
+
+```bash
+docker-compose logs -f
+```
+
+To stop the bot:
+
+```bash
+docker-compose down
+```
+
 ## Commands
 
 Marty Bot supports various commands to manage resources across integrated services.
