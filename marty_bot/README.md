@@ -1,168 +1,117 @@
 # Marty Bot
 
-Marty Bot is a helpful assistant for managing Mattermost, Authentik, and Outline.
+Marty Bot est un assistant pour automatiser la gestion des ressources sur plusieurs services : Mattermost, Authentik, Outline, Brevo, NocoDB et Vaultwarden.
 
-## Setup
+## Architecture du projet
 
-### 1. Environment Variables
+Le projet est structuré en plusieurs répertoires clés :
 
-Configuration for Marty Bot is managed via environment variables.
+-   `app/` : Contient la logique principale du bot, y compris la gestion des connexions (websocket) et le traitement des commandes.
+    -   `app/commands/` : Chaque fichier définit une commande spécifique que le bot peut exécuter.
+    -   `app/tests/` : Les tests unitaires du projet.
+-   `clients/` : Contient les clients API pour interagir avec les services externes (Mattermost, Authentik, etc.). Chaque client est responsable de la communication avec un service spécifique.
+-   `config/` : Fichiers de configuration.
+    -   `.env.example` : Modèle pour le fichier `.env` qui contient les secrets et les variables d'environnement.
+    -   `permissions_matrix.yml` : Fichier de configuration central qui définit les ressources à créer pour chaque type d'entité (projet, antenne, pôle).
+-   `libraries/` : Contient la logique métier partagée, comme la création de ressources et la synchronisation des utilisateurs. C'est ici que la logique principale des commandes est implémentée.
+-   `scripts/` : Scripts autonomes pour des tâches de maintenance ou de synchronisation.
 
-1.  Copy the example environment file:
+## Configuration
+
+### 1. Variables d'environnement
+
+La configuration de Marty Bot est gérée via des variables d'environnement.
+
+1.  Copiez le fichier d'exemple :
     ```bash
     cp .env.example .env
     ```
-2.  Edit the `.env` file and provide your specific values for:
-    *   `MATTERMOST_URL`: Your Mattermost instance URL (e.g., `https://your.mattermost.com` or `http://localhost:8065`). This is the base URL for API calls and WebSocket connection.
-    *   `MATTERMOST_TEAM_ID`: The ID of the Mattermost team where new channels created by the bot will be placed.
-    *   `BOT_TOKEN`: The token for your Mattermost bot account. This token is used for connecting to the WebSocket API (to receive messages), for posting messages as the bot, and for performing API actions such as creating channels. **Ensure the bot account has the appropriate permissions in Mattermost for these actions (e.g., channel creation).**
-    *   `BOT_NAME`: The username of your bot in Mattermost, without the leading `@` (e.g., `marty`). The bot listens for messages mentioning this name.
-    *   `AUTHENTIK_URL`: Your Authentik instance URL (e.g., `https://authentik.yourdomain.com`).
-    *   `AUTHENTIK_TOKEN`: Your Authentik API token with permissions to create groups.
-    *   `OUTLINE_URL`: Your Outline instance URL (e.g., `https://app.getoutline.com` or your self-hosted instance URL).
-    *   `OUTLINE_TOKEN`: Your Outline API token with permissions to create collections.
-    *   `NOCODB_URL`: (Optional) Your NoCoDB instance URL (e.g., `https://nocodb.yourdomain.com`). Required if NoCoDB integration is used.
-    *   `NOCODB_TOKEN`: (Optional) Your NoCoDB API Token (from Account Settings -> API Tokens). Required if NoCoDB integration is used.
-    *   `VAULTWARDEN_ORGANIZATION_ID`: The ID of your organization in Vaultwarden.
-    *   `VAULTWARDEN_SERVER_URL`: The URL of your Vaultwarden server (e.g., `https://vaultwarden.yourdomain.com`).
-    *   `BW_PASSWORD`: The master password for the Vaultwarden user associated with the bot. This is used by the `bw` CLI to unlock the vault for operations like listing/creating collections.
-    *   `VAULTWARDEN_API_USERNAME`: The email address of the Vaultwarden user for API authentication (can be the same user as for `BW_PASSWORD`, but authenticates directly to the API).
-    *   `VAULTWARDEN_API_PASSWORD`: The password for the Vaultwarden API user. Used to obtain an API token for inviting users to collections.
-    *   `LOG_LEVEL`: (Optional) Set the logging level for the bot (e.g., `INFO`, `DEBUG`, `WARNING`, `ERROR`). Defaults to `INFO` if not set. Note: `DEBUG` level here is for Python's `logging` module.
-    *   `DEBUG`: (Optional) Set to `true` to enable specific debug features in the bot, such as more verbose logging output distinct from `LOG_LEVEL` (e.g., raw WebSocket messages, detailed API payloads). Defaults to `false`. Example: `DEBUG=true`
+2.  Modifiez le fichier `.env` et fournissez les valeurs pour votre instance. Les variables requises sont listées dans `.env.example`.
 
-**Important**: The `.env` file contains sensitive credentials and is included in `.gitignore` to prevent accidental commits. Keep your `.env` file secure and do not commit it to your repository.
+### 2. Matrice des permissions
 
-The `.env.example` file in the repository shows all required variables with placeholder values.
+Le fichier `config/permissions_matrix.yml` est au cœur de la logique de création de ressources. Il permet de définir de manière déclarative les ressources à créer pour chaque type d'entité (que nous appelons `PROJET`, `ANTENNE`, `POLES`).
 
-### 2. Install Dependencies
+Pour chaque entité, vous pouvez configurer :
+-   Les groupes Authentik (standard et admin).
+-   Les canaux Mattermost (standard et admin), y compris leur type (public/privé).
+-   Les collections Outline.
+-   Les listes de contacts Brevo et le dossier de rangement.
+-   Les bases de données NoCoDB.
+-   Les collections Vaultwarden.
 
-First, ensure you have Python 3.8+ installed. Then, navigate to the project's root directory (where `requirements.txt` is located) and install the required packages:
+Cette approche permet d'adapter le comportement du bot sans modifier le code.
+
+### 3. Dépendances
+
+Assurez-vous d'avoir Python 3.8+ installé. Ensuite, installez les dépendances :
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Running the Bot
+Pour le développement, installez aussi les dépendances de développement :
 
-To run Marty Bot directly:
+```bash
+pip install -r requirements-dev.txt
+```
+
+## Commandes du bot
+
+Pour interagir avec le bot, mentionnez-le dans un canal Mattermost suivi de la commande. Exemple : `@marty help`.
+
+### Création de ressources
+
+Ces commandes s'appuient sur la `permissions_matrix.yml` pour créer un ensemble de ressources cohérentes.
+
+-   **`create_projet <NomProjet1> [NomProjet2 ...]`**
+    Crée les ressources pour un ou plusieurs projets.
+
+-   **`create_antenne <NomAntenne1> [NomAntenne2 ...]`**
+    Crée les ressources pour une ou plusieurs antennes.
+
+-   **`create_pole <NomPole1> [NomPole2 ...]`**
+    Crée les ressources pour un ou plusieurs pôles.
+
+### Synchronisation des droits
+
+-   **`update_all_user_rights`**
+    Synchronise les droits des utilisateurs en se basant sur leur appartenance aux canaux Mattermost. Cette commande **ajoute uniquement** des droits et n'en supprime jamais.
+
+-   **`update_user_rights_and_remove`**
+    Effectue une synchronisation complète : ajoute, met à jour et **supprime** les droits pour que les accès aux services externes correspondent exactement aux membres des canaux Mattermost.
+    -   **Option** : `nocodb=false` pour ignorer la synchronisation avec NoCoDB.
+
+### Autres commandes
+
+-   **`send_email <Sujet> /// <Message>`**
+    Envoie un email via Brevo à la liste de contacts associée à l'entité du canal. La commande doit être exécutée depuis un canal "admin".
+
+-   **`help`**
+    Affiche la liste des commandes disponibles.
+
+## Lancer le bot
+
+Pour démarrer le bot :
 
 ```bash
 python -m app.bot
 ```
 
-This command executes the `if __name__ == "__main__":` block in `app/bot.py`, which initializes and starts the bot.
+## Développement
 
-You should see log output in your console indicating the bot is attempting to connect to your Mattermost instance via WebSocket. If `DEBUG=true` is set in your `.env` file, you will see more verbose logging.
+### Tests
 
-The bot runs as a standalone Python application.
-
-## Commands
-
-Marty Bot supports various commands to manage resources across integrated services.
-
-### Resource Creation Commands
-
-These commands create associated resources (groups, channels, collections, etc.) in Authentik, Outline, Mattermost, Brevo, and NoCoDB (where applicable based on entity type and configuration).
-
-*   **`create_projet <NomProjet1> [NomProjet2 ...]`**
-    *   Creates resources for one or more projects.
-    *   For each project, it typically creates:
-        *   Authentik groups (standard and admin).
-        *   Mattermost channels (standard and admin).
-        *   An Outline collection.
-        *   A Brevo contact list.
-        *   *NoCoDB bases are NOT created for projects.*
-    *   Example: `@marty create_projet MonSuperProjet AutreProjetCool`
-
-*   **`create_antenne <NomAntenne1> [NomAntenne2 ...]`**
-    *   Creates resources for one or more "antennes" (branches/local groups).
-    *   Similar resources as `create_projet`, but also:
-        *   Creates a NoCoDB base for each antenne.
-    *   Example: `@marty create_antenne AntenneParis AntenneLyon`
-
-*   **`create_pole <NomPole1> [NomPole2 ...]`**
-    *   Creates resources for one or more "pôles" (departments/teams).
-    *   Similar resources as `create_projet`, but also:
-        *   Creates a NoCoDB base for each pôle.
-    *   Example: `@marty create_pole PoleTechnique PoleCommunication`
-
-The bot will send a confirmation message back to the channel detailing the actions taken for each created entity. The user issuing the command will typically be added to the created Mattermost channels.
-
-### User Rights Synchronization Commands
-
-These commands manage user access rights across the integrated services based on their membership in Mattermost channels.
-
-*   **`update_all_user_rights`**
-    *   Ensures users in Mattermost channels have corresponding access in Authentik, Outline, Brevo lists, and NoCoDB bases (for Antennes/Pôles).
-    *   This command **only adds or updates** permissions. It never removes access.
-    *   Useful for quickly granting rights after adding users to Mattermost channels.
-
-*   **`update_user_rights_and_remove`**
-    *   Performs a full synchronization. It ensures that access in Authentik, Outline, Brevo, and NoCoDB exactly mirrors Mattermost channel memberships.
-    *   This means it will **add, update, AND remove** access rights if users are no longer in the relevant Mattermost channels or if their roles (admin vs. standard channel) change.
-    *   This is the command for a complete consistency check but may take longer.
-    *   **Option :** `nocodb=false`
-        *   Ajoutez `nocodb=false` comme argument pour que cette commande ignore complètement la synchronisation des bases de données NoCoDB.
-        *   Exemple : `@marty update_user_rights_and_remove nocodb=false`
-
-### Email Command
-
-*   **`send_email <Sujet> /// <Message>`**
-    *   Sends an email via Brevo to the contact list associated with the "standard" channel of the current entity (projet, antenne, or pôle).
-    *   Must be run from the "admin" Mattermost channel of the entity.
-    *   The subject and the email body (which can be Markdown) are separated by `///`.
-    *   Example: `@marty send_email Annonce Importante /// Bonjour à tous, voici une nouvelle importante...`
-
-### Help Command
-
-*   **`help`**
-    *   Displays a help message listing all available commands and their descriptions.
-    *   Example: `@marty help`
-
-## Running Tests
-
-To run the unit tests, navigate to the root directory of the project (`marty_bot/`) and run the following command:
+Pour lancer les tests unitaires :
 
 ```bash
 python -m unittest discover -s app/tests
 ```
 
-Ensure that your environment is set up correctly, as some tests might interact with configuration loading (though API calls themselves are mocked). For example, having a `.env` file with placeholder values for all expected variables can prevent import errors in `app.config` if it's loaded when test files are discovered or imported. The tests for client modules specifically mock out the `config` values they use at runtime to ensure isolation.
+### Pre-commit hooks
 
-## Developer Setup: Code Quality & Pre-commit Hooks
+Ce projet utilise des `pre-commit hooks` pour garantir la qualité et la cohérence du code. Pour les installer :
 
-This project uses pre-commit hooks to enforce code style and quality (linting and formatting) automatically before each commit. This helps maintain a consistent codebase.
-
-### Initial Setup
-
-1.  **Install development dependencies:**
-    If you haven't already, install the dependencies listed in `requirements-dev.txt` (which includes `pre-commit`, `black`, and `flake8`). This file is located in the project root (`marty_bot/`).
-    ```bash
-    pip install -r requirements-dev.txt
-    ```
-    It's recommended to do this in your project's virtual environment.
-
-2.  **Install Git hooks:**
-    From the root directory of the project (`marty_bot/`), run:
-    ```bash
-    pre-commit install
-    ```
-    This command sets up the pre-commit script to run automatically when you `git commit`.
-
-### How it Works
-
-Once installed, `pre-commit` will run the configured hooks (like Black for formatting and Flake8 for linting) on any changed files before your commit is finalized.
-
-*   If any hooks modify your files (e.g., Black reformats your code), the commit will be aborted. You'll need to `git add` the modified files and try committing again.
-*   If any hooks report errors (e.g., Flake8 finds linting issues), the commit will be aborted. You'll need to fix the reported issues, `git add` your changes, and try committing again.
-
-### Running Hooks Manually
-
-You can also run the pre-commit hooks manually on all files at any time:
 ```bash
-pre-commit run --all-files
+pre-commit install
 ```
-This is useful for checking the entire codebase or after making larger changes.
-
-Our Flake8 configuration is managed in the `.flake8` file (located in `marty_bot/`), and Black's configuration is in `.pre-commit-config.yaml`.
