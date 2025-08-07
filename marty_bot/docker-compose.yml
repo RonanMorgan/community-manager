@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  marty-bot:
+    build: .
+    container_name: marty-bot
+    env_file:
+      - .env
+    restart: unless-stopped
