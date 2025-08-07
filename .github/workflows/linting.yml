@@ -22,4 +22,5 @@ jobs:
 
       - name: Run pre-commit hooks
         run: |
+          cd marty_bot
           pre-commit run --all-files

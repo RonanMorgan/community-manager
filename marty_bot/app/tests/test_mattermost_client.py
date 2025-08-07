@@ -882,15 +882,21 @@ class TestMattermostClientFocalboard(unittest.TestCase):
     @patch("requests.post")
     def test_create_board_from_template_success(self, mock_post, mock_patch, mock_get):
         # Mock duplicate board call
-        mock_post.return_value = mock_mattermost_response(201, json_data={"boards": [{"id": "new_board_id", "title": "Copy of template"}]})
+        mock_post.return_value = mock_mattermost_response(
+            201, json_data={"boards": [{"id": "new_board_id", "title": "Copy of template"}]}
+        )
 
         # Mock rename board call
         mock_patch.return_value = mock_mattermost_response(200)
 
         # Mock get board call
-        mock_get.return_value = mock_mattermost_response(200, json_data={"id": "new_board_id", "title": self.mock_new_board_name})
+        mock_get.return_value = mock_mattermost_response(
+            200, json_data={"id": "new_board_id", "title": self.mock_new_board_name}
+        )
 
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
+        result = self.client.create_board_from_template(
+            self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id"
+        )
 
         self.assertIsNotNone(result)
         self.assertEqual(result["id"], "new_board_id")
@@ -905,25 +911,33 @@ class TestMattermostClientFocalboard(unittest.TestCase):
     def test_create_board_from_template_duplicate_fails(self, mock_post):
         mock_post.side_effect = requests.exceptions.RequestException("API Error")
 
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
+        result = self.client.create_board_from_template(
+            self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id"
+        )
         self.assertIsNone(result)
 
     @patch("requests.patch")
     @patch("requests.post")
     def test_create_board_from_template_rename_fails(self, mock_post, mock_patch):
         # Mock duplicate board call
-        mock_post.return_value = mock_mattermost_response(201, json_data={"boards": [{"id": "new_board_id", "title": "Copy of template"}]})
+        mock_post.return_value = mock_mattermost_response(
+            201, json_data={"boards": [{"id": "new_board_id", "title": "Copy of template"}]}
+        )
 
         # Mock rename board call to fail
         mock_patch.side_effect = requests.exceptions.RequestException("API Error")
 
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
+        result = self.client.create_board_from_template(
+            self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id"
+        )
         self.assertIsNone(result)
 
     def test_create_board_from_template_no_tokens(self):
         self.client.user_auth_token = None
         self.client.csrf_token = None
-        result = self.client.create_board_from_template(self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id")
+        result = self.client.create_board_from_template(
+            self.mock_template_id, self.mock_new_board_name, "user_id", "channel_id"
+        )
         self.assertIsNone(result)
 
     @patch("requests.post")

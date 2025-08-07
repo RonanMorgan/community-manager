@@ -1,7 +1,6 @@
 import logging
 import os
 
-from clients.authentik_client import AuthentikClient
 from clients.brevo_client import BrevoClient
 from dotenv import load_dotenv
 

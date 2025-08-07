@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
         if authentik_users is not None:
             sync_authentik_users_to_brevo_list(authentik_users)
-            remove_inactive_users(['outline', 'nocodb', 'mattermost', 'vaultwarden'], authentik_users)
+            remove_inactive_users(["outline", "nocodb", "mattermost", "vaultwarden"], authentik_users)
         else:
             logging.error("Could not fetch Authentik users. Skipping sync.")
 

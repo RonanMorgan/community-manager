@@ -1,7 +1,6 @@
 import asyncio
 import logging
-from functools import wraps
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.bot import MartyBot
@@ -19,15 +18,11 @@ class UserRightManager:
         return "system_admin" in user_roles
 
     async def is_channel_admin(self, user_id: str, channel_id: str) -> bool:
-        current_channel_info = await asyncio.to_thread(
-            self.bot.mattermost_api_client.get_channel_by_id, channel_id
-        )
+        current_channel_info = await asyncio.to_thread(self.bot.mattermost_api_client.get_channel_by_id, channel_id)
         if not current_channel_info:
             return False
 
-        channel_members = await asyncio.to_thread(
-            self.bot.mattermost_api_client.get_users_in_channel, channel_id
-        )
+        channel_members = await asyncio.to_thread(self.bot.mattermost_api_client.get_users_in_channel, channel_id)
         if not any(member.get("id") == user_id for member in channel_members):
             return False
 
