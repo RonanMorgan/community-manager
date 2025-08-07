@@ -29,6 +29,7 @@ else:
 
 from app.commands.command_factory import CommandFactory
 from app.result_manager import ResultManager
+from app.user_right_manager import UserRightManager
 
 # Import client classes
 from clients.client_factory import create_clients
@@ -76,6 +77,7 @@ class MartyBot:
 
         self.command_factory = CommandFactory(self)
         self.result_manager = ResultManager(self)
+        self.user_right_manager = UserRightManager(self)
 
     def _request_shutdown(self):
         logging.info("Shutdown requested. Setting shutdown event.")
