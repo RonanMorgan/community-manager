@@ -1125,8 +1125,10 @@ class TestSendEmailCommand(TestMartyBot):
 
         asyncio.run(actual_test_logic())
 
-    def test_handle_send_email_bad_syntax(self):
+    @patch("app.commands.send_email.SendEmailCommand.check_user_right", new_callable=unittest.mock.AsyncMock)
+    def test_handle_send_email_bad_syntax(self, mock_check_user_right):
         async def actual_test_logic():
+            mock_check_user_right.return_value = True
             command_name = "send_email"
             channel_id = "admin_channel_syntax"
             self.bot.mattermost_api_client.get_channel_by_id.return_value = {

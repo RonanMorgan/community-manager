@@ -11,7 +11,7 @@ class HelpCommand(BaseCommand):
     def command_name(self):
         return "help"
 
-    async def execute(self, channel_id, arg_string, user_id_who_posted):
+    async def _execute(self, channel_id, arg_string, user_id_who_posted):
         help_lines = ["### Commandes disponibles pour MartyBot", "---"]
         if not self.bot.command_factory.commands:
             help_lines.append("Aucune commande n'est actuellement disponible.")

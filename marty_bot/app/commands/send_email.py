@@ -11,7 +11,17 @@ class SendEmailCommand(BaseCommand):
     def command_name(self):
         return "send_email"
 
-    async def execute(self, channel_id, arg_string, user_id_who_posted):
+    async def check_user_right(self, user_id: str, channel_id: str) -> bool:
+        if not await self.user_right_manager.is_channel_admin(user_id, channel_id):
+            await asyncio.to_thread(
+                self.bot.envoyer_message,
+                channel_id,
+                ":x: Erreur: Cette commande doit être lancée depuis un canal admin d'une entité configurée (projet, pôle, antenne).",
+            )
+            return False
+        return True
+
+    async def _execute(self, channel_id, arg_string, user_id_who_posted):
         """
         Envoie un email via Brevo aux membres du canal standard associé.
         Usage: @marty send_email <Sujet de l'email> /// <Contenu de l'email>
@@ -61,86 +71,16 @@ class SendEmailCommand(BaseCommand):
             )
             return
 
-        # 1. Vérifier que la commande est lancée depuis un canal admin et identifier l'entité
         current_channel_info = await asyncio.to_thread(
             self.bot.mattermost_api_client.get_channel_by_id, channel_id
-        )  # Corrected method call
-        if not current_channel_info:
-            await asyncio.to_thread(
-                self.bot.envoyer_message,
-                channel_id,
-                ":x: Erreur: Impossible de récupérer les informations du canal actuel.",
-            )
-            return
-
-        # Check if user is a member of the current (admin) channel
-        channel_members = await asyncio.to_thread(
-            self.bot.mattermost_api_client.get_users_in_channel, channel_id
-        )  # Corrected method
-        if not any(
-            member.get("id") == user_id_who_posted for member in channel_members
-        ):  # Changed "user_id" to "id" and added .get()
-            logging.warning(
-                f"User {user_id_who_posted} tried to use send_email from channel {channel_id} but is not a member."
-            )
-            await asyncio.to_thread(
-                self.bot.envoyer_message,
-                channel_id,
-                ":x: Erreur: Vous devez être membre de ce canal admin pour utiliser cette commande.",
-            )
-            return
-
-        entity_key_found = None
-        base_name_found = None
-        admin_channel_name_slug = current_channel_info.get("name")
-
-        from libraries.group_sync_services import (  # For slugify if needed by map
-            _map_mm_channel_to_entity_and_base_name,
-            slugify,
         )
-
-        # We need to iterate through PERMISSIONS_MATRIX to find which entity this admin channel belongs to
-        # This is a bit reversed from the usual mapping.
-        for e_key, e_conf in self.bot.config.PERMISSIONS_MATRIX.items():
-            admin_cfg = e_conf.get("admin")
-            if admin_cfg:
-                admin_pattern = admin_cfg.get("mattermost_channel_name_pattern")
-                if admin_pattern:
-                    # We need to check if current_channel_info['name'] (slug) or ['display_name'] matches a *potential* admin channel
-                    # This requires trying to extract a base_name and re-formatting, or having a direct match.
-                    # For simplicity, we'll assume the channel name is relatively standard.
-                    # A robust way is to use the _map_mm_channel_to_entity_and_base_name
-                    # but that function itself might need adjustment if it only maps from base_name to channel, not channel to base_name.
-                    # Let's try to extract base_name from current admin channel assuming it ends with " Admin" or similar.
-                    # This part is tricky and might need refinement based on exact naming conventions.
-
-                    # Attempt with display_name:
-                    temp_entity_key, temp_base_name = _map_mm_channel_to_entity_and_base_name(
-                        admin_channel_name_slug,
-                        current_channel_info.get("display_name"),
-                        {e_key: e_conf},  # Pass only current entity for specific matching
-                    )
-                    if temp_entity_key == e_key and temp_base_name:
-                        # Verify if this is indeed an admin channel for THIS entity_key
-                        expected_admin_channel_slug = slugify(admin_pattern.format(base_name=temp_base_name))
-                        if admin_channel_name_slug == expected_admin_channel_slug:
-                            entity_key_found = e_key
-                            base_name_found = temp_base_name
-                            break
-
-        if not entity_key_found or not base_name_found:
-            logging.warning(
-                f"Channel {channel_id} ('{current_channel_info.get('display_name')}') is not recognized as a configured admin channel for any entity."
-            )
-            await asyncio.to_thread(
-                self.bot.envoyer_message,
-                channel_id,
-                ":x: Erreur: Cette commande doit être lancée depuis un canal admin d'une entité configurée (projet, pôle, antenne).",
-            )
-            return
-
-        logging.info(
-            f"Command 'send_email' validated for entity '{base_name_found}' (type: {entity_key_found}) from admin channel '{current_channel_info.get('display_name')}'."
+        from libraries.group_sync_services import (
+            _map_mm_channel_to_entity_and_base_name,
+        )
+        entity_key_found, base_name_found = _map_mm_channel_to_entity_and_base_name(
+            current_channel_info.get("name"),
+            current_channel_info.get("display_name"),
+            self.bot.config.PERMISSIONS_MATRIX,
         )
 
         # 2. Récupérer la liste Brevo du canal standard

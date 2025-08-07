@@ -10,32 +10,21 @@ class UpdateAllUserRightsCommand(BaseCommand):
     def command_name(self):
         return "update_all_user_rights"
 
-    async def execute(self, channel_id, arg_string, user_id_who_posted):
-        """S'assure que les utilisateurs Mattermost ont les bons droits (ajouts/mises à jour uniquement). Nécessite les droits admin."""
-        logging.info(
-            f"'{self.bot.bot_name_mention} update_all_user_rights' (upsert) command received in channel {channel_id} by user {user_id_who_posted}."
-        )
-
-        if not self.bot.mattermost_api_client or not user_id_who_posted:
-            logging.error("Mattermost API client or user_id_who_posted not available for permission check.")
-            await asyncio.to_thread(
-                self.bot.envoyer_message,
-                channel_id,
-                ":x: Erreur interne : Impossible de vérifier les permissions.",
-            )
-            return
-
-        user_roles = await asyncio.to_thread(self.bot.mattermost_api_client.get_user_roles, user_id_who_posted)
-        if "system_admin" not in user_roles:
-            logging.warning(
-                f"User {user_id_who_posted} (roles: {user_roles}) attempted to use 'update_all_user_rights' without admin rights."
-            )
+    async def check_user_right(self, user_id: str, channel_id: str) -> bool:
+        if not await self.user_right_manager.is_admin(user_id):
             await asyncio.to_thread(
                 self.bot.envoyer_message,
                 channel_id,
                 ":no_entry_sign: Accès refusé. Cette commande nécessite les droits d'administrateur Mattermost.",
             )
-            return
+            return False
+        return True
+
+    async def _execute(self, channel_id, arg_string, user_id_who_posted):
+        """S'assure que les utilisateurs Mattermost ont les bons droits (ajouts/mises à jour uniquement). Nécessite les droits admin."""
+        logging.info(
+            f"'{self.bot.bot_name_mention} update_all_user_rights' (upsert) command received in channel {channel_id} by user {user_id_who_posted}."
+        )
 
         initial_message_text = ":hourglass_flowing_sand: Démarrage de la mise à jour des droits utilisateurs (ajouts/modifications uniquement)... Ceci peut prendre un moment."
         initial_post_id = await asyncio.to_thread(self.bot.envoyer_message, channel_id, initial_message_text)

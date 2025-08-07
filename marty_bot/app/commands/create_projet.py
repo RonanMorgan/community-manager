@@ -8,7 +8,7 @@ class CreateProjetCommand(BaseCommand):
     def command_name(self):
         return "create_projet"
 
-    async def execute(self, channel_id, arg_string, user_id_who_posted):
+    async def _execute(self, channel_id, arg_string, user_id_who_posted):
         clients = {
             "authentik": self.bot.authentik_client,
             "outline": self.bot.outline_client,
