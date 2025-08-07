@@ -169,25 +169,26 @@ class TestGroupSyncServices(unittest.TestCase):
         }
         self.assertEqual(
             _map_mm_channel_to_entity_and_base_name("projet-alpha", "Projet Alpha", matrix),
-            ("PROJET", "Alpha"),
+            ("PROJET", "Alpha", "standard"),
         )
         self.assertEqual(
             _map_mm_channel_to_entity_and_base_name("projet-alpha-admin", "Projet Alpha Admin", matrix),
-            ("PROJET", "Alpha"),
+            ("PROJET", "Alpha", "admin"),
         )
         self.assertEqual(
             _map_mm_channel_to_entity_and_base_name("antenne-maregion-standard", "Antenne MaRegion Standard", matrix),
-            ("ANTENNE", "MaRegion"),
+            ("ANTENNE", "MaRegion", "standard"),
         )
-        self.assertIsNone(
-            _map_mm_channel_to_entity_and_base_name("unknown-channel", "Unknown Channel Format", matrix)[0]
+        self.assertEqual(
+            _map_mm_channel_to_entity_and_base_name("unknown-channel", "Unknown Channel Format", matrix),
+            (None, None, None),
         )
         matrix_slug_friendly = {"PROJET": {"standard": {"mattermost_channel_name_pattern": "projet-{base_name}"}}}
         self.assertEqual(
             _map_mm_channel_to_entity_and_base_name(
                 "projet-my-cool-project", "DIFFERENT DISPLAY NAME", matrix_slug_friendly
             ),
-            ("PROJET", "my-cool-project"),
+            ("PROJET", "my-cool-project", "standard"),
         )
 
     @patch("dotenv.main.find_dotenv", return_value=None)

@@ -10,32 +10,15 @@ class UpdateUserRightsAndRemoveCommand(BaseCommand):
     def command_name(self):
         return "update_user_rights_and_remove"
 
+    @property
+    def permission_level(self):
+        return "admin"
+
     async def execute(self, channel_id, arg_string, user_id_who_posted):
         """Synchronise les droits (ajouts/mises à jour) ET supprime les accès obsolètes. Nécessite les droits admin."""
         logging.info(
             f"'{self.bot.bot_name_mention} update_user_rights_and_remove' command received in channel {channel_id} by user {user_id_who_posted} with args: '{arg_string}'."
         )
-
-        if not self.bot.mattermost_api_client or not user_id_who_posted:
-            logging.error("Mattermost API client or user_id_who_posted not available for permission check.")
-            await asyncio.to_thread(
-                self.bot.envoyer_message,
-                channel_id,
-                ":x: Erreur interne : Impossible de vérifier les permissions.",
-            )
-            return
-
-        user_roles = await asyncio.to_thread(self.bot.mattermost_api_client.get_user_roles, user_id_who_posted)
-        if "system_admin" not in user_roles:
-            logging.warning(
-                f"User {user_id_who_posted} (roles: {user_roles}) attempted to use 'update_user_rights_and_remove' without admin rights."
-            )
-            await asyncio.to_thread(
-                self.bot.envoyer_message,
-                channel_id,
-                ":no_entry_sign: Accès refusé. Cette commande nécessite les droits d'administrateur Mattermost.",
-            )
-            return
 
         skip_services_list = []
         if arg_string and arg_string.lower() == "nocodb=false":

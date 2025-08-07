@@ -59,48 +59,47 @@ def _extract_base_name(actual_name: str, pattern_with_placeholder: str) -> Optio
 
 def _map_mm_channel_to_entity_and_base_name(
     mm_channel_slug: str, mm_channel_display_name: str, permissions_matrix: dict
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Attempts to map a Mattermost channel (slug or display name) to an entity key and base_name.
+    Attempts to map a Mattermost channel (slug or display name) to an entity key, base_name, and channel type ('admin' or 'standard').
     """
-    # Try matching with channel display name first, as it's often more descriptive
+    # Prioritize admin channels in the first pass to avoid ambiguity where an admin name might contain a standard name
     for entity_key, entity_cfg in permissions_matrix.items():
         if entity_cfg.get("admin"):
             mm_adm_pattern = entity_cfg.get("admin", {}).get("mattermost_channel_name_pattern")
             if mm_adm_pattern:
                 base_name = _extract_base_name(mm_channel_display_name, mm_adm_pattern)
                 if base_name is not None:
-                    return entity_key, base_name
+                    return entity_key, base_name, "admin"
+
+    # Second pass for standard channels
+    for entity_key, entity_cfg in permissions_matrix.items():
         std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
         if std_pattern:
             base_name = _extract_base_name(mm_channel_display_name, std_pattern)
             if base_name is not None:
-                return entity_key, base_name
+                return entity_key, base_name, "standard"
 
-    # Fallback to matching with channel slug if display name didn't yield a match
-    # (Patterns are usually based on display name conventions, but slug might work for simple cases)
+    # Fallback to slug-based matching if display name matching fails
+    # This is less reliable and should be considered a best-effort for oddly named channels.
+    # Admin pass
     for entity_key, entity_cfg in permissions_matrix.items():
         if entity_cfg.get("admin"):
             mm_adm_pattern = entity_cfg.get("admin", {}).get("mattermost_channel_name_pattern")
-            # Slugifying the pattern to compare with slug might be needed if patterns are complex
-            # For simple "{base_name}" or "prefix_{base_name}" it might work directly if base_name is slug-compatible
-            if (
-                mm_adm_pattern
-                and slugify(mm_adm_pattern.format(base_name="test-slug"))
-                == mm_adm_pattern.format(base_name="test-slug").lower()
-            ):  # Simple pattern check
-                base_name = _extract_base_name(
-                    mm_channel_slug, mm_adm_pattern.lower()
-                )  # Compare with lowercased pattern
+            if mm_adm_pattern:
+                # To compare slug with a pattern, we must slugify the pattern as well
+                # This is an approximation and works best for simple prefix/suffix patterns
+                slugified_pattern = slugify(mm_adm_pattern.format(base_name="placeholder"))
+                base_name = _extract_base_name(mm_channel_slug, slugified_pattern.replace("placeholder", "{base_name}"))
                 if base_name is not None:
-                    return entity_key, base_name
+                    return entity_key, base_name, "admin"
+    # Standard pass
+    for entity_key, entity_cfg in permissions_matrix.items():
         std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
-        if (
-            std_pattern
-            and slugify(std_pattern.format(base_name="test-slug")) == std_pattern.format(base_name="test-slug").lower()
-        ):
-            base_name = _extract_base_name(mm_channel_slug, std_pattern.lower())
+        if std_pattern:
+            slugified_pattern = slugify(std_pattern.format(base_name="placeholder"))
+            base_name = _extract_base_name(mm_channel_slug, slugified_pattern.replace("placeholder", "{base_name}"))
             if base_name is not None:
-                return entity_key, base_name
+                return entity_key, base_name, "standard"
 
-    return None, None
+    return None, None, None

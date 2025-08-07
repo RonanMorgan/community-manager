@@ -103,7 +103,7 @@ async def orchestrate_group_synchronization(
         for channel in mm_channels:
             channel_name = channel.get("name")
             channel_display_name = channel.get("display_name")
-            found_entity_key_mm, current_base_name_mm = _map_mm_channel_to_entity_and_base_name(
+            found_entity_key_mm, current_base_name_mm, _ = _map_mm_channel_to_entity_and_base_name(
                 channel_name, channel_display_name, config.PERMISSIONS_MATRIX
             )
             if found_entity_key_mm and current_base_name_mm:
@@ -228,7 +228,7 @@ async def differential_sync(
     for channel in all_mm_channels:
         channel_id = channel.get("id")
         # Check if channel is relevant to any service based on permissions matrix
-        entity_key, base_name = _map_mm_channel_to_entity_and_base_name(
+        entity_key, base_name, _ = _map_mm_channel_to_entity_and_base_name(
             channel.get("name"), channel.get("display_name"), config.PERMISSIONS_MATRIX
         )
         if entity_key and base_name:

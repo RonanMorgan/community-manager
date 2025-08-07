@@ -170,7 +170,8 @@ class MartyBot:
         if command_verb:
             command = self.command_factory.get_command(command_verb)
             if command:
-                await command.execute(channel_id, arg_string, user_id_who_posted)
+                if await command.check_user_right(user_id_who_posted, channel_id):
+                    await command.execute(channel_id, arg_string, user_id_who_posted)
             else:
                 message = f":question: Commande inconnue : **`{command_verb}`**. Essayez `{self.bot_name_mention} help` pour une liste des commandes disponibles."
                 await asyncio.to_thread(self.envoyer_message, channel_id, message)
