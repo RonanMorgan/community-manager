@@ -13,7 +13,7 @@ try:
     from clients.authentik_client import AuthentikClient
     from dotenv import load_dotenv
     from libraries.brevo_user_sync import sync_authentik_users_to_brevo_list
-    from libraries.user_management import remove_inactive_users
+#    from libraries.user_management import remove_inactive_users
 except ImportError as e:
     logging.basicConfig(level=logging.ERROR)
     logging.error(
@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
         if authentik_users is not None:
             sync_authentik_users_to_brevo_list(authentik_users)
-            remove_inactive_users(["outline", "nocodb", "mattermost", "vaultwarden"], authentik_users)
+            # remove_inactive_users(["outline", "nocodb", "mattermost", "vaultwarden"], authentik_users)
         else:
             logging.error("Could not fetch Authentik users. Skipping sync.")
 
