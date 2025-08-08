@@ -214,7 +214,6 @@ class AuthentikService(SyncService):
         base_name,
         entity_config,
         all_authentik_groups_by_name,
-        email_to_authentik_user_pk_map,
         std_mm_users_in_channel,
         adm_mm_users_in_channel,
         mm_users_for_services,
@@ -227,14 +226,21 @@ class AuthentikService(SyncService):
         admin_mm_users = adm_mm_users_in_channel
         log_channel_name = std_mm_channel_name_for_log
         results = []
+
+        if authentik_client:
+            logging.info("Fetching all Authentik users to build email-to-PK map...")
+            email_to_authentik_user_pk_map = authentik_client.get_all_users_pk_by_email()
+            if not email_to_authentik_user_pk_map:
+                logging.warning("The email-to-PK map from Authentik is empty. User validation might fail.")
+        else:
+            logging.warning("Authentik client not available. Cannot fetch user PK map.")
+
         std_auth_group_name = (
             config["standard"].get("authentik_group_name_pattern", "{base_name}").format(base_name=base_name)
         )
         std_auth_group_obj = all_authentik_groups_by_name.get(std_auth_group_name)
         if not std_auth_group_obj:
-            std_auth_group_obj = authentik_client.get_group_by_name(
-                std_auth_group_name
-            ) or authentik_client.create_group(std_auth_group_name)
+            authentik_client.create_group(std_auth_group_name)
         if std_auth_group_obj:
             results.extend(
                 self._sync_single_authentik_group(
@@ -252,9 +258,7 @@ class AuthentikService(SyncService):
             )
             adm_auth_group_obj = all_authentik_groups_by_name.get(adm_auth_group_name)
             if not adm_auth_group_obj:
-                adm_auth_group_obj = authentik_client.get_group_by_name(
-                    adm_auth_group_name
-                ) or authentik_client.create_group(adm_auth_group_name)
+                authentik_client.create_group(adm_auth_group_name)
             if adm_auth_group_obj:
                 results.extend(
                     self._sync_single_authentik_group(

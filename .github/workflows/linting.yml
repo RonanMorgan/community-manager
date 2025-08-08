@@ -18,9 +18,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r marty_bot/requirements-dev.txt
+          pip install -r /requirements-dev.txt
 
       - name: Run pre-commit hooks
         run: |
-          cd marty_bot
+          cd
           pre-commit run --all-files

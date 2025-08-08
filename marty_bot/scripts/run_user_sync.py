@@ -5,8 +5,8 @@ import sys
 # Ajoute le répertoire racine du projet au PYTHONPATH pour permettre les imports relatifs.
 # Utile si le script est exécuté par cron où PYTHONPATH n'est pas toujours configuré.
 current_script_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_script_dir)  # marty_bot/
-# Les imports comme `from libraries...` nécessitent que `marty_bot/` soit dans sys.path.
+project_root = os.path.dirname(current_script_dir)  #
+# Les imports comme `from libraries...` nécessitent que `` soit dans sys.path.
 sys.path.insert(0, project_root)
 
 try:
@@ -24,7 +24,7 @@ except ImportError as e:
 
 
 if __name__ == "__main__":
-    # Charger .env depuis la racine du projet (marty_bot/.env)
+    # Charger .env depuis la racine du projet (.env)
     dotenv_path = os.path.join(project_root, ".env")
 
     # Configuration temporaire du logger pour les messages initiaux

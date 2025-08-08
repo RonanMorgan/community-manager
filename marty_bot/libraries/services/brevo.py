@@ -84,6 +84,7 @@ class BrevoService(SyncService):
         brevo_list_name: str,
         mm_users_in_channel: list[dict],
         mm_channel_display_name_for_log: str,
+        folder_name: Optional[str] = None,
     ) -> list[dict]:
         results = []
         logging.info(
@@ -97,7 +98,16 @@ class BrevoService(SyncService):
         brevo_lists = brevo_client.get_lists(name=brevo_list_name)
         brevo_list_obj = brevo_lists[0] if brevo_lists else None
         if not brevo_list_obj:
-            brevo_list_obj = brevo_client.create_list(brevo_list_name)
+            folder_id = 1
+            if folder_name:
+                logging.info(f"Attempting to find folder ID for folder name: {folder_name}")
+                found_folder_id = brevo_client.get_folder_id_by_name(folder_name)
+                if found_folder_id:
+                    folder_id = found_folder_id
+                else:
+                    logging.warning(f"Brevo folder '{folder_name}' not found. Defaulting to folder ID {folder_id}.")
+
+            brevo_list_obj = brevo_client.create_list(brevo_list_name, folder_id=folder_id)
             if not brevo_list_obj:
                 logging.error(
                     f"Failed to create or retrieve Brevo list '{brevo_list_name}'. Skipping sync for this list."
@@ -146,7 +156,6 @@ class BrevoService(SyncService):
         base_name,
         entity_config,
         all_authentik_groups_by_name,
-        email_to_authentik_user_pk_map,
         std_mm_users_in_channel,
         adm_mm_users_in_channel,
         mm_users_for_services,
@@ -160,6 +169,10 @@ class BrevoService(SyncService):
         std_mm_users = std_mm_users_in_channel
         log_channel_name = std_mm_channel_name_for_log
         brevo_list_name = config.get("list_name_pattern", "mm_{base_name}").format(base_name=base_name)
+        folder_name = config.get("folder_name")
+        return self._sync_single_brevo_list(
+            brevo_client, brevo_list_name, std_mm_users, log_channel_name, folder_name=folder_name
+        )
         return self._sync_single_brevo_list(brevo_client, brevo_list_name, std_mm_users, log_channel_name)
 
     async def differential_sync(self, mm_channel_members: dict):

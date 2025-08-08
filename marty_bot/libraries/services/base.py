@@ -19,7 +19,6 @@ class Service:
         base_name,
         entity_config,
         all_authentik_groups_by_name,
-        email_to_authentik_user_pk_map,
         std_mm_users_in_channel,
         adm_mm_users_in_channel,
         mm_users_for_services,

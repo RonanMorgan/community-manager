@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import subprocess
+from datetime import datetime, timedelta
 from enum import Enum
 
 import requests
@@ -50,10 +51,17 @@ class VaultwardenClient:
         self.api_username = api_username
         self.api_password = api_password
         self.bw_session = os.getenv("BW_SESSION")
+        self.api_token = None
+        self.api_token_expires_at = None
 
         # self._ensure_server_configuration() # REMOVED: This call is too aggressive.
 
     def _get_api_token(self) -> str | None:
+        if self.api_token and self.api_token_expires_at and datetime.now() < self.api_token_expires_at:
+            logging.info("Using cached Vaultwarden API token.")
+            return self.api_token
+
+        logging.info("No valid cached token. Requesting new Vaultwarden API token.")
         if not self.api_username or not self.api_password:
             logging.error("Vaultwarden API username or password not configured. Cannot get API token.")
             return None
@@ -80,24 +88,38 @@ class VaultwardenClient:
             response.raise_for_status()
             token_data = response.json()
             access_token = token_data.get("access_token")
-            if access_token:
-                logging.info(f"Successfully obtained API token for user {self.api_username}.")
-                return access_token
+            expires_in = token_data.get("expires_in")
+
+            if access_token and isinstance(expires_in, int):
+                self.api_token = access_token
+                self.api_token_expires_at = datetime.now() + timedelta(seconds=expires_in - 60)
+                logging.info(
+                    f"Successfully obtained and cached new API token for user {self.api_username}. Expires at {self.api_token_expires_at}."
+                )
+                return self.api_token
             else:
-                logging.error(f"Failed to get access_token from response. Data: {token_data}")
+                logging.error(f"Failed to get access_token or expires_in from response. Data: {token_data}")
+                self.api_token = None
+                self.api_token_expires_at = None
                 return None
         except requests.exceptions.HTTPError as e:
             logging.error(
                 f"HTTP error obtaining API token: {e}. Response: {e.response.text if e.response else 'No response text'}"
             )
+            self.api_token = None
+            self.api_token_expires_at = None
             return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Request error obtaining API token: {e}")
+            self.api_token = None
+            self.api_token_expires_at = None
             return None
         except json.JSONDecodeError:
             logging.error(
                 f"Failed to decode JSON response from token endpoint: {response.text if 'response' in locals() else 'No response object'}"
             )
+            self.api_token = None
+            self.api_token_expires_at = None
             return None
 
     def invite_user_to_collection(
@@ -105,7 +127,6 @@ class VaultwardenClient:
         user_email: str,
         collection_id: str,
         organization_id: str,
-        access_token: str,
     ) -> bool:
         if not self.server_url:
             logging.error("Vaultwarden server URL not configured. Cannot determine invite endpoint.")
@@ -127,19 +148,17 @@ class VaultwardenClient:
             "groups": [],
             "accessSecretsManager": False,
         }
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
 
         try:
             logging.info(f"Inviting user {user_email} to collection {collection_id} in organization {organization_id}")
-            response = requests.post(invite_url, json=payload, headers=headers)
-            response.raise_for_status()
-            logging.info(
-                f"Successfully sent invitation for {user_email} to collection {collection_id}. Status: {response.status_code}"
-            )
-            return True
+            response = self._request_with_token_refresh("post", invite_url, json=payload, headers=headers)
+            if response:
+                logging.info(
+                    f"Successfully sent invitation for {user_email} to collection {collection_id}. Status: {response.status_code}"
+                )
+                return True
+            return False
         except requests.exceptions.HTTPError as e:
             logging.error(
                 f"HTTP error inviting user {user_email} to collection {collection_id}: {e}. "
@@ -152,9 +171,7 @@ class VaultwardenClient:
                 try:
                     response_data = e.response.json()
                     error_model_message = response_data.get("errorModel", {}).get("message", "").lower()
-                    # Changed to "ValidationErrors" to match typical API casing and test mock
                     validation_errors = response_data.get("ValidationErrors", {})
-
                     already_member_messages = [
                         "already a member",
                         "user already invited",
@@ -453,17 +470,49 @@ class VaultwardenClient:
             logging.error(f"Failed to list collections using 'bw list collections': {err_list.strip()}")
             return None
 
-    def get_collections_details(self) -> list | None:
+    def _request_with_token_refresh(self, method, url, **kwargs):
+        """Wrapper for requests to handle token acquisition and refresh."""
         access_token = self._get_api_token()
         if not access_token:
             return None
 
-        details_url = f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/collections/details"
-        headers = {"Authorization": f"Bearer {access_token}"}
+        headers = kwargs.get("headers", {})
+        headers["Authorization"] = f"Bearer {access_token}"
+        kwargs["headers"] = headers
+
         try:
-            response = requests.get(details_url, headers=headers)
+            response = requests.request(method, url, **kwargs)
             response.raise_for_status()
-            return response.json().get("data", [])
+            return response
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                logging.warning("Token may have expired or been invalidated. Refreshing token and retrying.")
+                self.api_token = None  # Invalidate the token
+                self.api_token_expires_at = None
+                access_token = self._get_api_token()  # Force refresh
+                if not access_token:
+                    logging.error("Failed to refresh token.")
+                    return None
+
+                headers["Authorization"] = f"Bearer {access_token}"
+                kwargs["headers"] = headers
+                try:
+                    response = requests.request(method, url, **kwargs)
+                    response.raise_for_status()
+                    return response
+                except requests.exceptions.RequestException as retry_e:
+                    logging.error(f"Request failed on retry: {retry_e}")
+                    return None
+            else:
+                raise e
+
+    def get_collections_details(self) -> list | None:
+        details_url = f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/collections/details"
+        try:
+            response = self._request_with_token_refresh("get", details_url)
+            if response:
+                return response.json().get("data", [])
+            return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Error getting collection details: {e}")
             return None
@@ -533,21 +582,13 @@ class VaultwardenClient:
             return None
 
     def update_collection(self, collection_id: str, payload: dict) -> bool:
-        access_token = self._get_api_token()
-        if not access_token:
-            return False
-
         update_url = (
             f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/collections/{collection_id}"
         )
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
         try:
-            response = requests.put(update_url, json=payload, headers=headers)
-            response.raise_for_status()
-            return True
+            response = self._request_with_token_refresh("put", update_url, json=payload, headers=headers)
+            return response is not None
         except requests.exceptions.RequestException as e:
             logging.error(f"Error updating collection: {e}")
             return False
@@ -556,16 +597,12 @@ class VaultwardenClient:
         """
         Fetches all users from the Vaultwarden organization.
         """
-        access_token = self._get_api_token()
-        if not access_token:
-            return None
-
         users_url = f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/users"
-        headers = {"Authorization": f"Bearer {access_token}"}
         try:
-            response = requests.get(users_url, headers=headers)
-            response.raise_for_status()
-            return response.json().get("data", [])
+            response = self._request_with_token_refresh("get", users_url)
+            if response:
+                return response.json().get("data", [])
+            return None
         except requests.exceptions.RequestException as e:
             logging.error(f"Error getting users from organization: {e}")
             return None
@@ -574,16 +611,10 @@ class VaultwardenClient:
         """
         Deletes a user from the Vaultwarden organization.
         """
-        access_token = self._get_api_token()
-        if not access_token:
-            return False
-
         delete_url = f"{self.server_url.rstrip('/')}/api/organizations/{self.organization_id}/users/{user_id}"
-        headers = {"Authorization": f"Bearer {access_token}"}
         try:
-            response = requests.delete(delete_url, headers=headers)
-            response.raise_for_status()
-            return True
+            response = self._request_with_token_refresh("delete", delete_url)
+            return response is not None
         except requests.exceptions.RequestException as e:
             logging.error(f"Error deleting user from organization: {e}")
             return False

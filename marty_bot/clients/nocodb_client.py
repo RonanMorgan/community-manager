@@ -310,9 +310,9 @@ if __name__ == "__main__":
     # when this file is linted as part of the project's production code.
     # To run this example:
     # 1. Uncomment the block.
-    # 2. Ensure you have a .env file with NOCODB_URL and NOCODB_TOKEN in the marty_bot/clients/ directory
+    # 2. Ensure you have a .env file with NOCODB_URL and NOCODB_TOKEN in the clients/ directory
     #    or in the project root, or have these environment variables set.
-    # 3. Run this script directly: python marty_bot/clients/nocodb_client.py
+    # 3. Run this script directly: python clients/nocodb_client.py
 
     # import os
     # from dotenv import load_dotenv

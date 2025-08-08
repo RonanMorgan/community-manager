@@ -60,10 +60,8 @@ class OutlineClient:
             f"Outline API >> Collection '{project_name}' not found. "
             f"Attempting to create with payload: {json.dumps(payload)}"
         )
-
         try:
             response = requests.post(create_api_url, headers=self.headers, json=payload)
-
             if response.status_code == 200:
                 response_data = response.json()
                 data_content = response_data.get("data")
@@ -163,8 +161,12 @@ class OutlineClient:
 
                 if name:
                     if collections:
-                        logging.info(f"Found Outline collection '{name}' (ID: {collections[0].get('id')}).")
-                        return collections[0]
+                        for collection in collections:
+                            if collection.get("name") == name:
+                                logging.info(f"Found Outline collection '{name}' (ID: {collection.get('id')}).")
+                                return collection
+                        logging.info(f"Outline collection named '{name}' not found after checking results.")
+                        return []  # Aucun nom exactement égal
                     else:
                         logging.info(f"Outline collection named '{name}' not found after checking all collections.")
                         return []

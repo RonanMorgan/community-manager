@@ -23,7 +23,6 @@ class VaultwardenService(SyncService):
         collection_name: str,
         mm_users_for_services: dict,  # email_lower -> {username, mm_user_id, ...}
         mm_channel_context_name: str,
-        access_token: str,  # Vaultwarden API access token
     ) -> list[dict]:  # Returns results
         """
         Ensures that the given Mattermost users are invited to the specified Vaultwarden collection.
@@ -37,21 +36,6 @@ class VaultwardenService(SyncService):
                 f"No Vaultwarden collection ID provided to _ensure_users_invited_to_vaultwarden_collection for collection name {collection_name}."
             )
             # Could append a result indicating this failure
-            return results
-
-        if not access_token:
-            logging.error(
-                f"No Vaultwarden access token provided for collection '{collection_name}'. Cannot invite users."
-            )
-            results.append(
-                {
-                    "service": "VAULTWARDEN",
-                    "target_resource_name": collection_name,
-                    "status": SyncStatus.FAILURE.value,
-                    "action": "VW_ENSURE_FAILED_NO_TOKEN",
-                    "error_message": "Missing Vaultwarden access token.",
-                }
-            )
             return results
 
         for email_lower, mm_user_data in mm_users_for_services.items():
@@ -96,7 +80,6 @@ class VaultwardenService(SyncService):
                 user_email=email_lower,
                 collection_id=collection_id,
                 organization_id=vaultwarden_client.organization_id,
-                access_token=access_token,
             )
 
             action_verb = VaultwardenAction.USER_INVITED_TO_COLLECTION.value
@@ -179,19 +162,6 @@ class VaultwardenService(SyncService):
                 }
             ]
 
-        access_token = vaultwarden_client._get_api_token()
-        if not access_token:
-            logging.error(f"Failed to obtain Vaultwarden API token for collection '{collection_name}'.")
-            return [
-                {
-                    "service": "VAULTWARDEN",
-                    "target_resource_name": collection_name,
-                    "status": "FAILURE",
-                    "action": "FAILED_TO_GET_VW_API_TOKEN",
-                    "error_message": "Could not obtain API token.",
-                }
-            ]
-
         # Ensure users are invited
         invite_results = self._ensure_users_invited_to_vaultwarden_collection(
             vaultwarden_client=vaultwarden_client,
@@ -200,7 +170,6 @@ class VaultwardenService(SyncService):
             collection_name=collection_name,
             mm_users_for_services=mm_users_for_services,
             mm_channel_context_name=mm_channel_context_name,
-            access_token=access_token,
         )
         results.extend(invite_results)
 
@@ -231,7 +200,6 @@ class VaultwardenService(SyncService):
         base_name,
         entity_config,
         all_authentik_groups_by_name,
-        email_to_authentik_user_pk_map,
         std_mm_users_in_channel,
         adm_mm_users_in_channel,
         mm_users_for_services,
@@ -328,7 +296,6 @@ class VaultwardenService(SyncService):
                 email: data for email, data in mm_users_for_services.items() if email not in vaultwarden_user_emails
             }
             if missing_mm_users_for_services:
-                access_token = self.client._get_api_token()
                 results.extend(
                     self._ensure_users_invited_to_vaultwarden_collection(
                         self.client,
@@ -337,7 +304,6 @@ class VaultwardenService(SyncService):
                         collection_name,
                         missing_mm_users_for_services,
                         base_name,
-                        access_token,
                     )
                 )
 

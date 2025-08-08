@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-# Assuming the script is in marty_bot.libraries.brevo_user_sync
+# Assuming the script is in libraries.brevo_user_sync
 from libraries.brevo_user_sync import sync_authentik_users_to_brevo_list
 
 # Define fake environment variables for the test duration

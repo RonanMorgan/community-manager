@@ -1,5 +1,4 @@
 import json
-import logging  # For assertLogs
 import os
 import unittest
 from unittest.mock import MagicMock, call, patch
@@ -259,14 +258,36 @@ class TestVaultwardenClient(unittest.TestCase):
 
     # --- Tests for new API methods ---
     @patch("requests.post")
-    def test_get_api_token_success(self, mock_post):
-        expected_token = "sample_access_token"
+    def test_get_api_token_caching_and_expiry(self, mock_post):
+        from datetime import datetime, timedelta
+
+        # First call, should fetch token
+        expected_token = "sample_access_token_1"
         mock_response = MagicMock()
-        mock_response.json.return_value = {"access_token": expected_token}
+        mock_response.json.return_value = {"access_token": expected_token, "expires_in": 3600}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
+
         token = self.client._get_api_token()
         self.assertEqual(token, expected_token)
+        mock_post.assert_called_once()
+        self.assertIsNotNone(self.client.api_token)
+        self.assertIsNotNone(self.client.api_token_expires_at)
+
+        # Second call, should use cache
+        token2 = self.client._get_api_token()
+        self.assertEqual(token2, expected_token)
+        mock_post.assert_called_once()  # Should not be called again
+
+        # Force expire the token
+        self.client.api_token_expires_at = datetime.now() - timedelta(seconds=1)
+
+        # Third call, should fetch a new token
+        expected_token_2 = "sample_access_token_2"
+        mock_response.json.return_value = {"access_token": expected_token_2, "expires_in": 3600}
+        token3 = self.client._get_api_token()
+        self.assertEqual(token3, expected_token_2)
+        self.assertEqual(mock_post.call_count, 2)
 
     @patch("requests.post")
     def test_get_api_token_http_error(self, mock_post):
@@ -292,187 +313,106 @@ class TestVaultwardenClient(unittest.TestCase):
         client_no_url = VaultwardenClient(organization_id=self.organization_id, api_username="u", api_password="p")
         self.assertIsNone(client_no_url._get_api_token())
 
-    @patch("requests.post")
-    def test_invite_user_to_collection_success(self, mock_post):
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-        self.assertTrue(self.client.invite_user_to_collection("u@e.com", "cid", "oid", "token"))
+    @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
+    def test_invite_user_to_collection_success(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200)
+        self.assertTrue(self.client.invite_user_to_collection("u@e.com", "cid", self.organization_id))
 
-    @patch("requests.post")
-    def test_invite_user_to_collection_http_error(self, mock_post):
+    @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
+    def test_invite_user_to_collection_http_error(self, mock_request):
         mock_http_error = requests.exceptions.HTTPError("Invite error")
         mock_error_response = MagicMock()
         mock_error_response.text = "Detailed invite error"
         mock_error_response.status_code = 400
         mock_http_error.response = mock_error_response
-        mock_response_obj = MagicMock()
-        mock_response_obj.raise_for_status.side_effect = mock_http_error
-        mock_response_obj.status_code = 400
-        mock_post.return_value = mock_response_obj
-        self.assertFalse(self.client.invite_user_to_collection("u@e.com", "cid", "oid", "token"))
-
-    @patch("requests.post")
-    def test_invite_user_to_collection_request_exception(self, mock_post):
-        mock_post.side_effect = requests.exceptions.RequestException("Network error")
-        self.assertFalse(self.client.invite_user_to_collection("u@e.com", "cid", "oid", "token"))
+        mock_request.side_effect = mock_http_error
+        self.assertFalse(self.client.invite_user_to_collection("u@e.com", "cid", self.organization_id))
 
     def test_invite_user_to_collection_no_server_url(self):
         client_no_url = VaultwardenClient(organization_id=self.organization_id, api_username="u", api_password="p")
-        self.assertFalse(client_no_url.invite_user_to_collection("u@e.com", "cid", "oid", "token"))
+        self.assertFalse(client_no_url.invite_user_to_collection("u@e.com", "cid", "oid"))
 
-    @patch("requests.post")
-    def test_invite_user_to_collection_already_member_is_success(self, mock_post):
+    @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
+    def test_invite_user_to_collection_already_member_is_success(self, mock_request):
         user_email = "already_member@example.com"
         collection_id = "coll_already_in"
-        access_token = "fake_api_token"
 
-        # Test case 1: Error in errorModel.message
         mock_http_error_model = requests.exceptions.HTTPError("Simulated 400 Error")
         mock_error_response_model = MagicMock()
         mock_error_response_model.status_code = 400
         mock_error_response_model.json.return_value = {
             "errorModel": {"message": f"{user_email} is already a member of this collection."}
         }
-        mock_error_response_model.text = json.dumps(mock_error_response_model.json.return_value)
         mock_http_error_model.response = mock_error_response_model
-
-        mock_response_obj_model = MagicMock()
-        mock_response_obj_model.raise_for_status.side_effect = mock_http_error_model
-        mock_response_obj_model.status_code = 400
-        mock_post.return_value = mock_response_obj_model
+        mock_request.side_effect = mock_http_error_model
 
         with self.assertLogs(level="WARNING") as log:
-            success = self.client.invite_user_to_collection(
-                user_email, collection_id, self.organization_id, access_token
-            )
+            success = self.client.invite_user_to_collection(user_email, collection_id, self.organization_id)
             self.assertTrue(success, "Should return True if user already a member (errorModel case)")
             self.assertTrue(any("already a member" in record.getMessage() for record in log.records))
 
-        mock_post.reset_mock()
-
-        # Test case 2: Error in ValidationErrors
-        mock_http_error_validation = requests.exceptions.HTTPError("Simulated 400 Error")
-        mock_error_response_validation = MagicMock()
-        mock_error_response_validation.status_code = 400
-        mock_error_response_validation.json.return_value = {"ValidationErrors": {"": ["User is already confirmed."]}}
-        mock_error_response_validation.text = json.dumps(mock_error_response_validation.json.return_value)
-        mock_http_error_validation.response = mock_error_response_validation
-
-        mock_response_obj_validation = MagicMock()
-        mock_response_obj_validation.raise_for_status.side_effect = mock_http_error_validation
-        mock_response_obj_validation.status_code = 400
-        mock_post.return_value = mock_response_obj_validation
-
-        # Call outside assertLogs to isolate return value check from log capture context
-        success_case2 = self.client.invite_user_to_collection(
-            user_email, collection_id, self.organization_id, access_token
+    @patch("requests.request")
+    @patch("clients.vaultwarden_client.VaultwardenClient._get_api_token")
+    def test_request_with_token_refresh_handles_401(self, mock_get_token, mock_request):
+        # First call fails with 401, second call succeeds
+        mock_get_token.side_effect = ["token1", "token2"]
+        mock_response_401 = MagicMock()
+        mock_response_401.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=MagicMock(status_code=401)
         )
-        print(f"DEBUG_TEST_CASE2_RETURN_VALUE: success_case2 = {success_case2}")
-        self.assertTrue(
-            success_case2,
-            "Should return True if user already confirmed (ValidationErrors case)",
-        )
+        mock_response_200 = MagicMock(status_code=200)
+        mock_request.side_effect = [mock_response_401, mock_response_200]
 
-        # To verify logging for this specific path if needed, could re-call within assertLogs
-        # or check logs via other means if print statements confirm the path.
-        # For now, client's internal prints + the above check should be sufficient.
+        response = self.client._request_with_token_refresh("get", "http://test.com/api")
+        self.assertEqual(response, mock_response_200)
+        self.assertEqual(mock_get_token.call_count, 2)
+        self.assertEqual(mock_request.call_count, 2)
+        self.assertIsNone(self.client.api_token)  # Token should be invalidated
+        self.assertIsNone(self.client.api_token_expires_at)
 
-        mock_post.reset_mock()
+    @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
+    def test_get_collections_details_success(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": [{"id": "1", "name": "test"}]}
+        mock_request.return_value = mock_response
+        result = self.client.get_collections_details()
+        self.assertEqual(result, [{"id": "1", "name": "test"}])
 
-        # Test case 3: A different 400 error (should return False)
-        mock_http_error_other = requests.exceptions.HTTPError("Simulated 400 Error - Other")
-        mock_error_response_other = MagicMock()
-        mock_error_response_other.status_code = 400
-        mock_error_response_other.json.return_value = {"errorModel": {"message": "Some other unrelated 400 error."}}
-        mock_error_response_other.text = json.dumps(mock_error_response_other.json.return_value)
-        mock_http_error_other.response = mock_error_response_other
+    @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
+    def test_update_collection_success(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200)
+        result = self.client.update_collection("1", {"name": "test"})
+        self.assertTrue(result)
 
-        mock_response_obj_other = MagicMock()
-        mock_response_obj_other.raise_for_status.side_effect = mock_http_error_other
-        mock_response_obj_other.status_code = 400
-        mock_post.return_value = mock_response_obj_other
+    @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
+    def test_list_users_success(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": [{"id": "1", "name": "test"}]}
+        mock_request.return_value = mock_response
+        result = self.client.list_users()
+        self.assertEqual(result, [{"id": "1", "name": "test"}])
 
-        with patch.object(logging.getLogger(), "warning") as mock_log_warning:
-            success = self.client.invite_user_to_collection(
-                user_email, collection_id, self.organization_id, access_token
-            )
-            self.assertFalse(success, "Should return False for a generic 400 error")
-            already_member_log_found = False
-            for call_args in mock_log_warning.call_args_list:
-                if (
-                    "already a member" in call_args[0][0].lower()
-                    or "already invited" in call_args[0][0].lower()
-                    or "already confirmed" in call_args[0][0].lower()
-                ):
-                    already_member_log_found = True
-                    break
-            self.assertFalse(
-                already_member_log_found,
-                "Should not log 'already member/invited' for a generic 400 error",
-            )
-
-    def test_get_collections_details_success(self):
-        self.client._get_api_token = MagicMock(return_value="test_token")
-        with patch("requests.get") as mock_get:
-            mock_response = MagicMock()
-            mock_response.json.return_value = {"data": [{"id": "1", "name": "test"}]}
-            mock_response.raise_for_status.return_value = None
-            mock_get.return_value = mock_response
-
-            result = self.client.get_collections_details()
-            self.assertEqual(result, [{"id": "1", "name": "test"}])
-
-    def test_update_collection_success(self):
-        self.client._get_api_token = MagicMock(return_value="test_token")
-        with patch("requests.put") as mock_put:
-            mock_response = MagicMock()
-            mock_response.raise_for_status.return_value = None
-            mock_put.return_value = mock_response
-
-            result = self.client.update_collection("1", {"name": "test"})
-            self.assertTrue(result)
-
-    def test_list_users_success(self):
-        self.client._get_api_token = MagicMock(return_value="test_token")
-        with patch("requests.get") as mock_get:
-            mock_response = MagicMock()
-            mock_response.json.return_value = {"data": [{"id": "1", "name": "test"}]}
-            mock_response.raise_for_status.return_value = None
-            mock_get.return_value = mock_response
-
-            result = self.client.list_users()
-            self.assertEqual(result, [{"id": "1", "name": "test"}])
-
-    def test_list_users_no_token(self):
-        self.client._get_api_token = MagicMock(return_value=None)
+    @patch("clients.vaultwarden_client.VaultwardenClient._get_api_token", return_value=None)
+    def test_list_users_no_token(self, mock_get_token):
         result = self.client.list_users()
         self.assertIsNone(result)
 
-    def test_delete_user_success(self):
-        self.client._get_api_token = MagicMock(return_value="test_token")
-        with patch("requests.delete") as mock_delete:
-            mock_response = MagicMock()
-            mock_response.raise_for_status.return_value = None
-            mock_delete.return_value = mock_response
+    @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
+    def test_delete_user_success(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200)
+        result = self.client.delete_user("1")
+        self.assertTrue(result)
 
-            result = self.client.delete_user("1")
-            self.assertTrue(result)
-
-    def test_delete_user_no_token(self):
-        self.client._get_api_token = MagicMock(return_value=None)
+    @patch("clients.vaultwarden_client.VaultwardenClient._get_api_token", return_value=None)
+    def test_delete_user_no_token(self, mock_get_token):
         result = self.client.delete_user("1")
         self.assertFalse(result)
 
-    def test_delete_user_http_error(self):
-        self.client._get_api_token = MagicMock(return_value="test_token")
-        with patch("requests.delete") as mock_delete:
-            mock_response = MagicMock()
-            mock_response.raise_for_status.side_effect = requests.exceptions.RequestException("API error")
-            mock_delete.return_value = mock_response
-
-            result = self.client.delete_user("1")
-            self.assertFalse(result)
+    @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
+    def test_delete_user_http_error(self, mock_request):
+        mock_request.side_effect = requests.exceptions.RequestException("API error")
+        result = self.client.delete_user("1")
+        self.assertFalse(result)
 
 
 if __name__ == "__main__":

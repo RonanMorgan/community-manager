@@ -1,4 +1,4 @@
-# marty_bot/libraries/group_sync_services.py
+# libraries/group_sync_services.py
 # This module will contain core business logic for services like group synchronization.
 # It will be used by both the bot (app) and standalone scripts.
 
@@ -62,18 +62,18 @@ async def orchestrate_group_synchronization(
     authentik_service = AuthentikService(
         clients.get("authentik"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id
     )
+    all_auth_groups_list = []
+    if authentik_client:
+        all_auth_groups_list, _ = authentik_client.get_groups_with_users()
+        if not all_auth_groups_list:
+            logging.info("No Authentik groups found or an error occurred during fetching for discovery.")
+        all_auth_groups_by_name = {g["name"]: g for g in all_auth_groups_list}
+    else:
+        logging.warning("Authentik client not available for WITH_AUTHENTIK discovery.")
+        all_auth_groups_by_name = {}
 
     if sync_mode == "WITH_AUTHENTIK":
         logging.info("Sync Mode: WITH_AUTHENTIK. Discovering entities from Authentik groups...")
-        all_auth_groups_list = []
-        if authentik_client:
-            all_auth_groups_list, _ = authentik_client.get_groups_with_users()
-            if not all_auth_groups_list:
-                logging.info("No Authentik groups found or an error occurred during fetching for discovery.")
-            all_auth_groups_by_name = {g["name"]: g for g in all_auth_groups_list}
-        else:
-            logging.warning("Authentik client not available for WITH_AUTHENTIK discovery.")
-            all_auth_groups_by_name = {}
 
         if not all_auth_groups_list and authentik_client:
             logging.info("No Authentik groups found to process for WITH_AUTHENTIK. Synchronization might be limited.")
@@ -176,15 +176,12 @@ async def orchestrate_group_synchronization(
                     "is_admin_channel_member": True,
                 }
 
-        email_to_authentik_user_pk_map = {}
-
         for service in services:
             if service.client and service.SERVICE_NAME.lower() not in skip_services:
                 service_results = await service.group_sync(
                     base_name,
                     entity_config,
                     all_auth_groups_by_name,
-                    email_to_authentik_user_pk_map,
                     std_mm_users_in_channel,
                     adm_mm_users_in_channel,
                     mm_users_for_services,
