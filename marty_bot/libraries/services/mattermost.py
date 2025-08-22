@@ -59,9 +59,9 @@ def _extract_base_name(actual_name: str, pattern_with_placeholder: str) -> Optio
 
 def _map_mm_channel_to_entity_and_base_name(
     mm_channel_slug: str, mm_channel_display_name: str, permissions_matrix: dict
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Attempts to map a Mattermost channel (slug or display name) to an entity key and base_name.
+    Attempts to map a Mattermost channel (slug or display name) to an entity key, base_name, and role.
     """
     # Try matching with channel display name first, as it's often more descriptive
     for entity_key, entity_cfg in permissions_matrix.items():
@@ -70,12 +70,12 @@ def _map_mm_channel_to_entity_and_base_name(
             if mm_adm_pattern:
                 base_name = _extract_base_name(mm_channel_display_name, mm_adm_pattern)
                 if base_name is not None:
-                    return entity_key, base_name
+                    return entity_key, base_name, "admin"
         std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
         if std_pattern:
             base_name = _extract_base_name(mm_channel_display_name, std_pattern)
             if base_name is not None:
-                return entity_key, base_name
+                return entity_key, base_name, "standard"
 
     # Fallback to matching with channel slug if display name didn't yield a match
     # (Patterns are usually based on display name conventions, but slug might work for simple cases)
@@ -93,7 +93,7 @@ def _map_mm_channel_to_entity_and_base_name(
                     mm_channel_slug, mm_adm_pattern.lower()
                 )  # Compare with lowercased pattern
                 if base_name is not None:
-                    return entity_key, base_name
+                    return entity_key, base_name, "admin"
         std_pattern = entity_cfg.get("standard", {}).get("mattermost_channel_name_pattern")
         if (
             std_pattern
@@ -101,6 +101,6 @@ def _map_mm_channel_to_entity_and_base_name(
         ):
             base_name = _extract_base_name(mm_channel_slug, std_pattern.lower())
             if base_name is not None:
-                return entity_key, base_name
+                return entity_key, base_name, "standard"
 
-    return None, None
+    return None, None, None

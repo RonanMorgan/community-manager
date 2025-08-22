@@ -100,19 +100,36 @@ async def orchestrate_group_synchronization(
             )
             return True, detailed_results
 
+        # New structure: entities_to_process[(key, base_name)] = {'config': ..., 'channels': {'standard': None, 'admin': None}}
+        entities_to_process = {}
+
         for channel in mm_channels:
             channel_name = channel.get("name")
             channel_display_name = channel.get("display_name")
-            found_entity_key_mm, current_base_name_mm = _map_mm_channel_to_entity_and_base_name(
+            (
+                found_entity_key_mm,
+                current_base_name_mm,
+                role,
+            ) = _map_mm_channel_to_entity_and_base_name(
                 channel_name, channel_display_name, config.PERMISSIONS_MATRIX
             )
-            if found_entity_key_mm and current_base_name_mm:
+
+            if found_entity_key_mm and current_base_name_mm and role:
                 entity_tuple = (found_entity_key_mm, current_base_name_mm)
                 if entity_tuple not in entities_to_process:
-                    entities_to_process[entity_tuple] = config.PERMISSIONS_MATRIX[found_entity_key_mm]
+                    entities_to_process[entity_tuple] = {
+                        "config": config.PERMISSIONS_MATRIX[found_entity_key_mm],
+                        "channels": {"standard": None, "admin": None},
+                    }
                     logging.info(
                         f"Discovered entity '{current_base_name_mm}' (type: {found_entity_key_mm}) from MM channel '{channel_display_name}' for MM_TO_TOOLS sync."
                     )
+
+                # Store the actual channel object based on its role
+                if role == "admin" and not entities_to_process[entity_tuple]["channels"]["admin"]:
+                    entities_to_process[entity_tuple]["channels"]["admin"] = channel
+                elif role == "standard" and not entities_to_process[entity_tuple]["channels"]["standard"]:
+                    entities_to_process[entity_tuple]["channels"]["standard"] = channel
             else:
                 logging.debug(
                     f"MM channel '{channel_display_name}' (slug: {channel_name}) did not map to a known entity pattern for MM_TO_TOOLS sync."
@@ -132,31 +149,50 @@ async def orchestrate_group_synchronization(
         VaultwardenService(clients.get("vaultwarden"), mattermost_client, config.PERMISSIONS_MATRIX, mm_team_id),
     ]
 
-    for (entity_key, base_name), entity_config in entities_to_process.items():
+    for (entity_key, base_name), data in entities_to_process.items():
         logging.info(
             f"Orchestrating sync for entity: {entity_key}, base_name: {base_name}, " f"sync_mode: {sync_mode}"
         )
 
         # Common user and channel data preparation
-        std_config = entity_config.get("standard", {})
-        admin_config = entity_config.get("admin")
-        std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(
-            base_name=base_name
-        )
-        std_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(std_mm_channel_name))
-        std_mm_users_in_channel = (
-            mattermost_client.get_users_in_channel(std_mm_channel["id"]) if std_mm_channel else []
-        )
-        std_mm_channel_name_for_log = std_mm_channel.get("display_name") if std_mm_channel else std_mm_channel_name
+        if sync_mode == "MM_TO_TOOLS":
+            entity_config = data["config"]
+            std_mm_channel = data["channels"].get("standard")
+            adm_mm_channel = data["channels"].get("admin")
 
-        adm_mm_users_in_channel = []
-        if admin_config:
-            adm_mm_channel_name = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin").format(
+            std_mm_users_in_channel = (
+                mattermost_client.get_users_in_channel(std_mm_channel["id"]) if std_mm_channel else []
+            )
+            std_mm_channel_name_for_log = (
+                std_mm_channel.get("display_name") if std_mm_channel else "N/A"
+            )
+
+            adm_mm_users_in_channel = (
+                mattermost_client.get_users_in_channel(adm_mm_channel["id"]) if adm_mm_channel else []
+            )
+        else:  # Fallback to old logic for WITH_AUTHENTIK
+            entity_config = data  # In this mode, data is the config itself
+            std_config = entity_config.get("standard", {})
+            admin_config = entity_config.get("admin")
+            std_mm_channel_name = std_config.get("mattermost_channel_name_pattern", "{base_name}").format(
                 base_name=base_name
             )
-            adm_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(adm_mm_channel_name))
-            if adm_mm_channel:
-                adm_mm_users_in_channel = mattermost_client.get_users_in_channel(adm_mm_channel["id"])
+            std_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(std_mm_channel_name))
+            std_mm_users_in_channel = (
+                mattermost_client.get_users_in_channel(std_mm_channel["id"]) if std_mm_channel else []
+            )
+            std_mm_channel_name_for_log = (
+                std_mm_channel.get("display_name") if std_mm_channel else std_mm_channel_name
+            )
+
+            adm_mm_users_in_channel = []
+            if admin_config:
+                adm_mm_channel_name = admin_config.get("mattermost_channel_name_pattern", "{base_name} Admin").format(
+                    base_name=base_name
+                )
+                adm_mm_channel = mattermost_client.get_channel_by_name(mm_team_id, slugify(adm_mm_channel_name))
+                if adm_mm_channel:
+                    adm_mm_users_in_channel = mattermost_client.get_users_in_channel(adm_mm_channel["id"])
 
         mm_users_for_services = {}
         for mm_user in std_mm_users_in_channel:
