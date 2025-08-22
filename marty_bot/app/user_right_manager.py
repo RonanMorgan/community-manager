@@ -37,7 +37,7 @@ class UserRightManager:
             if admin_cfg:
                 admin_pattern = admin_cfg.get("mattermost_channel_name_pattern")
                 if admin_pattern:
-                    temp_entity_key, temp_base_name = _map_mm_channel_to_entity_and_base_name(
+                    temp_entity_key, temp_base_name, _ = _map_mm_channel_to_entity_and_base_name(
                         admin_channel_name_slug,
                         current_channel_info.get("display_name"),
                         {e_key: e_conf},

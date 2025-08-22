@@ -76,7 +76,7 @@ class SendEmailCommand(BaseCommand):
             _map_mm_channel_to_entity_and_base_name,
         )
 
-        entity_key_found, base_name_found = _map_mm_channel_to_entity_and_base_name(
+        entity_key_found, base_name_found, _ = _map_mm_channel_to_entity_and_base_name(
             current_channel_info.get("name"),
             current_channel_info.get("display_name"),
             self.bot.config.PERMISSIONS_MATRIX,

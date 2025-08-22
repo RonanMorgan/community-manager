@@ -896,8 +896,8 @@ class TestSendEmailCommand(TestMartyBot):
                     and ch_slug_arg == admin_channel_slug
                     and ch_display_name_arg == admin_channel_display_name
                 ):
-                    return (entity_key_for_test, base_name_for_test)
-                return (None, None)
+                    return (entity_key_for_test, base_name_for_test, "admin")
+                return (None, None, None)
 
             mock_map_channel.side_effect = map_channel_side_effect
 
@@ -960,7 +960,7 @@ class TestSendEmailCommand(TestMartyBot):
     def test_handle_send_email_not_admin_channel(self, mock_map_channel):
         async def actual_test_logic():
             command_name = "send_email"
-            mock_map_channel.return_value = (None, None)
+            mock_map_channel.return_value = (None, None, None)
             channel_id = "some_other_channel"
             channel_display_name = "Not An Admin Channel"
             channel_slug = "not-an-admin-channel"
@@ -999,8 +999,8 @@ class TestSendEmailCommand(TestMartyBot):
             def map_channel_side_effect(ch_slug_arg, ch_display_name_arg, entity_config_slice_arg):
                 iter_entity_key = list(entity_config_slice_arg.keys())[0]
                 if iter_entity_key == entity_key_for_test and ch_display_name_arg == admin_display_name:
-                    return (entity_key_for_test, base_name_for_test)
-                return (None, None)
+                    return (entity_key_for_test, base_name_for_test, "admin")
+                return (None, None, None)
 
             mock_map_channel.side_effect = map_channel_side_effect
             channel_id = "admin_no_list"
@@ -1043,8 +1043,8 @@ class TestSendEmailCommand(TestMartyBot):
             def map_channel_side_effect(ch_slug_arg, ch_display_name_arg, entity_config_slice_arg):
                 iter_entity_key = list(entity_config_slice_arg.keys())[0]
                 if iter_entity_key == entity_key_for_test and ch_display_name_arg == admin_display_name:
-                    return (entity_key_for_test, base_name_for_test)
-                return (None, None)
+                    return (entity_key_for_test, base_name_for_test, "admin")
+                return (None, None, None)
 
             mock_map_channel.side_effect = map_channel_side_effect
             channel_id = "admin_empty_list"
@@ -1092,8 +1092,8 @@ class TestSendEmailCommand(TestMartyBot):
             def map_channel_side_effect(ch_slug_arg, ch_display_name_arg, entity_config_slice_arg):
                 iter_entity_key = list(entity_config_slice_arg.keys())[0]
                 if iter_entity_key == entity_key_for_test and ch_display_name_arg == admin_display_name:
-                    return (entity_key_for_test, base_name_for_test)
-                return (None, None)
+                    return (entity_key_for_test, base_name_for_test, "admin")
+                return (None, None, None)
 
             mock_map_channel.side_effect = map_channel_side_effect
             channel_id = "admin_send_fail"
