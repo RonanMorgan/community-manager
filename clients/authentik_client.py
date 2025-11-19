@@ -309,7 +309,11 @@ class AuthentikClient:
                         # Emails in Authentik should be unique. If not, this will overwrite.
                         email_to_pk_map[email.lower()] = pk
 
-                current_url = data.get("pagination", {}).get("next")
+                next_page = data.get("pagination", {}).get("next")
+                if next_page:
+                    current_url = f"{self.base_url}/api/v3/core/users/?page={next_page}&path=users"
+                else:
+                    current_url = None
 
             except requests.exceptions.RequestException as e:
                 logging.error(f"Error fetching Authentik users from {current_url}: {e}")

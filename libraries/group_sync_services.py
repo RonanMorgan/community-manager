@@ -110,9 +110,7 @@ async def orchestrate_group_synchronization(
                 found_entity_key_mm,
                 current_base_name_mm,
                 role,
-            ) = _map_mm_channel_to_entity_and_base_name(
-                channel_name, channel_display_name, config.PERMISSIONS_MATRIX
-            )
+            ) = _map_mm_channel_to_entity_and_base_name(channel_name, channel_display_name, config.PERMISSIONS_MATRIX)
 
             if found_entity_key_mm and current_base_name_mm and role:
                 entity_tuple = (found_entity_key_mm, current_base_name_mm)
@@ -163,9 +161,7 @@ async def orchestrate_group_synchronization(
             std_mm_users_in_channel = (
                 mattermost_client.get_users_in_channel(std_mm_channel["id"]) if std_mm_channel else []
             )
-            std_mm_channel_name_for_log = (
-                std_mm_channel.get("display_name") if std_mm_channel else "N/A"
-            )
+            std_mm_channel_name_for_log = std_mm_channel.get("display_name") if std_mm_channel else "N/A"
 
             adm_mm_users_in_channel = (
                 mattermost_client.get_users_in_channel(adm_mm_channel["id"]) if adm_mm_channel else []
@@ -181,9 +177,7 @@ async def orchestrate_group_synchronization(
             std_mm_users_in_channel = (
                 mattermost_client.get_users_in_channel(std_mm_channel["id"]) if std_mm_channel else []
             )
-            std_mm_channel_name_for_log = (
-                std_mm_channel.get("display_name") if std_mm_channel else std_mm_channel_name
-            )
+            std_mm_channel_name_for_log = std_mm_channel.get("display_name") if std_mm_channel else std_mm_channel_name
 
             adm_mm_users_in_channel = []
             if admin_config:

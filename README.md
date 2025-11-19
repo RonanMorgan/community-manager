@@ -120,7 +120,7 @@ To build and run the bot using Docker, follow these steps.
 
 ### 1. Build the Docker Image
 
-From the `marty_bot` directory (where the `Dockerfile` is located), run the following command to build the Docker image:
+From the root (where the `Dockerfile` is located), run the following command to build the Docker image:
 
 ```bash
 docker build -t marty-bot .
@@ -128,7 +128,7 @@ docker build -t marty-bot .
 
 ### 2. Run the Docker Container
 
-Once the image is built, you can run it as a container. Make sure you have a `.env` file with your configuration in the `marty_bot` directory.
+Once the image is built, you can run it as a container. Make sure you have a `.env` file with your configuration in the root.
 
 ```bash
 docker run -d --name marty-bot-container --env-file .env marty-bot
@@ -148,7 +148,7 @@ docker logs -f marty-bot-container
 
 Alternatively, you can use the provided `docker-compose.yml` file to manage the bot's container. This is the recommended method for running the bot in production.
 
-First, ensure you have a complete `.env` file in the `marty_bot` directory. Then, you can start the bot with:
+First, ensure you have a complete `.env` file in the root directory. Then, you can start the bot with:
 
 ```bash
 docker-compose up -d

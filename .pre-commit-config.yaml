@@ -24,4 +24,4 @@ repos:
     rev: 7.1.0
     hooks:
       - id: flake8
-        args: ["--config=marty_bot/.flake8"]
+        args: ["--config=.flake8"]
