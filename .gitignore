@@ -1,0 +1,46 @@
+# Environment variables
+.env
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+env/
+.venv/
+pip-wheel-metadata/
+wheels/
+*.egg-info/
+dist/
+build/
+
+# IDE and editor specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Local instance specific (e.g. SQLite databases for dev)
+*.sqlite3
+*.db3
+
+# Secrets managed by other tools
+secrets/
+*.key
+*.pem

@@ -1,0 +1,69 @@
+permissions:
+  PROJET:
+    standard:
+      mattermost_channel_name_pattern: "Projet {base_name}"
+      mattermost_channel_type: "O"
+      authentik_group_name_pattern: "Projet {base_name}"
+    admin:
+      mattermost_channel_name_pattern: "Projet {base_name} Admin"
+      mattermost_channel_type: "P"
+      authentik_group_name_pattern: "Projet {base_name} Admin"
+    outline:
+      collection_name_pattern: "Projet {base_name}"
+      default_access: "read"
+      admin_access: "read_write"
+    brevo:
+      list_name_pattern: "Projet {base_name}"
+      folder_name: "projets" # Placeholder, user should update
+    # No nocodb section for PROJET as requested
+    vaultwarden:
+      collection_name_pattern: "Projet {base_name}"
+    mattermost_board:
+      create: true
+      board_name_pattern: "{base_name}"
+
+  ANTENNE:
+    standard:
+      mattermost_channel_name_pattern: "Antenne {base_name}"
+      mattermost_channel_type: "O"
+      authentik_group_name_pattern: "Antenne {base_name}"
+    admin:
+      mattermost_channel_name_pattern: "Antenne {base_name} Admin"
+      mattermost_channel_type: "P"
+      authentik_group_name_pattern: "Antenne {base_name} Admin"
+    outline:
+      collection_name_pattern: "Antenne {base_name}"
+      default_access: "read"
+      admin_access: "read_write"
+    brevo:
+      list_name_pattern: "Antenne {base_name}"
+      folder_name: "antennes" # Placeholder, user should update
+    nocodb:
+      base_title_pattern: "Antenne {base_name}"
+      default_access: "viewer"
+      admin_access: "owner"
+    vaultwarden:
+      collection_name_pattern: "Antenne {base_name}"
+
+  POLES: # Nom de catégorie au pluriel
+    standard:
+      mattermost_channel_name_pattern: "Pole {base_name}"
+      mattermost_channel_type: "P" # Canal standard privé pour Pôles
+      authentik_group_name_pattern: "Pole {base_name}"
+    admin:
+      mattermost_channel_name_pattern: "Pole {base_name} Admin"
+      mattermost_channel_type: "P"
+      authentik_group_name_pattern: "Pole {base_name} Admin"
+    outline:
+      collection_name_pattern: "Pole {base_name}"
+      default_access: "read"
+      admin_access: "read_write"
+    brevo:
+      list_name_pattern: "Pole {base_name}"
+      folder_name: "poles" # Placeholder, user should update
+    nocodb:
+      base_title_pattern: "Pole {base_name}"
+      default_access: "editor"
+      admin_access: "owner"
+    vaultwarden:
+      collection_name_pattern: "Pole {base_name}"
