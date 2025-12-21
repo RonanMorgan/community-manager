@@ -635,7 +635,7 @@ class TestMartyBot(unittest.TestCase):
             summary_call_found = False
             for call_args_tuple in self.bot.envoyer_message.call_args_list:
                 message_text = call_args_tuple[0][1]
-                if "Résumé de Mise à jour (upsert) des droits" in message_text:
+                if "Résumé global de la Mise à jour (upsert)" in message_text:
                     summary_call_found = True
                     break
             self.assertTrue(summary_call_found, "Summary message for upsert not found.")
@@ -684,7 +684,7 @@ class TestMartyBot(unittest.TestCase):
             summary_call_found = False
             for call_args_tuple in self.bot.envoyer_message.call_args_list:
                 message_text = call_args_tuple[0][1]
-                if "Résumé de Suppression/synchronisation des droits" in message_text:
+                if "Résumé global de la Suppression/synchronisation" in message_text:
                     summary_call_found = True
                     break
             self.assertTrue(summary_call_found, "Summary message for full sync/remove not found.")
