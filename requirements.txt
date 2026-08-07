@@ -1,5 +1,7 @@
+# --- Runtime deps kept from the legacy bot (still needed by clients/, config/, scripts/maintenance/) ---
 requests
-websockets
 python-dotenv
 PyYAML
-markdown2
+
+# NOTE for the next agent: this file will need additions once the web app stack is chosen
+# (web framework, ORM/DB driver, OIDC client library, etc.). See CLAUDE.md.

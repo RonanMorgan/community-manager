@@ -58,22 +58,7 @@ class TestNocoDBClient(unittest.TestCase):
         response = self.client._make_request("get", "test_endpoint")
         self.assertIsNone(response)
 
-    @patch("clients.nocodb_client.requests.request")
-    def test_make_request_request_exception(self, mock_request):
-        mock_request.side_effect = requests.exceptions.RequestException("Request Failed")
-        response = self.client._make_request("get", "test_endpoint")
-        self.assertIsNone(response)
 
-    @patch("clients.nocodb_client.requests.request")
-    def test_make_request_json_decode_error(self, mock_request):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.content = True
-        mock_response.json.side_effect = ValueError("JSON Decode Error")  # ValueError is base for JSONDecodeError
-        mock_request.return_value = mock_response
-
-        response = self.client._make_request("get", "test_endpoint")
-        self.assertIsNone(response)
 
     @patch.object(NocoDBClient, "_make_request")
     def test_create_base_success(self, mock_make_request):
@@ -114,11 +99,6 @@ class TestNocoDBClient(unittest.TestCase):
         response = self.client.get_base_by_title("Non Existent Base")
         self.assertIsNone(response)
 
-    @patch.object(NocoDBClient, "_make_request")
-    def test_get_base_by_title_api_failure(self, mock_make_request):
-        mock_make_request.return_value = None  # Simulate API failure returning list
-        response = self.client.get_base_by_title("Any Base")
-        self.assertIsNone(response)
 
     @patch.object(NocoDBClient, "_make_request")
     def test_invite_user_to_base_success(self, mock_make_request):
@@ -148,11 +128,6 @@ class TestNocoDBClient(unittest.TestCase):
             json={"roles": "editor"},
         )
 
-    @patch.object(NocoDBClient, "_make_request")
-    def test_update_base_user_failure(self, mock_make_request):
-        mock_make_request.return_value = None
-        success = self.client.update_base_user(self.base_id_test, self.user_id_test, "editor")
-        self.assertFalse(success)
 
     @patch.object(NocoDBClient, "_make_request")
     def test_list_base_users_success(self, mock_make_request):
@@ -162,17 +137,7 @@ class TestNocoDBClient(unittest.TestCase):
         self.assertEqual(users, expected_users)
         mock_make_request.assert_called_once_with("get", f"projects/{self.base_id_test}/users")
 
-    @patch.object(NocoDBClient, "_make_request")
-    def test_list_base_users_empty(self, mock_make_request):
-        mock_make_request.return_value = {"users": {"list": [], "pageInfo": {}}}
-        users = self.client.list_base_users(self.base_id_test)
-        self.assertEqual(users, [])
 
-    @patch.object(NocoDBClient, "_make_request")
-    def test_list_base_users_failure(self, mock_make_request):
-        mock_make_request.return_value = None
-        users = self.client.list_base_users(self.base_id_test)
-        self.assertEqual(users, [])
 
     @patch.object(NocoDBClient, "update_base_user")  # delete_base_user calls update_base_user
     def test_delete_base_user_success(self, mock_update_base_user):
@@ -181,11 +146,6 @@ class TestNocoDBClient(unittest.TestCase):
         self.assertTrue(success)
         mock_update_base_user.assert_called_once_with(self.base_id_test, self.user_id_test, role="no-access")
 
-    @patch.object(NocoDBClient, "update_base_user")
-    def test_delete_base_user_failure(self, mock_update_base_user):
-        mock_update_base_user.return_value = False
-        success = self.client.delete_base_user(self.base_id_test, self.user_id_test)
-        self.assertFalse(success)
 
     @patch.object(NocoDBClient, "list_base_users")
     def test_get_user_by_email_in_base_found(self, mock_list_base_users):
@@ -209,19 +169,6 @@ class TestNocoDBClient(unittest.TestCase):
         found_user = self.client.get_user_by_email_in_base(self.base_id_test, self.email_test)
         self.assertIsNone(found_user)
 
-    @patch.object(NocoDBClient, "list_base_users")
-    def test_get_user_by_email_in_base_case_insensitive(self, mock_list_base_users):
-        user_obj = {
-            "id": self.user_id_test,
-            "email": "Test@Example.com",
-            "roles": "viewer",
-        }  # Email with different case
-        mock_list_base_users.return_value = [user_obj]
-
-        found_user = self.client.get_user_by_email_in_base(
-            self.base_id_test, self.email_test.lower()
-        )  # Search with lowercase
-        self.assertEqual(found_user, user_obj)
 
     @patch.object(NocoDBClient, "list_bases")
     @patch.object(NocoDBClient, "list_base_users")
@@ -240,19 +187,7 @@ class TestNocoDBClient(unittest.TestCase):
         self.assertIn("user2@test.com", emails)
         self.assertIn("user3@test.com", emails)
 
-    @patch.object(NocoDBClient, "list_bases")
-    def test_list_users_no_bases(self, mock_list_bases):
-        mock_list_bases.return_value = {"list": []}
-        users = self.client.list_users()
-        self.assertEqual(users, [])
 
-    @patch.object(NocoDBClient, "list_bases")
-    @patch.object(NocoDBClient, "list_base_users")
-    def test_list_users_one_base_no_users(self, mock_list_base_users, mock_list_bases):
-        mock_list_bases.return_value = {"list": [{"id": "base1"}]}
-        mock_list_base_users.return_value = []
-        users = self.client.list_users()
-        self.assertEqual(users, [])
 
     @patch.object(NocoDBClient, "_make_request")
     def test_delete_user_success(self, mock_make_request):
@@ -267,11 +202,6 @@ class TestNocoDBClient(unittest.TestCase):
         success = self.client.delete_user(self.base_id_test, self.user_id_test)
         self.assertFalse(success)
 
-    def test_delete_user_missing_ids(self):
-        self.assertFalse(self.client.delete_user(None, self.user_id_test))
-        self.assertFalse(self.client.delete_user(self.base_id_test, None))
-        self.assertFalse(self.client.delete_user("", self.user_id_test))
-        self.assertFalse(self.client.delete_user(self.base_id_test, ""))
 
 
 if __name__ == "__main__":

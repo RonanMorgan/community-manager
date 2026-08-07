@@ -1,8 +1,32 @@
 import json
 import logging  # Added logging
+import re
 
 import requests
-from libraries.services.mattermost import slugify
+
+
+def slugify(text: str) -> str:
+    """
+    Simple slugify function:
+    - Convert to lowercase
+    - Replace spaces and underscores with hyphens
+    - Remove characters that are not alphanumeric or hyphens
+    - Ensure it doesn't start or end with a hyphen
+    - Truncate to 64 characters (Mattermost limit for channel name)
+    - Return a default name if the slug becomes empty
+    """
+    text = str(text).lower()
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"[^a-z0-9-]+", "-", text)
+    text = text.strip("-")
+    text = re.sub(r"-+", "-", text)
+
+    if len(text) > 64:
+        text = text[:64].strip("-")
+
+    if not text or text == "-":
+        return "default-channel-name"
+    return text
 
 
 # Removed direct import of config

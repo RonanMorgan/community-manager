@@ -6,14 +6,14 @@ import sys
 # Utile si le script est exécuté par cron où PYTHONPATH n'est pas toujours configuré.
 current_script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_script_dir)  #
-# Les imports comme `from libraries...` nécessitent que `` soit dans sys.path.
+# Les imports comme `from scripts.maintenance...` nécessitent que la racine soit dans sys.path.
 sys.path.insert(0, project_root)
 
 try:
     from clients.authentik_client import AuthentikClient
     from dotenv import load_dotenv
-    from libraries.brevo_user_sync import sync_authentik_users_to_brevo_list
-#    from libraries.user_management import remove_inactive_users
+    from scripts.maintenance.brevo_user_sync import sync_authentik_users_to_brevo_list
+#    from scripts.maintenance.user_management import remove_inactive_users
 except ImportError as e:
     logging.basicConfig(level=logging.ERROR)
     logging.error(

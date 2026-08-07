@@ -4,9 +4,8 @@ max-line-length = 119
 # E501 : ligne too long
 extend-ignore = E501, E203
 per-file-ignores =
-    app/bot.py:E501
-    # If other files needed specific ignores, they'd go here:
-    # app/another_module.py:W123,E456
+    # If files need specific ignores, they'd go here:
+    # clients/some_client.py:W123,E456
     # tests/some_test.py:F401
 
 # Default excludes + any custom ones if needed

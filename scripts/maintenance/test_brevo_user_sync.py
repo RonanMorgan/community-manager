@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from libraries.brevo_user_sync import sync_authentik_users_to_brevo_list
+from scripts.maintenance.brevo_user_sync import sync_authentik_users_to_brevo_list
 
 # Define fake environment variables for the test duration
 FAKE_BREVO_API_URL = "http://fake-brevo-url.com"
@@ -19,8 +19,8 @@ FAKE_BREVO_LIST_ID = "123"
     },
 )
 class TestAuthentikBrevoSync(unittest.TestCase):
-    @patch("libraries.brevo_user_sync.BrevoClient")
-    @patch("libraries.brevo_user_sync.logging")
+    @patch("scripts.maintenance.brevo_user_sync.BrevoClient")
+    @patch("scripts.maintenance.brevo_user_sync.logging")
     def test_sync_success_upsert_users(self, mock_logging, MockBrevoClient):
         """
         Tests the successful upserting of a list of users.
@@ -84,7 +84,7 @@ class TestAuthentikBrevoSync(unittest.TestCase):
         # Check final summary log
         mock_logging.info.assert_any_call("Finished syncing users to Brevo. Success: 4, Failed: 0.")
 
-    @patch("libraries.brevo_user_sync.BrevoClient")
+    @patch("scripts.maintenance.brevo_user_sync.BrevoClient")
     def test_sync_updates_existing_user(self, MockBrevoClient):
         """
         Tests that the sync function attempts to add a user even if they are conceptually 'existing'.
@@ -104,8 +104,8 @@ class TestAuthentikBrevoSync(unittest.TestCase):
             attributes={"CITY": "Lyon"},
         )
 
-    @patch("libraries.brevo_user_sync.BrevoClient")
-    @patch("libraries.brevo_user_sync.logging")
+    @patch("scripts.maintenance.brevo_user_sync.BrevoClient")
+    @patch("scripts.maintenance.brevo_user_sync.logging")
     def test_sync_add_user_fails_in_brevo(self, mock_logging, MockBrevoClient):
         """
         Tests how the system behaves when the Brevo API call to add a contact fails.
@@ -129,7 +129,7 @@ class TestAuthentikBrevoSync(unittest.TestCase):
         mock_logging.info.assert_any_call("Finished syncing users to Brevo. Success: 0, Failed: 1.")
 
     @patch.dict(os.environ, {"BREVO_AUTHENTIK_USERS_LIST_ID": "not-an-int"})
-    @patch("libraries.brevo_user_sync.logging")
+    @patch("scripts.maintenance.brevo_user_sync.logging")
     def test_sync_invalid_brevo_list_id_env(self, mock_logging: MagicMock):
         """
         Tests that the script exits gracefully if the Brevo List ID is not a valid integer.
@@ -138,7 +138,7 @@ class TestAuthentikBrevoSync(unittest.TestCase):
         mock_logging.error.assert_any_call("Invalid BREVO_AUTHENTIK_USERS_LIST_ID: 'not-an-int'. Must be an integer.")
 
     @patch.dict(os.environ, {"BREVO_API_URL": ""})
-    @patch("libraries.brevo_user_sync.logging")
+    @patch("scripts.maintenance.brevo_user_sync.logging")
     def test_sync_missing_env_var(self, mock_logging: MagicMock):
         """
         Tests that the script exits gracefully if a required environment variable is missing.
@@ -149,8 +149,8 @@ class TestAuthentikBrevoSync(unittest.TestCase):
             "BREVO_API_URL, BREVO_API_KEY, BREVO_AUTHENTIK_USERS_LIST_ID"
         )
 
-    @patch("libraries.brevo_user_sync.BrevoClient")
-    @patch("libraries.brevo_user_sync.logging")
+    @patch("scripts.maintenance.brevo_user_sync.BrevoClient")
+    @patch("scripts.maintenance.brevo_user_sync.logging")
     def test_no_authentik_users(self, mock_logging: MagicMock, MockBrevoClient: MagicMock):
         """
         Tests that the function handles an empty list of Authentik users gracefully.
