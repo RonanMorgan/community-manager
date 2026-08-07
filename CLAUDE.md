@@ -51,6 +51,12 @@ bases NocoDB, collections Vaultwarden) en se basant uniquement sur l'état
 
 ## 2. État d'avancement (ce qui a été fait dans cette passe)
 
+**Mise à jour** : la V0 de l'application web est maintenant implémentée (voir
+§6 pour le détail complet — architecture technique, ce qui est fait, ce qui
+reste à faire, comment lancer le tout). Le reste de cette section décrit la
+première passe (nettoyage uniquement, pas encore d'appli web) — gardée telle
+quelle pour l'historique.
+
 Cette première itération a fait du **nettoyage et de la préservation**, pas
 encore d'écriture de la nouvelle application web. Concrètement :
 
@@ -271,23 +277,188 @@ des cas, sauf logique de contrôle réellement complexe (cf. Vaultwarden).
 
 ---
 
-## 6. Décisions ouvertes (non tranchées, à décider avec l'utilisateur)
+## 6. V0 de l'application web — ce qui a été implémenté
+
+### 6.1 Stack technique (décisions prises)
+
+- **Backend** : Python / **FastAPI**, synchrone, pour réutiliser `clients/`
+  tel quel (aucun des clients n'est async).
+- **Frontend** : **pas de framework JS séparé**. Pages rendues côté serveur
+  avec Jinja2 (`backend/templates/`) + un peu de JS vanilla
+  (`backend/static/app.js`) pour l'interactivité (édition inline, modales,
+  appels `fetch` vers l'API JSON). Choix fait pour garder le
+  `docker-compose` à un seul conteneur applicatif (pas de build frontend
+  séparé, pas de conteneur nginx supplémentaire).
+- **Base de données** : **PostgreSQL** en production/docker-compose, SQLite
+  supporté aussi (utilisé par les tests, et utilisable en dev local sans
+  Docker) — géré via `DATABASE_URL` (SQLAlchemy détecte le dialecte depuis
+  l'URL).
+- **ORM** : SQLAlchemy 2.x (style `Mapped[...]`).
+- **Auth** : **Authlib** pour le flow OIDC contre Authentik.
+- **Tables créées via `Base.metadata.create_all()`** au démarrage (pas de
+  migration Alembic pour cette V0 — voir limite connue en §6.5).
+
+### 6.2 Ce qui est implémenté
+
+- **Page `/applications`** : liste les applications Authentik en direct via
+  `AuthentikClient.list_applications()` (nouvelle méthode ajoutée au
+  client). Aucune donnée stockée en DB pour cette page.
+- **Page `/groups`** : tableau groupes × outils. Une seule colonne
+  fonctionnelle en V0 : **Outline**. Chaque cellule affiche le nom éditable
+  de la ressource (`GroupResource.display_name`) ; éditer et sortir du
+  champ déclenche `PATCH /api/group-resources/{id}` qui renomme la vraie
+  collection Outline (`OutlineClient.update_collection_name()`, nouvelle
+  méthode ajoutée) puis met à jour la DB.
+- **Bouton "Créer un groupe"** → modale avec nom + cases à cocher par outil
+  (seule "Outline" est cochée/activable en V0 ; les autres sont visibles
+  mais désactivées avec la mention "bientôt disponible", pour que l'UI
+  n'ait pas à être retouchée quand un outil est ajouté). `POST /api/groups`
+  crée le `Group`, une `GroupResource` par outil coché, et **provisionne
+  réellement la collection Outline** via `OutlineClient.create_group()`. Si
+  Outline échoue ou n'est pas configuré, la ressource est créée avec
+  `status=error` plutôt que de faire échouer toute la requête — l'admin
+  voit l'erreur dans le tableau (badge rouge) plutôt qu'un groupe qui
+  disparaît silencieusement.
+- **Clic sur une ressource "active"** → modale listant les utilisateurs
+  **réels de la collection Outline correspondante**, récupérés en direct à
+  chaque ouverture (`GET /api/group-resources/{id}/users`, jamais depuis la
+  DB) avec leur droit (`read` / `read_write`), grâce à la nouvelle méthode
+  `OutlineClient.get_collection_memberships_with_permission()` (les
+  méthodes existantes ne remontaient pas le champ `permission`).
+- **Ajout d'utilisateur dans la modale** (`POST .../users`) : droit
+  `read` par défaut, modifiable dans un `<select>` avant envoi. Si l'email
+  ne correspond à aucun utilisateur Outline (pas encore provisionné via
+  OIDC), l'API renvoie une **erreur 422 explicite** ("aucun utilisateur
+  Outline trouvé pour l'email ... doit s'être connecté au moins une fois")
+  plutôt qu'un échec silencieux — décision produit actée.
+- **Retrait d'utilisateur** (`DELETE .../users/{id}`) : ajouté en
+  complément naturel de l'ajout (pas explicitement demandé mais
+  symétrique et déjà supporté par `OutlineClient.remove_user_from_collection`).
+- **`audit_logs`** : chaque action admin (création de groupe, provisioning
+  de ressource — succès ou échec —, renommage, ajout/retrait d'utilisateur)
+  écrit une ligne (`backend/routers/api.py::_log()`). Pas encore de page
+  pour la consulter (à faire si utile).
+- **Authentification OIDC togglable** : `AUTH_ENABLED=false` (défaut) →
+  toute requête est traitée comme un admin factice
+  (`config.DEV_FAKE_ADMIN_EMAIL`), aucun appel à Authentik. `AUTH_ENABLED=true`
+  → vrai flow OIDC (Authlib) contre Authentik ; l'admin est déterminé par
+  l'appartenance au groupe Authentik `config.ADMIN_GROUP_NAME` (lu depuis le
+  claim `groups` renvoyé par l'userinfo/ID token — **à vérifier/adapter
+  selon la config réelle du scope OIDC dans Authentik**, voir §6.5).
+
+### 6.3 Fichiers ajoutés
+
+```
+backend/
+  main.py                 Entrée FastAPI (lifespan, montage routers/static)
+  database.py              Engine SQLAlchemy + session (get_db)
+  models.py                 Group, GroupResource, AuditLog (voir §3-bis pour le schéma)
+  schemas.py                 Schémas Pydantic (requêtes/réponses API)
+  auth.py                     OIDC via Authlib + toggle AUTH_ENABLED
+  outline_service.py          Service layer entre les routes et OutlineClient
+                               (contient PROVISIONERS : registre tool -> fonction
+                               de création, pour ajouter un outil sans toucher aux routes)
+  routers/
+    pages.py                    GET /, /applications, /groups (HTML)
+    auth_routes.py               /login, /auth/callback, /logout
+    api.py                        API JSON (CRUD groupes/ressources/utilisateurs)
+  templates/                base.html, applications.html, groups.html (Jinja2)
+  static/                   style.css, app.js (vanilla JS, pas de build step)
+  tests/                    conftest.py + 4 fichiers de tests (17 tests)
+
+Dockerfile                 Image du backend (python:3.12-slim + uvicorn)
+docker-compose.yml         Services `db` (postgres:16-alpine) + `backend`
+```
+
+Modifications aux fichiers existants :
+- `clients/outline_client.py` : + `get_collection_memberships_with_permission()`,
+  + `update_collection_name()`
+- `clients/authentik_client.py` : + `list_applications()`
+- `config/__init__.py` : + variables DB/auth/OIDC (voir `.env.example`)
+- `requirements.txt` : + fastapi, uvicorn, sqlalchemy, psycopg2-binary,
+  jinja2, python-multipart, authlib, itsdangerous, httpx, email-validator
+
+### 6.4 Comment lancer l'application
+
+**Avec Docker (recommandé)** :
+```bash
+cp .env.example .env
+# éditer .env : au minimum OUTLINE_URL / OUTLINE_TOKEN pour que "Créer un
+# groupe" provisionne réellement une collection. AUTH_ENABLED=false par
+# défaut (pas besoin de configurer OIDC pour tester en local).
+docker compose up --build
+# -> http://localhost:8000/groups
+```
+
+**Sans Docker (dev)** :
+```bash
+cp .env.example .env
+# laisser DATABASE_URL=sqlite:///./community_manager.db (valeur par défaut)
+pip install -r requirements.txt
+uvicorn backend.main:app --reload
+```
+
+**Tests** :
+```bash
+PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
+# 134 passed
+```
+
+### 6.5 Limites connues / à traiter ensuite
+
+- **Migrations** : les tables sont créées par `Base.metadata.create_all()`
+  au démarrage, pas de vraie migration (Alembic). Suffisant pour une V0 sur
+  base vide ; à corriger avant toute évolution de schéma sur une base qui
+  contient déjà des données.
+- **OIDC — claim `groups`** : le code suppose que le token/userinfo
+  Authentik renvoie un claim `groups` listant les groupes de l'utilisateur.
+  C'est le comportement par défaut d'Authentik **si le scope `groups` (ou
+  équivalent) est activé sur le Provider OIDC** — à vérifier/configurer
+  côté Authentik lors de la mise en place réelle, sinon `require_admin`
+  refusera tout le monde. Pas testé contre une vraie instance Authentik
+  dans cette passe (pas d'accès à une instance depuis l'environnement de
+  développement) — **à valider en priorité en conditions réelles**.
+- **Synchro DB ↔ Mattermost/Authentik** (§4-bis) : toujours pas implémentée.
+  La V0 ne fait que Outline, en écriture directe (DB → Outline) au moment
+  de l'action admin. Aucun job de réconciliation périodique.
+- **Autres outils (Mattermost, Brevo, Vaultwarden)** : le schéma et l'UI
+  sont prêts (`ToolName` enum, checkboxes désactivées, colonne de tableau
+  facile à ajouter), mais aucun provisioner n'est branché. Pour en ajouter
+  un : écrire l'équivalent de `outline_service.py` pour l'outil, l'ajouter
+  au dict `PROVISIONERS`, et ajouter le tool à `functional_tools` /
+  `table_tools` dans `backend/routers/pages.py`.
+- **Page non-admin** : pas implémentée (V0 = pages admin uniquement, comme
+  demandé). `require_admin` renvoie 403 à tout utilisateur authentifié non
+  admin.
+- **`docker-compose.yml` non testé avec un vrai daemon Docker** dans cet
+  environnement (pas de Docker disponible côté agent). Le serveur a en
+  revanche été testé réellement avec `uvicorn` (la même commande que le
+  `CMD` du Dockerfile) contre les dépendances exactes de `requirements.txt`
+  installées dans un venv vierge — donc l'appli elle-même est validée, mais
+  **le premier `docker compose up --build` reste à faire par vous**.
+- **`class Config` Pydantic dépréciée** : déjà migré vers `ConfigDict` dans
+  `backend/schemas.py`. Pas de dette technique connue à ce sujet.
+
+
+
+## 7. Décisions ouvertes (non tranchées, à décider avec l'utilisateur)
 
 Ne pas trancher unilatéralement ces points sans validation :
 
-1. **Stack backend** (framework web + langage). Le code conservé est en
-   Python (clients synchrones `requests`) — un backend Python (FastAPI,
-   Django...) permettrait de réutiliser `clients/` tel quel ; un autre choix
-   de langage impliquerait de réécrire les clients.
-2. **Stack frontend** et niveau d'intégration (SSR, SPA...).
-3. **Moteur de base de données** et schéma (voir §4-bis pour les
-   contraintes fonctionnelles à respecter).
-4. **Bibliothèque OIDC** côté appli pour le login via Authentik.
-5. **Définition du rôle "admin"** côté nouvelle appli : l'ancien bot
-   définissait l'admin par le rôle `system_admin` de Mattermost
-   (`user_right_manager.is_admin`, supprimé). Ce critère n'a plus de sens
-   une fois que le login se fait via OIDC/Authentik — il faudra probablement
-   définir l'admin par appartenance à un groupe Authentik dédié, exposé via
-   les claims OIDC. À valider.
+1. ~~Stack backend~~ **Tranché** : FastAPI, voir §6.1.
+2. ~~Stack frontend~~ **Tranché pour la V0** : Jinja2 + JS vanilla, voir
+   §6.1. Une vraie SPA (React/Vue) reste possible plus tard si le besoin
+   d'interactivité grandit, mais n'était pas nécessaire pour ce périmètre.
+3. ~~Moteur de base de données~~ **Tranché** : PostgreSQL (docker-compose),
+   SQLite supporté pour les tests/dev.
+4. ~~Bibliothèque OIDC~~ **Tranché** : Authlib. Non testé contre une
+   vraie instance Authentik — voir limite en §6.5.
+5. **Définition du rôle "admin"** : tranché en principe (groupe Authentik
+   dédié, `ADMIN_GROUP_NAME`, lu depuis le claim `groups`) mais **pas
+   validé en conditions réelles** — voir §6.5.
 6. **Fréquence/déclenchement des synchros DB ↔ Mattermost/Authentik**
-   (cf. §4-bis).
+   (cf. §4-bis) : toujours pas implémenté, pas commencé.
+7. **Page non-admin** (visualisation seule pour un utilisateur normal) :
+   pas implémentée, à spécifier si toujours souhaitée après cette V0 admin.
+8. **Consultation des `audit_logs`** : les logs sont écrits mais il n'y a
+   pas encore de page pour les consulter. À faire si utile.

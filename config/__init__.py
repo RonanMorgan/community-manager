@@ -55,3 +55,26 @@ VAULTWARDEN_API_PASSWORD = os.getenv("VAULTWARDEN_API_PASSWORD")
 
 # --- General ---
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# --- Web app: database ---
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./community_manager.db")
+
+# --- Web app: authentication ---
+# When AUTH_ENABLED=false (default for local dev), OIDC login is bypassed entirely
+# and every request is treated as an authenticated admin (DEV_FAKE_ADMIN_EMAIL).
+# Set AUTH_ENABLED=true to require a real OIDC login against Authentik.
+AUTH_ENABLED = os.getenv("AUTH_ENABLED", "false").lower() == "true"
+DEV_FAKE_ADMIN_EMAIL = os.getenv("DEV_FAKE_ADMIN_EMAIL", "dev-admin@localhost")
+
+SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-insecure-secret-change-me")
+
+# OIDC client registered in Authentik for THIS web app (distinct from AUTHENTIK_TOKEN,
+# which is a service API token used by the clients/ to call the Authentik REST API).
+OIDC_CLIENT_ID = os.getenv("OIDC_CLIENT_ID")
+OIDC_CLIENT_SECRET = os.getenv("OIDC_CLIENT_SECRET")
+OIDC_SERVER_METADATA_URL = os.getenv("OIDC_SERVER_METADATA_URL")  # e.g. {AUTHENTIK_URL}/application/o/<slug>/.well-known/openid-configuration
+OIDC_REDIRECT_URI = os.getenv("OIDC_REDIRECT_URI", "http://localhost:8000/auth/callback")
+
+# Name of the Authentik group whose members are considered admins of this app.
+# Checked against the `groups` claim returned by Authentik's OIDC userinfo/ID token.
+ADMIN_GROUP_NAME = os.getenv("ADMIN_GROUP_NAME", "community-manager-admins")

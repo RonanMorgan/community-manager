@@ -429,6 +429,124 @@ class OutlineClient:
                 logging.warning(f"Could not fetch details for user ID '{user_id}' in collection '{collection_id}'.")
         return member_details
 
+    def get_collection_memberships_with_permission(self, collection_id: str, limit: int = 100) -> list[dict] | None:
+        """
+        Retrieves collection members WITH their permission level (e.g. 'read', 'read_write'),
+        by combining the collections.memberships pagination with user details.
+        Unlike get_collection_members()/get_collection_members_with_details(), this keeps the
+        `permission` field from the membership object instead of discarding it.
+
+        :param collection_id: The ID of the collection.
+        :param limit: The number of items to return per page. Max 100.
+        :return: A list of dicts like {"user": {...}, "permission": "read"}, or None on error.
+        """
+        if not collection_id:
+            logging.error("Collection ID must be provided to get collection memberships.")
+            return None
+
+        api_url = f"{self.base_url}/api/collections.memberships"
+        memberships_with_permission: list[dict] = []
+        offset = 0
+        page_count = 0
+
+        try:
+            while True:
+                page_count += 1
+                payload = {
+                    "id": collection_id,
+                    "offset": offset,
+                    "limit": min(limit, 100),
+                }
+                response = requests.post(api_url, headers=self.headers, json=payload)
+                response.raise_for_status()
+                response_data = response.json()
+
+                data_block = response_data.get("data", {})
+                memberships = data_block.get("memberships", [])
+                users_by_id = {u["id"]: u for u in data_block.get("users", [])}
+
+                if not memberships:
+                    break
+
+                for membership in memberships:
+                    user_id = membership.get("userId")
+                    if not user_id:
+                        continue
+                    user = users_by_id.get(user_id) or self.get_user_by_id(user_id)
+                    if not user:
+                        logging.warning(
+                            f"Could not resolve user ID '{user_id}' in collection '{collection_id}' membership."
+                        )
+                        continue
+                    memberships_with_permission.append(
+                        {"user": user, "permission": membership.get("permission")}
+                    )
+
+                pagination_info = response_data.get("pagination", {})
+                response_limit = pagination_info.get("limit", payload["limit"])
+                if len(memberships) < response_limit:
+                    break
+
+                offset += len(memberships)
+                if offset >= 10000:
+                    logging.warning(
+                        f"Safety break while fetching memberships for collection {collection_id} "
+                        f"at offset {offset}."
+                    )
+                    break
+
+            return memberships_with_permission
+
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error fetching memberships for Outline collection ID '{collection_id}': "
+                f"{e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed while fetching memberships for Outline collection ID '{collection_id}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(
+                f"Error decoding JSON from Outline collections.memberships response for collection ID "
+                f"'{collection_id}': {e}"
+            )
+            return None
+
+    def update_collection_name(self, collection_id: str, name: str) -> bool:
+        """
+        Renames an existing Outline collection.
+        :param collection_id: The ID of the collection to rename.
+        :param name: The new name for the collection.
+        :return: True if successful, False otherwise.
+        """
+        if not collection_id or not name:
+            logging.error("Collection ID and name must be provided to rename a collection.")
+            return False
+
+        api_url = f"{self.base_url}/api/collections.update"
+        payload = {"id": collection_id, "name": name}
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            response_data = response.json()
+            if response_data.get("data"):
+                logging.info(f"Successfully renamed Outline collection '{collection_id}' to '{name}'.")
+                return True
+            logging.warning(f"Outline collections.update for '{collection_id}' returned no data: {response.text}")
+            return False
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error renaming Outline collection '{collection_id}': {e.response.status_code} - {e.response.text}"
+            )
+            return False
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request exception renaming Outline collection '{collection_id}': {e}")
+            return False
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from Outline collections.update response: {e}")
+            return False
+
     def remove_user_from_collection(self, collection_id: str, user_id: str) -> bool:
         """
         Removes a user from an Outline collection.
