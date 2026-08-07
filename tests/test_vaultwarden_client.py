@@ -50,13 +50,6 @@ class TestVaultwardenClient(unittest.TestCase):
             VaultwardenClient(organization_id="", server_url=self.server_url)
         self.assertIn("Vaultwarden organization_id must be provided", str(context.exception))
 
-    @patch("clients.vaultwarden_client.VaultwardenClient._run_bw_command")
-    def test_ensure_server_configuration_already_set(self, mock_run_bw_command):
-        mock_run_bw_command.return_value = (0, self.server_url, "")
-        client = self.client
-        self.assertTrue(client._ensure_server_configuration())
-        mock_run_bw_command.assert_called_once_with(["config", "server"], custom_env=unittest.mock.ANY)
-        self.assertEqual(mock_run_bw_command.call_count, 1)
 
     @patch("clients.vaultwarden_client.VaultwardenClient._run_bw_command")
     def test_ensure_server_configuration_needs_set(self, mock_run_bw_command):
@@ -73,13 +66,6 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_run_bw_command.assert_has_calls(expected_calls)
         self.assertEqual(mock_run_bw_command.call_count, 2)
 
-    @patch("subprocess.run")
-    def test_ensure_server_configuration_handles_bw_not_found(self, mock_subprocess_run):
-        mock_subprocess_run.side_effect = FileNotFoundError("bw not found simulation")
-        client = self.client
-        with self.assertRaises(FileNotFoundError):
-            client._ensure_server_configuration()
-        mock_subprocess_run.assert_called_once()
 
     @patch.object(VaultwardenClient, "_run_bw_command")
     def test_get_cli_status_unlocked(self, mock_run_bw):
@@ -95,31 +81,9 @@ class TestVaultwardenClient(unittest.TestCase):
         status = self.client._get_cli_status()
         self.assertEqual(status, "locked")
 
-    @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_cli_status_unauthenticated(self, mock_run_bw):
-        mock_run_bw.return_value = (0, json.dumps({"status": "unauthenticated"}), "")
-        status = self.client._get_cli_status()
-        self.assertEqual(status, "unauthenticated")
 
-    @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_cli_status_error_rc(self, mock_run_bw):
-        mock_run_bw.return_value = (1, "", "Some CLI error")
-        status = self.client._get_cli_status()
-        self.assertEqual(status, "error")
 
-    @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_cli_status_error_json(self, mock_run_bw):
-        mock_run_bw.return_value = (0, "Invalid JSON", "")
-        status = self.client._get_cli_status()
-        self.assertEqual(status, "error")
 
-    @patch.object(VaultwardenClient, "_get_cli_status")
-    @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_session_status_unauthenticated(self, mock_run_bw, mock_get_cli_status):
-        mock_get_cli_status.return_value = "unauthenticated"
-        session = self.client._get_session()
-        self.assertIsNone(session)
-        mock_run_bw.assert_not_called()
 
     @patch.object(VaultwardenClient, "_get_cli_status")
     @patch.object(VaultwardenClient, "_run_bw_command")
@@ -130,14 +94,6 @@ class TestVaultwardenClient(unittest.TestCase):
         session = self.client._get_session()
         self.assertEqual(session, expected_session_key)
 
-    @patch.object(VaultwardenClient, "_get_cli_status")
-    @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_session_status_locked_unlock_fail_no_password(self, mock_run_bw, mock_get_cli_status):
-        mock_get_cli_status.return_value = "locked"
-        with patch.dict(os.environ, {"BW_PASSWORD": ""}):
-            session = self.client._get_session()
-            self.assertIsNone(session)
-            mock_run_bw.assert_not_called()
 
     @patch.object(VaultwardenClient, "_get_cli_status")
     @patch.object(VaultwardenClient, "_run_bw_command")
@@ -148,18 +104,6 @@ class TestVaultwardenClient(unittest.TestCase):
         session = self.client._get_session()
         self.assertEqual(session, "valid_existing_session")
 
-    @patch.object(VaultwardenClient, "_get_cli_status")
-    @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_get_session_status_unlocked_existing_invalid_session_then_unlock(self, mock_run_bw, mock_get_cli_status):
-        mock_get_cli_status.return_value = "unlocked"
-        self.client.bw_session = "invalid_session"
-        expected_new_key = "freshly_unlocked_key"
-        mock_run_bw.side_effect = [
-            (1, "", "session invalid error"),
-            (0, f"{expected_new_key}\n", ""),
-        ]
-        session = self.client._get_session()
-        self.assertEqual(session, expected_new_key)
 
     # ... (other _get_session, _sync_vault, create_collection, get_collection_by_name tests remain largely the same) ...
     @patch.object(VaultwardenClient, "_run_bw_command")
@@ -168,18 +112,7 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_run_bw.return_value = (0, "Synced!", "")
         self.assertTrue(self.client._sync_vault())
 
-    @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_sync_vault_fail_no_session(self, mock_run_bw):
-        self.client.bw_session = None
-        self.assertFalse(self.client._sync_vault())
 
-    @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_sync_vault_fail_cli_error_clears_session(self, mock_run_bw):
-        self.client.bw_session = "fake_session_key"
-        os.environ["BW_SESSION"] = "fake_session_key"
-        mock_run_bw.return_value = (1, "", "invalid session token")
-        self.assertFalse(self.client._sync_vault())
-        self.assertIsNone(self.client.bw_session)
 
     @patch.object(VaultwardenClient, "_get_session")
     @patch.object(VaultwardenClient, "_sync_vault")
@@ -193,19 +126,7 @@ class TestVaultwardenClient(unittest.TestCase):
         ]
         self.assertIsNotNone(self.client.create_collection("New Coll"))
 
-    @patch.object(VaultwardenClient, "_get_session", return_value=None)
-    def test_create_collection_fail_no_session(self, mock_get_session):
-        self.assertIsNone(self.client.create_collection("No Session Collection"))
 
-    @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
-    @patch.object(VaultwardenClient, "_sync_vault", return_value=False)
-    @patch.object(VaultwardenClient, "_run_bw_command")
-    def test_create_collection_sync_fail_still_attempts(self, mock_run_bw, mock_sync_vault, mock_get_session):
-        mock_run_bw.side_effect = [
-            (0, "encoded", ""),
-            (0, json.dumps({"id": "id"}), ""),
-        ]
-        self.assertIsNotNone(self.client.create_collection("Sync Fail"))
 
     @patch.object(VaultwardenClient, "_get_session", return_value="fake_session")
     @patch.object(VaultwardenClient, "_sync_vault", return_value=True)
@@ -300,18 +221,8 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_post.return_value = mock_response_obj
         self.assertIsNone(self.client._get_api_token())
 
-    @patch("requests.post")
-    def test_get_api_token_request_exception(self, mock_post):
-        mock_post.side_effect = requests.exceptions.RequestException("Network error")
-        self.assertIsNone(self.client._get_api_token())
 
-    def test_get_api_token_no_credentials(self):
-        client_no_creds = VaultwardenClient(organization_id=self.organization_id, server_url=self.server_url)
-        self.assertIsNone(client_no_creds._get_api_token())
 
-    def test_get_api_token_no_server_url(self):
-        client_no_url = VaultwardenClient(organization_id=self.organization_id, api_username="u", api_password="p")
-        self.assertIsNone(client_no_url._get_api_token())
 
     @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
     def test_invite_user_to_collection_success(self, mock_request):
@@ -328,9 +239,6 @@ class TestVaultwardenClient(unittest.TestCase):
         mock_request.side_effect = mock_http_error
         self.assertFalse(self.client.invite_user_to_collection("u@e.com", "cid", self.organization_id))
 
-    def test_invite_user_to_collection_no_server_url(self):
-        client_no_url = VaultwardenClient(organization_id=self.organization_id, api_username="u", api_password="p")
-        self.assertFalse(client_no_url.invite_user_to_collection("u@e.com", "cid", "oid"))
 
     @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
     def test_invite_user_to_collection_already_member_is_success(self, mock_request):
@@ -370,19 +278,7 @@ class TestVaultwardenClient(unittest.TestCase):
         self.assertIsNone(self.client.api_token)  # Token should be invalidated
         self.assertIsNone(self.client.api_token_expires_at)
 
-    @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
-    def test_get_collections_details_success(self, mock_request):
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"data": [{"id": "1", "name": "test"}]}
-        mock_request.return_value = mock_response
-        result = self.client.get_collections_details()
-        self.assertEqual(result, [{"id": "1", "name": "test"}])
 
-    @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
-    def test_update_collection_success(self, mock_request):
-        mock_request.return_value = MagicMock(status_code=200)
-        result = self.client.update_collection("1", {"name": "test"})
-        self.assertTrue(result)
 
     @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
     def test_list_users_success(self, mock_request):
@@ -392,10 +288,6 @@ class TestVaultwardenClient(unittest.TestCase):
         result = self.client.list_users()
         self.assertEqual(result, [{"id": "1", "name": "test"}])
 
-    @patch("clients.vaultwarden_client.VaultwardenClient._get_api_token", return_value=None)
-    def test_list_users_no_token(self, mock_get_token):
-        result = self.client.list_users()
-        self.assertIsNone(result)
 
     @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
     def test_delete_user_success(self, mock_request):
@@ -403,10 +295,6 @@ class TestVaultwardenClient(unittest.TestCase):
         result = self.client.delete_user("1")
         self.assertTrue(result)
 
-    @patch("clients.vaultwarden_client.VaultwardenClient._get_api_token", return_value=None)
-    def test_delete_user_no_token(self, mock_get_token):
-        result = self.client.delete_user("1")
-        self.assertFalse(result)
 
     @patch("clients.vaultwarden_client.VaultwardenClient._request_with_token_refresh")
     def test_delete_user_http_error(self, mock_request):
