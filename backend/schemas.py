@@ -49,3 +49,11 @@ class ResourceUser(BaseModel):
 class AddUserRequest(BaseModel):
     email: EmailStr
     permission: str = Field(default="read", pattern="^(read|read_write)$")
+
+
+class SyncResult(BaseModel):
+    groups_created: int = 0
+    groups_updated: int = 0
+    resources_matched: int = 0
+    resources_not_found: int = 0
+    errors: list[str] = Field(default_factory=list)

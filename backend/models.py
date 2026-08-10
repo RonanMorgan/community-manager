@@ -39,6 +39,7 @@ class ResourceStatus(str, enum.Enum):
     PENDING = "pending"  # row created, resource not provisioned in the tool yet
     ACTIVE = "active"  # resource exists and is in sync
     ERROR = "error"  # last provisioning/rename attempt failed
+    NOT_FOUND = "not_found"  # synced from Authentik, but no matching resource found in the tool by name
 
 
 class Group(Base):
@@ -46,6 +47,10 @@ class Group(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    # Set when this Group was created (or matched) from an Authentik group during
+    # a synchronization run. NULL for groups created manually before Authentik
+    # sync existed, or if Authentik sync is never used. See CLAUDE.md §4-bis.
+    authentik_group_id: Mapped[str | None] = mapped_column(String, nullable=True, unique=True, index=True)
     created_by: Mapped[str] = mapped_column(String, nullable=False)  # admin email from OIDC claim (no Users table)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[object] = mapped_column(
