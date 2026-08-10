@@ -325,6 +325,46 @@ class AuthentikClient:
         logging.info(f"Built email-to-PK map for {len(email_to_pk_map)} users from Authentik.")
         return email_to_pk_map
 
+    def list_applications(self) -> list[dict]:
+        """
+        Retrieves the list of applications configured in Authentik (used for the
+        "Applications" page: what the currently logged-in user has access to).
+        Note: this returns ALL applications visible to the API token used, Authentik's
+        own UI applies per-user visibility based on bindings/policies. Filtering by
+        the logged-in user's access is not implemented client-side here.
+        :return: A list of application dicts (each with at least 'name', 'slug',
+            'meta_launch_url', 'meta_icon'), or an empty list on error.
+        """
+        api_url = f"{self.base_url}/api/v3/core/applications/"
+        applications: list[dict] = []
+        current_url = api_url
+
+        while current_url:
+            try:
+                response = requests.get(current_url, headers=self.headers)
+                response.raise_for_status()
+                data = response.json()
+
+                applications.extend(data.get("results", []))
+
+                pagination = data.get("pagination", {})
+                next_page = pagination.get("next")
+                current_url = f"{api_url}?page={next_page}" if next_page else None
+
+            except requests.exceptions.HTTPError as e:
+                logging.error(
+                    f"HTTP error fetching Authentik applications: {e.response.status_code} - {e.response.text}"
+                )
+                return []
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Request failed while fetching Authentik applications: {e}")
+                return []
+            except json.JSONDecodeError as e:
+                logging.error(f"Error decoding JSON from Authentik applications response: {e}")
+                return []
+
+        return applications
+
 
 if __name__ == "__main__":
     import os

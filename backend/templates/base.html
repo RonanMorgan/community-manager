@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Community Manager{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-brand">Community Manager</div>
+        <nav class="topbar-nav">
+            <a href="/applications" class="{% if request.url.path == '/applications' %}active{% endif %}">Applications</a>
+            <a href="/groups" class="{% if request.url.path == '/groups' %}active{% endif %}">Groupes</a>
+        </nav>
+        <div class="topbar-user">
+            {% if user %}
+                <span>{{ user.name }}</span>
+                <a href="/logout" class="logout-link">Déconnexion</a>
+            {% endif %}
+        </div>
+    </header>
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+    <script src="/static/app.js"></script>
+</body>
+</html>

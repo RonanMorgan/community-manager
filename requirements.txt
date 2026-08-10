@@ -1,7 +1,16 @@
-# --- Runtime deps kept from the legacy bot (still needed by clients/, config/, scripts/maintenance/) ---
+# --- Clients / scripts (legacy, still used) ---
 requests
 python-dotenv
 PyYAML
 
-# NOTE for the next agent: this file will need additions once the web app stack is chosen
-# (web framework, ORM/DB driver, OIDC client library, etc.). See CLAUDE.md.
+# --- Web app (backend/) ---
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+jinja2
+python-multipart
+authlib
+itsdangerous
+httpx
+email-validator

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Groupes — Community Manager{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Groupes</h1>
+    <button id="btn-open-create-group" class="btn btn-primary">+ Créer un groupe</button>
+</div>
+
+<table class="groups-table">
+    <thead>
+        <tr>
+            <th>Groupe</th>
+            {% for tool in table_tools %}
+                <th>{{ tool | capitalize }}</th>
+            {% endfor %}
+        </tr>
+    </thead>
+    <tbody id="groups-tbody">
+        {% for group in groups %}
+        <tr data-group-id="{{ group.id }}">
+            <td class="group-name-cell">{{ group.name }}</td>
+            {% for tool in table_tools %}
+                {% set resource = (group.resources | selectattr("tool.value", "equalto", tool) | list | first) %}
+                <td>
+                    {% if resource %}
+                        <div class="resource-cell" data-resource-id="{{ resource.id }}" data-status="{{ resource.status.value }}">
+                            <input
+                                type="text"
+                                class="resource-name-input"
+                                value="{{ resource.display_name }}"
+                                data-resource-id="{{ resource.id }}"
+                                {% if resource.status.value != 'active' %}disabled{% endif %}
+                            >
+                            {% if resource.status.value == 'active' %}
+                                <button class="btn-link btn-view-users" data-resource-id="{{ resource.id }}" data-group-name="{{ group.name }}" data-tool="{{ tool }}">
+                                    Voir les utilisateurs
+                                </button>
+                            {% elif resource.status.value == 'pending' %}
+                                <span class="badge badge-pending">en attente</span>
+                            {% elif resource.status.value == 'error' %}
+                                <span class="badge badge-error">erreur de provisioning</span>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <span class="empty-cell">—</span>
+                    {% endif %}
+                </td>
+            {% endfor %}
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="{{ table_tools | length + 1 }}" class="empty-state">Aucun groupe pour l'instant.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Create group modal -->
+<div id="modal-create-group" class="modal-overlay hidden">
+    <div class="modal">
+        <h2>Créer un groupe</h2>
+        <form id="form-create-group">
+            <label for="group-name">Nom du groupe</label>
+            <input type="text" id="group-name" name="name" required placeholder="ex: pole-communication">
+
+            <fieldset class="tools-fieldset">
+                <legend>Outils à associer</legend>
+                {% for tool in available_tools %}
+                <label class="tool-checkbox">
+                    <input
+                        type="checkbox"
+                        name="tools"
+                        value="{{ tool }}"
+                        {% if tool in functional_tools %}checked{% else %}disabled{% endif %}
+                    >
+                    {{ tool | capitalize }}
+                    {% if tool not in functional_tools %}<span class="soon-badge">bientôt disponible</span>{% endif %}
+                </label>
+                {% endfor %}
+            </fieldset>
+
+            <div class="modal-error" id="create-group-error"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" data-close-modal="modal-create-group">Annuler</button>
+                <button type="submit" class="btn btn-primary">Créer</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Resource users modal -->
+<div id="modal-resource-users" class="modal-overlay hidden">
+    <div class="modal modal-wide">
+        <h2 id="resource-users-title">Utilisateurs</h2>
+        <div class="modal-error" id="resource-users-error"></div>
+        <table class="users-table">
+            <thead>
+                <tr><th>Nom</th><th>Email</th><th>Droits</th><th></th></tr>
+            </thead>
+            <tbody id="resource-users-tbody">
+                <tr><td colspan="4" class="empty-state">Chargement...</td></tr>
+            </tbody>
+        </table>
+
+        <h3>Ajouter un utilisateur</h3>
+        <form id="form-add-user">
+            <input type="email" id="add-user-email" name="email" required placeholder="email@exemple.org">
+            <select id="add-user-permission" name="permission">
+                <option value="read" selected>Lecture</option>
+                <option value="read_write">Lecture / écriture</option>
+            </select>
+            <button type="submit" class="btn btn-primary">Ajouter</button>
+        </form>
+
+        <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-resource-users">Fermer</button>
+        </div>
+    </div>
+</div>
+{% endblock %}

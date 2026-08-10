@@ -5,65 +5,59 @@ Application de gestion de la communauté : synchronisation entre **Authentik**
 accès à un ensemble d'outils (Mattermost, Outline, Brevo, NocoDB,
 Vaultwarden).
 
-> **Ce repo est en cours de refonte.** L'ancienne version était un bot
-> Mattermost piloté par des commandes en ligne (`@marty create_projet ...`).
-> Cette approche est abandonnée au profit d'une application web avec base de
-> données. Voir **[CLAUDE.md](./CLAUDE.md)** pour le contexte complet, les
-> décisions d'architecture et l'état d'avancement — c'est la référence à jour,
-> ce README ne décrit que la base de code telle qu'elle existe aujourd'hui.
+> **Voir [CLAUDE.md](./CLAUDE.md) pour le contexte complet** : vision produit,
+> data model, décisions d'architecture, ce qui est fait et ce qui reste à
+> faire. Ce README ne donne qu'un démarrage rapide.
 
-## Ce qui existe aujourd'hui
+## Démarrage rapide
 
-Le repo, à ce stade, ne contient **pas encore d'application web**. Il
-contient la partie qui a été explicitement conservée de l'ancien bot : les
-clients d'API vers chaque outil, plus quelques scripts de maintenance
-indépendants. C'est la base sur laquelle la nouvelle application sera
-construite.
-
-```
-clients/                 Clients API purs vers chaque outil (aucune dépendance
-                          au bot). C'est le cœur réutilisable du projet.
-  authentik_client.py       Groupes, utilisateurs (lecture/écriture)
-  mattermost_client.py      Canaux, membres, rôles, boards (Focalboard)
-  outline_client.py         Collections, membres
-  brevo_client.py           Listes de contacts, emails transactionnels
-  nocodb_client.py          Bases, utilisateurs de base
-  vaultwarden_client.py     Collections (via CLI `bw` + API)
-  client_factory.py         Construit les clients configurés depuis `config`
-
-config/
-  __init__.py               Chargement des variables d'environnement
-
-scripts/maintenance/     Scripts autonomes, indépendants de l'ancien bot :
-                          nettoient les comptes des outils qui n'existent
-                          plus dans Authentik (Authentik = source de vérité).
-  user_management.py
-  brevo_user_sync.py
-  update_brevo_list_and_remove_user.py
-
-docs/legacy_reference/   Documentation de l'ancien système, gardée comme
-                          référence (pas du code actif).
-  permissions_matrix.yml.reference
-
-tests/                   Tests des clients (suite réduite aux cas les plus
-                          importants — voir CLAUDE.md).
-```
-
-## Configuration
+**Avec Docker (recommandé)** :
 
 ```bash
 cp .env.example .env
-# renseigner les valeurs
-pip install -r requirements.txt
-pip install -r requirements-dev.txt   # pour les tests / lint
+# éditer .env : au minimum OUTLINE_URL / OUTLINE_TOKEN pour que la création
+# de groupe provisionne réellement une collection Outline.
+# AUTH_ENABLED=false par défaut : pas besoin de configurer OIDC pour tester
+# en local (toute requête est traitée comme un admin).
+docker compose up --build
+# -> http://localhost:8000/groups
 ```
 
-## Tests
+**Sans Docker (dev)** :
 
 ```bash
-PYTHONPATH=. pytest tests/ scripts/maintenance/
+cp .env.example .env   # laisser DATABASE_URL=sqlite:///./community_manager.db
+pip install -r requirements.txt
+uvicorn backend.main:app --reload
+```
+
+**Tests** :
+
+```bash
+PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
+# 134 passed
+```
+
+## Structure du repo
+
+```
+backend/                 Application web (FastAPI + Jinja2 + JS vanilla)
+  main.py                   Entrée de l'app
+  models.py                  Group, GroupResource, AuditLog
+  routers/                    pages.py (HTML), api.py (JSON), auth_routes.py (OIDC)
+  templates/, static/         Front (pas de build step)
+  tests/                       Tests du backend
+
+clients/                 Clients API purs vers chaque outil (Authentik,
+                          Mattermost, Outline, Brevo, NocoDB, Vaultwarden)
+config/                  Chargement des variables d'environnement
+scripts/maintenance/     Scripts de nettoyage Authentik-driven, indépendants
+docs/legacy_reference/   Documentation de l'ancien système, gardée comme référence
+tests/                   Tests des clients
+
+Dockerfile, docker-compose.yml   Déploiement (Postgres + backend)
 ```
 
 ## Prochaines étapes
 
-Voir **[CLAUDE.md](./CLAUDE.md)**.
+Voir la section 7 de **[CLAUDE.md](./CLAUDE.md)** ("Décisions ouvertes").

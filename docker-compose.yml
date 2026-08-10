@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: community-manager-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-community_manager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-community_manager}
+      POSTGRES_DB: ${POSTGRES_DB:-community_manager}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-community_manager}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    container_name: community-manager-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Overrides whatever DATABASE_URL is set to in .env, so the app always
+      # talks to the `db` service above when run via docker-compose.
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-community_manager}:${POSTGRES_PASSWORD:-community_manager}@db:5432/${POSTGRES_DB:-community_manager}
+    ports:
+      - "8000:8000"
+
+volumes:
+  db_data:
