@@ -69,9 +69,15 @@ def applications_page(request: Request, user: CurrentUser = Depends(require_admi
         else:
             client = AuthentikClient(base_url=config.AUTHENTIK_URL, token=config.AUTHENTIK_TOKEN)
             applications = client.list_applications()
-            for app in applications:
-                app["resolved_icon_url"] = _resolve_icon_url(app)
-            sections = _group_applications_by_section(applications)
+            if applications is None:
+                error = (
+                    "Impossible de récupérer les applications depuis Authentik "
+                    "(le token API est peut-être invalide ou expiré — voir les logs du serveur pour le détail)."
+                )
+            else:
+                for app in applications:
+                    app["resolved_icon_url"] = _resolve_icon_url(app)
+                sections = _group_applications_by_section(applications)
     except Exception as e:  # noqa: BLE001 - surface any client error to the page
         logging.exception("Failed to fetch Authentik applications")
         error = str(e)

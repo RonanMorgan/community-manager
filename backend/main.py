@@ -14,9 +14,17 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # V0: create tables directly from the models. Switch to Alembic migrations
-    # before this app holds data you can't afford to lose (see CLAUDE.md).
-    Base.metadata.create_all(bind=engine)
+    # Schema management: real migrations now live in migrations/ (Alembic).
+    # - Postgres (docker-compose): `docker-entrypoint.sh` runs `alembic upgrade
+    #   head` BEFORE this process even starts, so we do nothing here.
+    # - SQLite (local dev / tests, see .env.example and backend/tests/conftest.py):
+    #   for convenience we still create tables directly from the models, so you
+    #   don't need to set up Alembic just to run `uvicorn backend.main:app` against
+    #   a throwaway local file. This path never ALTERs an existing table, so it's
+    #   safe: SQLite dev DBs are meant to be disposable, not to receive schema
+    #   changes in place.
+    if config.DATABASE_URL.startswith("sqlite"):
+        Base.metadata.create_all(bind=engine)
     if not config.AUTH_ENABLED:
         logging.warning(
             "AUTH_ENABLED=false: OIDC login is BYPASSED, every request is treated as an admin "

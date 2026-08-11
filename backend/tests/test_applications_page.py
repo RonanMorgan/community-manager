@@ -42,3 +42,21 @@ def test_applications_page_shows_error_when_not_configured(client):
     r = client.get("/applications")
     assert r.status_code == 200
     assert "n&#39;est pas configuré" in r.text or "n'est pas configuré" in r.text
+
+
+def test_applications_page_shows_explicit_error_on_api_failure(client):
+    """Regression test: an Authentik API failure (e.g. expired token) must show
+    an explicit error, not silently render as 'no applications found'."""
+    from unittest.mock import MagicMock, patch
+
+    with patch("clients.authentik_client.AuthentikClient") as MockAuthentikClient, \
+         patch("config.AUTHENTIK_URL", "https://authentik.example.org"), \
+         patch("config.AUTHENTIK_TOKEN", "expired-token"):
+        mock_client = MagicMock()
+        mock_client.list_applications.return_value = None  # signals an API error
+        MockAuthentikClient.return_value = mock_client
+
+        r = client.get("/applications")
+        assert r.status_code == 200
+        assert "Aucune application trouvée" not in r.text
+        assert "Impossible de récupérer les applications" in r.text

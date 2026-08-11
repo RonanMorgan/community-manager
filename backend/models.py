@@ -71,11 +71,18 @@ class GroupResource(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     group_id: Mapped[str] = mapped_column(ForeignKey("groups.id"), nullable=False)
-    tool: Mapped[ToolName] = mapped_column(Enum(ToolName), nullable=False)
+    # native_enum=False: stored as a plain VARCHAR (+ CHECK constraint) instead of a
+    # native Postgres ENUM type. A native enum requires `ALTER TYPE ... ADD VALUE`
+    # (awkward with Alembic, can't run inside a transaction on older Postgres) every
+    # time a new tool/status is added — which WILL happen as more tools get wired up.
+    # A VARCHAR column just needs an ordinary Alembic migration.
+    tool: Mapped[ToolName] = mapped_column(Enum(ToolName, native_enum=False, length=32), nullable=False)
 
     external_id: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g. Outline collection id
     display_name: Mapped[str] = mapped_column(String, nullable=False)  # editable, shown in the groups table
-    status: Mapped[ResourceStatus] = mapped_column(Enum(ResourceStatus), default=ResourceStatus.PENDING)
+    status: Mapped[ResourceStatus] = mapped_column(
+        Enum(ResourceStatus, native_enum=False, length=32), default=ResourceStatus.PENDING
+    )
 
     last_synced_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())
