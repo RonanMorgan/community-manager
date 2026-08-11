@@ -401,7 +401,7 @@ uvicorn backend.main:app --reload
 **Tests** :
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 142 passed
+# 145 passed
 ```
 
 ### 6.5 Limites connues / à traiter ensuite
@@ -537,7 +537,103 @@ Détails d'implémentation notables :
 - Filtrage des groupes Authentik à exclure de la synchro (groupes
   internes, etc.).
 
+## 6-ter. V0.2 — correction de la régression Postgres (migrations Alembic) + erreur Authentik explicite
 
+Suite à ton premier vrai test en production (`docker compose up`), deux
+régressions détectées :
+
+### 6-ter.1 "Internal Server Error" sur /groups — cause et correctif
+
+**Cause racine** : jusqu'ici, le schéma de la base était géré uniquement par
+`Base.metadata.create_all()` au démarrage (voir l'ancienne limite §6.5,
+maintenant corrigée). Cette fonction SQLAlchemy **crée les tables qui
+n'existent pas encore, mais ne modifie jamais une table déjà existante**.
+Ta base Postgres avait déjà une table `groups` (créée lors du déploiement
+précédent, avant l'ajout de `authentik_group_id` dans la passe
+"synchronisation Authentik"). Au redémarrage du conteneur avec le nouveau
+code, la colonne manquait toujours en base → chaque requête sur `/groups`
+plantait avec `UndefinedColumn: groups.authentik_group_id does not exist`.
+
+Reproduit à l'identique en local contre un vrai Postgres (pas SQLite) avant
+correction, pour confirmer le diagnostic.
+
+**Correctif : de vraies migrations, avec Alembic.**
+- Nouveau dossier `migrations/` (Alembic), configuré pour lire
+  `DATABASE_URL` depuis `config` (donc depuis les mêmes variables d'env que
+  l'appli, pas une config séparée).
+- Une migration initiale (`migrations/versions/..._initial_schema.py`),
+  générée par autogénération contre un vrai Postgres et testée (upgrade
+  vérifié, `alembic check` confirme zéro divergence avec les modèles).
+- **`docker-entrypoint.sh`** (nouveau) : exécute `alembic upgrade head`
+  avant de lancer `uvicorn`. Le `Dockerfile` l'utilise comme `ENTRYPOINT`.
+  Donc `docker compose up` applique désormais toujours les migrations en
+  attente avant de démarrer — ce type de régression ne peut plus se
+  reproduire silencieusement.
+- **Colonnes enum passées en VARCHAR** (`native_enum=False` sur
+  `GroupResource.tool` et `.status`) plutôt qu'en type ENUM natif Postgres.
+  Un ENUM natif nécessite `ALTER TYPE ... ADD VALUE` pour chaque nouvelle
+  valeur (pénible avec Alembic, interdit dans une transaction sur les
+  anciennes versions de Postgres) — sachant que de nouvelles valeurs
+  viendront forcément (nouveaux outils, nouveaux statuts), une colonne
+  VARCHAR classique évite ce piège pour toutes les migrations futures.
+- **`backend/main.py`** : `create_all()` n'est plus utilisé qu'en SQLite
+  (dev local rapide / tests, base jetable). Sur Postgres, le schéma est
+  **exclusivement** géré par Alembic — l'appli ne touche plus au schéma
+  elle-même au démarrage.
+- **CI** : nouveau job `migrations` dans `.github/workflows/tests.yml`, qui
+  fait tourner un vrai service Postgres, applique les migrations, puis lance
+  `alembic check` — la build échoue si un modèle change sans migration
+  associée (vérifié : j'ai simulé une divergence pour confirmer que le job
+  la détecte bien, exit code non-zéro).
+
+**Pour débloquer ton déploiement actuel** (aucune donnée à perdre, la table
+`groups` était vide) :
+```bash
+docker compose down -v   # supprime le volume Postgres, repart de zéro
+docker compose up --build
+```
+Le nouveau `docker-entrypoint.sh` appliquera la migration initiale
+automatiquement au démarrage.
+
+**Pour toute future évolution du modèle** (`backend/models.py`), le
+réflexe devient :
+```bash
+DATABASE_URL=postgresql+psycopg2://... alembic revision --autogenerate -m "description"
+# relire la migration générée avant de la committer (autogénération imparfaite)
+alembic upgrade head   # pour tester en local
+```
+
+### 6-ter.2 "Aucune application trouvée" — cause et correctif UX
+
+Tes logs montraient `403 - Token invalid/expired` côté Authentik : un vrai
+souci de token (expiré/révoqué côté Authentik), pas un bug applicatif — à
+régénérer côté Authentik puis vérifier sa prise en compte dans le `.env`
+du conteneur.
+
+Cela dit, ça a révélé un vrai bug UX : `AuthentikClient.list_applications()`
+avalait toute erreur HTTP et renvoyait `[]` (liste vide) — indiscernable
+d'un "il n'y a vraiment aucune application". La page affichait donc
+silencieusement "Aucune application trouvée" au lieu du vrai problème.
+
+**Correctif** : `list_applications()` renvoie maintenant `None` sur erreur
+(au lieu de `[]`), et `backend/routers/pages.py` affiche un message
+explicite dans ce cas ("Impossible de récupérer les applications... token
+invalide ou expiré — voir les logs du serveur").
+
+### 6-ter.3 Tests ajoutés
+
+- `tests/test_authentik_client.py` : succès + erreur HTTP de
+  `list_applications()` (vérifie qu'elle renvoie bien `None`, pas `[]`).
+- `backend/tests/test_applications_page.py` : la page affiche le message
+  d'erreur explicite (et jamais "Aucune application trouvée") quand
+  l'appel Authentik échoue.
+- 145 tests au total désormais.
+
+
+
+
+
+## 7. Décisions ouvertes (non tranchées, à décider avec l'utilisateur)
 
 Ne pas trancher unilatéralement ces points sans validation :
 
@@ -568,3 +664,6 @@ Ne pas trancher unilatéralement ces points sans validation :
    Authentik, groupes techniques, etc.).
 10. **Ajout/retrait d'utilisateur Mattermost depuis l'UI** : pas encore
     câblé (lecture seule pour l'instant), voir §6-bis.4.
+11. ~~Gestion du schéma de base de données~~ **Tranché** : Alembic, voir
+    §6-ter.1. Les migrations doivent désormais être écrites/relues à chaque
+    changement de `backend/models.py` — ce n'est plus automatique.

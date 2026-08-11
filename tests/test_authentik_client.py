@@ -239,6 +239,34 @@ class TestAuthentikClient(unittest.TestCase):
         pk_map = self.client.get_all_users_pk_by_email()
         self.assertEqual(pk_map, {})
 
+    @patch("requests.get")
+    def test_list_applications_success(self, mock_get):
+        mock_response_data = {
+            "results": [{"name": "Outline", "group": "Outils"}, {"name": "Mattermost", "group": "Outils"}],
+            "pagination": {"next": None},
+        }
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = mock_response_data
+        mock_get.return_value = mock_response
+
+        applications = self.client.list_applications()
+
+        self.assertEqual(len(applications), 2)
+        self.assertEqual(applications[0]["name"], "Outline")
+
+    @patch("requests.get")
+    def test_list_applications_http_error_returns_none(self, mock_get):
+        """Returns None (not []) on error, so callers can tell an expired/invalid
+        token apart from "there really are no applications"."""
+        mock_response = Mock(status_code=403)
+        mock_response.text = '{"detail":"Token invalid/expired"}'
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_get.side_effect = http_error
+
+        applications = self.client.list_applications()
+
+        self.assertIsNone(applications)
+
 
 if __name__ == "__main__":
     unittest.main()

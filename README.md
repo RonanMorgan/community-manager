@@ -35,6 +35,15 @@ docker compose up --build
 # -> http://localhost:8000/groups
 ```
 
+Les migrations de base de données (Alembic) sont appliquées automatiquement
+au démarrage du conteneur `backend`, avant que le serveur ne démarre — voir
+`docker-entrypoint.sh`. Si vous mettez à jour un déploiement existant et
+tombez sur une erreur de colonne manquante, c'est probablement que le
+schéma a changé sans migration disponible avant cette version : voir
+CLAUDE.md §6-ter.1 pour le contexte, et en dernier recours
+`docker compose down -v` repart d'un schéma propre (⚠️ supprime les
+données existantes).
+
 **Sans Docker (dev)** :
 
 ```bash
@@ -43,11 +52,16 @@ pip install -r requirements.txt
 uvicorn backend.main:app --reload
 ```
 
+Avec SQLite (valeur par défaut), le schéma est créé automatiquement au
+démarrage, pas besoin de lancer les migrations à la main. Si vous utilisez
+Postgres hors Docker, lancez `alembic upgrade head` avant de démarrer le
+serveur.
+
 **Tests** :
 
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 142 passed
+# 145 passed
 ```
 
 ## Structure du repo
@@ -60,6 +74,7 @@ backend/                 Application web (FastAPI + Jinja2 + JS vanilla)
   templates/, static/         Front (pas de build step)
   tests/                       Tests du backend
 
+migrations/               Migrations Alembic (schéma de la base)
 clients/                 Clients API purs vers chaque outil (Authentik,
                           Mattermost, Outline, Brevo, NocoDB, Vaultwarden)
 config/                  Chargement des variables d'environnement
@@ -67,7 +82,7 @@ scripts/maintenance/     Scripts de nettoyage Authentik-driven, indépendants
 docs/legacy_reference/   Documentation de l'ancien système, gardée comme référence
 tests/                   Tests des clients
 
-Dockerfile, docker-compose.yml   Déploiement (Postgres + backend)
+Dockerfile, docker-compose.yml, docker-entrypoint.sh   Déploiement (Postgres + backend)
 ```
 
 ## Prochaines étapes

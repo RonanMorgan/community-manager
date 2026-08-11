@@ -325,7 +325,7 @@ class AuthentikClient:
         logging.info(f"Built email-to-PK map for {len(email_to_pk_map)} users from Authentik.")
         return email_to_pk_map
 
-    def list_applications(self) -> list[dict]:
+    def list_applications(self) -> list[dict] | None:
         """
         Retrieves the list of applications configured in Authentik (used for the
         "Applications" page: what the currently logged-in user has access to).
@@ -333,7 +333,10 @@ class AuthentikClient:
         own UI applies per-user visibility based on bindings/policies. Filtering by
         the logged-in user's access is not implemented client-side here.
         :return: A list of application dicts (each with at least 'name', 'slug',
-            'meta_launch_url', 'meta_icon'), or an empty list on error.
+            'meta_launch_url', 'meta_icon'), or None on error (deliberately NOT an
+            empty list, so callers can tell "no applications" apart from "the API
+            call failed" — e.g. an expired token — instead of silently showing an
+            empty page).
         """
         api_url = f"{self.base_url}/api/v3/core/applications/"
         applications: list[dict] = []
@@ -355,13 +358,13 @@ class AuthentikClient:
                 logging.error(
                     f"HTTP error fetching Authentik applications: {e.response.status_code} - {e.response.text}"
                 )
-                return []
+                return None
             except requests.exceptions.RequestException as e:
                 logging.error(f"Request failed while fetching Authentik applications: {e}")
-                return []
+                return None
             except json.JSONDecodeError as e:
                 logging.error(f"Error decoding JSON from Authentik applications response: {e}")
-                return []
+                return None
 
         return applications
 
