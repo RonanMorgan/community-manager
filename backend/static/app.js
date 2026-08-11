@@ -73,6 +73,39 @@ document.querySelectorAll(".resource-name-input").forEach((input) => {
     });
 });
 
+// --- Sync from Authentik ---
+const btnSync = document.getElementById("btn-sync");
+if (btnSync) {
+    btnSync.addEventListener("click", async () => {
+        const feedback = document.getElementById("sync-feedback");
+        feedback.classList.remove("hidden", "alert-error", "alert-success");
+        feedback.textContent = "Synchronisation en cours...";
+        btnSync.disabled = true;
+
+        try {
+            const result = await apiFetch("/api/sync", { method: "POST" });
+            const parts = [
+                `${result.groups_created} groupe(s) créé(s)`,
+                `${result.groups_updated} groupe(s) déjà connu(s)`,
+                `${result.resources_matched} ressource(s) trouvée(s)`,
+                `${result.resources_not_found} sans correspondance`,
+            ];
+            if (result.errors.length > 0) {
+                parts.push(`${result.errors.length} erreur(s)`);
+                feedback.classList.add("alert-error");
+            } else {
+                feedback.classList.add("alert-success");
+            }
+            feedback.textContent = `Synchronisation terminée : ${parts.join(", ")}.`;
+            setTimeout(() => window.location.reload(), 1200);
+        } catch (err) {
+            feedback.classList.add("alert-error");
+            feedback.textContent = `Échec de la synchronisation : ${err.message}`;
+            btnSync.disabled = false;
+        }
+    });
+}
+
 // --- Create group modal ---
 const btnOpenCreateGroup = document.getElementById("btn-open-create-group");
 if (btnOpenCreateGroup) {
@@ -108,6 +141,7 @@ if (formCreateGroup) {
 
 // --- Resource users modal ---
 let currentResourceId = null;
+let currentTool = null;
 
 async function loadResourceUsers(resourceId) {
     const tbody = document.getElementById("resource-users-tbody");
@@ -122,13 +156,14 @@ async function loadResourceUsers(resourceId) {
             return;
         }
         tbody.innerHTML = "";
+        const canRemove = currentTool === "outline";
         users.forEach((u) => {
             const tr = document.createElement("tr");
             tr.innerHTML = `
                 <td>${escapeHtml(u.name || "—")}</td>
                 <td>${escapeHtml(u.email || "—")}</td>
-                <td>${u.permission === "read_write" ? "Lecture / écriture" : "Lecture"}</td>
-                <td><button class="btn-link btn-remove-user" data-user-id="${u.id}">Retirer</button></td>
+                <td>${u.permission === "read_write" || u.permission === "admin" ? "Lecture / écriture" : "Lecture"}</td>
+                <td>${canRemove ? `<button class="btn-link btn-remove-user" data-user-id="${u.id}">Retirer</button>` : ""}</td>
             `;
             tbody.appendChild(tr);
         });
@@ -160,9 +195,21 @@ function escapeHtml(str) {
 document.querySelectorAll(".btn-view-users").forEach((btn) => {
     btn.addEventListener("click", () => {
         currentResourceId = btn.dataset.resourceId;
+        currentTool = btn.dataset.tool;
         document.getElementById("resource-users-title").textContent =
             `Utilisateurs — ${btn.dataset.groupName} (${btn.dataset.tool})`;
         document.getElementById("form-add-user").reset();
+
+        const addSection = document.getElementById("add-user-section");
+        const unsupportedNote = document.getElementById("add-user-unsupported-note");
+        if (currentTool === "outline") {
+            addSection.classList.remove("hidden");
+            unsupportedNote.classList.add("hidden");
+        } else {
+            addSection.classList.add("hidden");
+            unsupportedNote.classList.remove("hidden");
+        }
+
         openModal("modal-resource-users");
         loadResourceUsers(currentResourceId);
     });

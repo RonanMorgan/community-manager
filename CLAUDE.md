@@ -401,7 +401,7 @@ uvicorn backend.main:app --reload
 **Tests** :
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 134 passed
+# 142 passed
 ```
 
 ### 6.5 Limites connues / à traiter ensuite
@@ -441,7 +441,103 @@ PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
 
 
 
-## 7. Décisions ouvertes (non tranchées, à décider avec l'utilisateur)
+## 6-bis. V0.1 — corrections page Applications + synchronisation Authentik → DB
+
+Suite aux premiers tests en conditions réelles (vraies clés API Authentik /
+Outline / Mattermost), deux ajustements :
+
+### 6-bis.1 Page Applications : icônes + sections
+
+- **Bug icônes corrigé** : le template utilisait `app.meta_icon`, qui peut
+  être un **chemin relatif** vers un fichier uploadé dans Authentik (ex.
+  `/media/application-icons/foo.png`), inutilisable tel quel hors du
+  contexte d'Authentik. La page utilise maintenant `app.meta_icon_url`
+  (URL absolue fournie par l'API Authentik) en priorité, avec repli sur
+  `meta_icon` préfixé par `AUTHENTIK_URL` si besoin
+  (`backend/routers/pages.py::_resolve_icon_url()`). Un `onerror` côté HTML
+  bascule sur un badge-lettre si l'image ne charge toujours pas.
+- **Sections ajoutées** : Authentik permet de définir un champ `group`
+  (texte libre) sur chaque Application, utilisé par Authentik lui-même pour
+  regrouper les apps sur sa page "Library". La page `/applications` fait
+  maintenant de même : elle groupe par ce champ
+  (`backend/routers/pages.py::_group_applications_by_section()`), sections
+  triées alphabétiquement, les apps sans groupe atterrissant dans une
+  section "Autres" en fin de page.
+
+### 6-bis.2 Synchronisation Authentik → DB (bouton "Synchroniser")
+
+Nouveau bouton sur la page `/groups`, `POST /api/sync`
+(`backend/routers/api.py::sync_from_authentik`). Comportement, tel que
+spécifié :
+
+1. Récupère tous les groupes Authentik (`AuthentikClient.get_groups_with_users()`).
+2. Pour chaque groupe Authentik : crée (ou retrouve, si déjà lié) le
+   `Group` correspondant côté DB. Le lien se fait via le nouveau champ
+   `Group.authentik_group_id` (le `pk` Authentik) — s'il n'existe pas
+   encore mais qu'un groupe du même **nom** existe déjà en DB (créé
+   manuellement avant la synchro), on le lie plutôt que d'en recréer un.
+3. Pour Outline et Mattermost (voir `_SYNC_FINDERS` dans `api.py`) :
+   cherche une ressource du **même nom exact** que le groupe Authentik.
+   - Trouvée → `GroupResource.status = ACTIVE`, `external_id` et
+     `display_name` renseignés à partir de la vraie ressource. Affichée
+     avec un **point vert** dans le tableau.
+   - Pas trouvée → `GroupResource.status = NOT_FOUND` (nouveau statut),
+     affichée avec un point gris et "Aucune correspondance".
+   - Erreur API → `GroupResource.status = ERROR`, remontée dans la réponse
+     (`errors: [...]`) et affichée à l'écran.
+4. **Aucune écriture dans Outline/Mattermost** : ce endpoint est
+   volontairement en lecture seule côté outils (découverte uniquement).
+   Rien n'est créé/modifié chez eux.
+5. Idempotent : relancer la synchro ne duplique pas les groupes déjà liés
+   (testé, voir `backend/tests/test_sync.py::test_sync_is_idempotent_on_group_name`).
+
+Détails d'implémentation notables :
+- **Mattermost** : les canaux sont adressés par leur *slug* (nom
+  URL-safe), pas leur nom d'affichage. Le matching applique donc
+  `slugify(nom_du_groupe_authentik)` avant d'appeler
+  `MattermostClient.get_channel_by_name()`. Voir `backend/mattermost_service.py`.
+- **Nouvelle méthode client** `MattermostClient.get_channel_members_with_roles()`
+  (ajoutée dans cette passe) : combine `GET /channels/{id}/members` (rôles)
+  et `get_users_in_channel()` (détails utilisateur), sur le même principe
+  que ce qui avait été fait pour Outline. Permet à la modale "utilisateurs"
+  de fonctionner aussi pour une ressource Mattermost trouvée par la synchro
+  (lecture seule : **pas d'ajout/retrait d'utilisateur Mattermost depuis
+  l'UI pour l'instant**, seulement Outline — cf. §6-bis.4).
+- **Nouvelle méthode client** `OutlineClient` réutilisée :
+  `find_collection_by_name()` (ajoutée dans `backend/outline_service.py`,
+  s'appuie sur `list_collections(name=...)` qui fait déjà un matching par
+  nom exact côté client existant).
+- **Filtrage des groupes Authentik** : aucun filtre appliqué — **tous**
+  les groupes Authentik sont synchronisés, y compris les groupes internes
+  d'Authentik (ex. `authentik Admins`). Pas demandé explicitement dans
+  cette passe ; à affiner si besoin (ex. exclure par préfixe/attribut).
+
+### 6-bis.3 Modèle de données : ce qui a changé
+
+- `Group.authentik_group_id` (string, nullable, unique) : le `pk` du
+  groupe Authentik correspondant, quand connu.
+- `ResourceStatus.NOT_FOUND` : nouveau statut ("synchronisé depuis
+  Authentik, mais aucune ressource du même nom trouvée dans l'outil").
+- Table `group_resources` : le tableau affiche maintenant aussi la colonne
+  **Mattermost** (`table_tools = ["outline", "mattermost"]`), en plus
+  d'Outline. Le bouton "Créer un groupe" ne coche/active en revanche
+  toujours qu'Outline (`functional_tools`), car la création manuelle d'un
+  canal Mattermost depuis l'UI n'est pas encore câblée — seule la
+  *découverte* via `/api/sync` l'est.
+
+### 6-bis.4 Ce qui reste explicitement pour plus tard (confirmé avec l'utilisateur)
+
+- Boutons de **création/suppression de groupe** au sens "provisionner
+  réellement une nouvelle ressource" pour Mattermost (Outline fonctionne
+  déjà, voir §6.2).
+- **Ajout/retrait d'utilisateur** sur une ressource Mattermost depuis
+  l'UI (aujourd'hui lecture seule ; le client a pourtant déjà
+  `add_user_to_channel()`, il manque juste le branchement + un
+  `remove_user_from_channel()` côté client à écrire).
+- Filtrage des groupes Authentik à exclure de la synchro (groupes
+  internes, etc.).
+
+
 
 Ne pas trancher unilatéralement ces points sans validation :
 
@@ -457,8 +553,18 @@ Ne pas trancher unilatéralement ces points sans validation :
    dédié, `ADMIN_GROUP_NAME`, lu depuis le claim `groups`) mais **pas
    validé en conditions réelles** — voir §6.5.
 6. **Fréquence/déclenchement des synchros DB ↔ Mattermost/Authentik**
-   (cf. §4-bis) : toujours pas implémenté, pas commencé.
+   (cf. §4-bis) : **partiellement tranché** — la synchro Authentik → DB
+   existe maintenant en déclenchement manuel (bouton "Synchroniser", voir
+   §6-bis.2), en lecture seule côté outils. Toujours pas de job périodique
+   automatique, et toujours pas de synchro DB → outils au-delà de la
+   création/renommage manuel déjà en place pour Outline.
 7. **Page non-admin** (visualisation seule pour un utilisateur normal) :
    pas implémentée, à spécifier si toujours souhaitée après cette V0 admin.
 8. **Consultation des `audit_logs`** : les logs sont écrits mais il n'y a
    pas encore de page pour les consulter. À faire si utile.
+9. **Filtrage des groupes Authentik synchronisés** : `/api/sync` importe
+   actuellement TOUS les groupes Authentik sans exception (voir §6-bis.2).
+   À valider si des groupes doivent être exclus (groupes internes
+   Authentik, groupes techniques, etc.).
+10. **Ajout/retrait d'utilisateur Mattermost depuis l'UI** : pas encore
+    câblé (lecture seule pour l'instant), voir §6-bis.4.

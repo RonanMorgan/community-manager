@@ -9,6 +9,18 @@ Vaultwarden).
 > data model, décisions d'architecture, ce qui est fait et ce qui reste à
 > faire. Ce README ne donne qu'un démarrage rapide.
 
+## Synchronisation Authentik → DB
+
+Authentik est la source de vérité pour les groupes. Sur la page `/groups`,
+le bouton **« Synchroniser depuis Authentik »** :
+1. crée (ou relie, si déjà connu) un groupe côté appli pour chaque groupe Authentik ;
+2. cherche, pour Outline et Mattermost, une ressource du même nom exact ;
+3. affiche un point vert si trouvée (avec accès à la liste réelle des
+   membres et leurs droits), un point gris sinon.
+
+Aucune écriture n'est faite dans Outline/Mattermost par cette synchronisation
+— c'est une découverte en lecture seule. Voir CLAUDE.md §6-bis pour le détail.
+
 ## Démarrage rapide
 
 **Avec Docker (recommandé)** :
@@ -35,7 +47,7 @@ uvicorn backend.main:app --reload
 
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 134 passed
+# 142 passed
 ```
 
 ## Structure du repo

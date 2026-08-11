@@ -33,6 +33,16 @@ def create_collection(display_name: str) -> dict:
     return collection
 
 
+def find_collection_by_name(name: str) -> dict | None:
+    """Looks up a collection with an EXACT name match (used by the
+    Authentik-driven group synchronization). Returns None if not found."""
+    client = get_client()
+    result = client.list_collections(name=name)
+    if result is None:
+        raise OutlineError(f"Failed to search Outline collections for name '{name}'.")
+    return result or None
+
+
 def rename_collection(collection_id: str, new_name: str) -> None:
     client = get_client()
     ok = client.update_collection_name(collection_id, new_name)

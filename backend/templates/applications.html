@@ -6,20 +6,26 @@
 
 {% if error %}
     <div class="alert alert-error">{{ error }}</div>
-{% elif not applications %}
+{% elif not sections %}
     <p class="empty-state">Aucune application trouvée.</p>
 {% else %}
-    <div class="app-grid">
-        {% for app in applications %}
-        <a class="app-card" href="{{ app.meta_launch_url or '#' }}" target="_blank" rel="noopener">
-            {% if app.meta_icon %}
-                <img src="{{ app.meta_icon }}" alt="" class="app-icon">
-            {% else %}
-                <div class="app-icon app-icon-placeholder">{{ app.name[:1] }}</div>
-            {% endif %}
-            <div class="app-name">{{ app.name }}</div>
-        </a>
-        {% endfor %}
-    </div>
+    {% for section_name, apps in sections %}
+    <section class="app-section">
+        <h2 class="app-section-title">{{ section_name }}</h2>
+        <div class="app-grid">
+            {% for app in apps %}
+            <a class="app-card" href="{{ app.meta_launch_url or '#' }}" target="_blank" rel="noopener">
+                {% if app.resolved_icon_url %}
+                    <img src="{{ app.resolved_icon_url }}" alt="" class="app-icon" loading="lazy"
+                         onerror="this.outerHTML='<div class=&quot;app-icon app-icon-placeholder&quot;>{{ app.name[:1] }}</div>'">
+                {% else %}
+                    <div class="app-icon app-icon-placeholder">{{ app.name[:1] }}</div>
+                {% endif %}
+                <div class="app-name">{{ app.name }}</div>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
 {% endif %}
 {% endblock %}

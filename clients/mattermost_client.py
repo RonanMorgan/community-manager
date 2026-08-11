@@ -299,6 +299,64 @@ class MattermostClient:
         logging.info(f"Successfully fetched {len(all_users)} users from channel '{channel_id}'.")
         return all_users
 
+    def get_channel_members_with_roles(self, channel_id: str) -> list[dict] | None:
+        """
+        Retrieves channel members WITH their channel-level role (e.g.
+        'channel_user', 'channel_user channel_admin'), by combining
+        GET /api/v4/channels/{channel_id}/members (roles) with
+        get_users_in_channel() (user details: username/email/nickname).
+        Unlike get_users_in_channel() alone, this keeps the per-member role.
+
+        :param channel_id: The ID of the channel.
+        :return: A list of dicts like {"user": {...}, "roles": "channel_user"}, or None on error.
+        """
+        if not self.base_url or not self.token:
+            logging.error("Mattermost client not configured (URL or Token missing).")
+            return None
+        if not channel_id:
+            logging.error("Channel ID must be provided to get channel members.")
+            return None
+
+        members_by_user_id: dict[str, str] = {}
+        page = 0
+        per_page = 200
+
+        try:
+            while True:
+                url = f"{self.base_url}/api/v4/channels/{channel_id}/members?page={page}&per_page={per_page}"
+                response = requests.get(url, headers=self.headers)
+                response.raise_for_status()
+                members_page = response.json()
+
+                if not members_page:
+                    break
+
+                for member in members_page:
+                    members_by_user_id[member["user_id"]] = member.get("roles", "")
+
+                if len(members_page) < per_page:
+                    break
+                page += 1
+
+        except requests.exceptions.HTTPError as e:
+            logging.error(
+                f"HTTP error fetching members for Mattermost channel '{channel_id}': "
+                f"{e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed while fetching members for Mattermost channel '{channel_id}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from Mattermost channel members response: {e}")
+            return None
+
+        users = self.get_users_in_channel(channel_id)
+        return [
+            {"user": user, "roles": members_by_user_id.get(user["id"], "")}
+            for user in users
+        ]
+
     def create_direct_channel(self, other_user_id: str) -> str | None:
         """
         Creates a direct message (DM) channel between the bot and another user.

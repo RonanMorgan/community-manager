@@ -3,8 +3,16 @@
 {% block content %}
 <div class="page-header">
     <h1>Groupes</h1>
-    <button id="btn-open-create-group" class="btn btn-primary">+ Créer un groupe</button>
+    <div class="page-header-actions">
+        <button id="btn-sync" class="btn btn-secondary">↻ Synchroniser depuis Authentik</button>
+        <button id="btn-open-create-group" class="btn btn-primary">+ Créer un groupe</button>
+    </div>
 </div>
+<p class="subtitle">
+    Authentik est la source de vérité pour les groupes. La synchronisation crée un groupe ici pour
+    chaque groupe Authentik, puis cherche une collection Outline / un canal Mattermost du même nom.
+</p>
+<div id="sync-feedback" class="alert hidden"></div>
 
 <table class="groups-table">
     <thead>
@@ -22,34 +30,42 @@
             {% for tool in table_tools %}
                 {% set resource = (group.resources | selectattr("tool.value", "equalto", tool) | list | first) %}
                 <td>
-                    {% if resource %}
-                        <div class="resource-cell" data-resource-id="{{ resource.id }}" data-status="{{ resource.status.value }}">
+                    {% if not resource or resource.status.value == 'pending' %}
+                        <span class="badge badge-pending">en attente de synchronisation</span>
+                    {% elif resource.status.value == 'active' %}
+                        <div class="resource-cell resource-cell-active" data-resource-id="{{ resource.id }}">
+                            <span class="status-dot status-dot-active" title="Ressource trouvée"></span>
                             <input
                                 type="text"
                                 class="resource-name-input"
                                 value="{{ resource.display_name }}"
                                 data-resource-id="{{ resource.id }}"
-                                {% if resource.status.value != 'active' %}disabled{% endif %}
+                                {% if tool != 'outline' %}disabled title="Le renommage n'est pas encore supporté pour cet outil"{% endif %}
                             >
-                            {% if resource.status.value == 'active' %}
-                                <button class="btn-link btn-view-users" data-resource-id="{{ resource.id }}" data-group-name="{{ group.name }}" data-tool="{{ tool }}">
-                                    Voir les utilisateurs
-                                </button>
-                            {% elif resource.status.value == 'pending' %}
-                                <span class="badge badge-pending">en attente</span>
-                            {% elif resource.status.value == 'error' %}
-                                <span class="badge badge-error">erreur de provisioning</span>
-                            {% endif %}
+                            <button class="btn-link btn-view-users" data-resource-id="{{ resource.id }}"
+                                    data-group-name="{{ group.name }}" data-tool="{{ tool }}">
+                                Voir les utilisateurs
+                            </button>
                         </div>
-                    {% else %}
-                        <span class="empty-cell">—</span>
+                    {% elif resource.status.value == 'not_found' %}
+                        <div class="resource-cell">
+                            <span class="status-dot status-dot-missing" title="Aucune correspondance trouvée"></span>
+                            <span class="empty-cell">Aucune correspondance ('{{ resource.display_name }}')</span>
+                        </div>
+                    {% elif resource.status.value == 'error' %}
+                        <div class="resource-cell">
+                            <span class="status-dot status-dot-error" title="Erreur"></span>
+                            <span class="badge badge-error">erreur de synchronisation</span>
+                        </div>
                     {% endif %}
                 </td>
             {% endfor %}
         </tr>
         {% else %}
         <tr>
-            <td colspan="{{ table_tools | length + 1 }}" class="empty-state">Aucun groupe pour l'instant.</td>
+            <td colspan="{{ table_tools | length + 1 }}" class="empty-state">
+                Aucun groupe pour l'instant. Cliquez sur « Synchroniser depuis Authentik » pour importer les groupes existants.
+            </td>
         </tr>
         {% endfor %}
     </tbody>
@@ -102,15 +118,20 @@
             </tbody>
         </table>
 
-        <h3>Ajouter un utilisateur</h3>
-        <form id="form-add-user">
-            <input type="email" id="add-user-email" name="email" required placeholder="email@exemple.org">
-            <select id="add-user-permission" name="permission">
-                <option value="read" selected>Lecture</option>
-                <option value="read_write">Lecture / écriture</option>
-            </select>
-            <button type="submit" class="btn btn-primary">Ajouter</button>
-        </form>
+        <div id="add-user-section">
+            <h3>Ajouter un utilisateur</h3>
+            <form id="form-add-user">
+                <input type="email" id="add-user-email" name="email" required placeholder="email@exemple.org">
+                <select id="add-user-permission" name="permission">
+                    <option value="read" selected>Lecture</option>
+                    <option value="read_write">Lecture / écriture</option>
+                </select>
+                <button type="submit" class="btn btn-primary">Ajouter</button>
+            </form>
+        </div>
+        <p id="add-user-unsupported-note" class="hint-text hidden">
+            L'ajout d'utilisateur n'est pas encore disponible pour cet outil depuis cette interface.
+        </p>
 
         <div class="modal-actions">
             <button type="button" class="btn btn-secondary" data-close-modal="modal-resource-users">Fermer</button>
