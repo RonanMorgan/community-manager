@@ -115,8 +115,13 @@ class AuthentikClient:
                                 )
                             email_to_user_pk_map[email] = pk
 
-                current_url = data.get("pagination", {}).get("next")
-                if current_url:
+                current_url = None
+                next_page = data.get("pagination", {}).get("next")
+                if next_page:
+                    # Authentik's `pagination.next` is a PAGE NUMBER, not a full URL
+                    # (unlike some other APIs) — must rebuild the URL for the next
+                    # request, and must keep `include_users=true` on every page.
+                    current_url = f"{self.base_url}/api/v3/core/groups/?include_users=true&page={next_page}"
                     logging.debug(f"Next page for groups: {current_url}")
 
             except requests.exceptions.RequestException as e:
@@ -265,8 +270,11 @@ class AuthentikClient:
                     if email:  # Only include users with an email
                         all_users_data.append({"email": email, "attributes": attributes})
 
-                current_url = data.get("pagination", {}).get("next")
-                if current_url:
+                current_url = None
+                next_page = data.get("pagination", {}).get("next")
+                if next_page:
+                    # Same fix as get_groups_with_users(): `next` is a page number here too.
+                    current_url = f"{self.base_url}/api/v3/core/users/?page={next_page}"
                     logging.debug(f"Next page for users data: {current_url}")
 
             except requests.exceptions.RequestException as e:
@@ -311,7 +319,7 @@ class AuthentikClient:
 
                 next_page = data.get("pagination", {}).get("next")
                 if next_page:
-                    current_url = f"{self.base_url}/api/v3/core/users/?page={next_page}&path=users"
+                    current_url = f"{self.base_url}/api/v3/core/users/?page={next_page}"
                 else:
                     current_url = None
 

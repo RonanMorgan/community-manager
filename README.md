@@ -61,7 +61,7 @@ serveur.
 
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 145 passed
+# 148 passed
 ```
 
 ## Structure du repo

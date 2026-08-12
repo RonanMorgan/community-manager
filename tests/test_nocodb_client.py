@@ -132,10 +132,33 @@ class TestNocoDBClient(unittest.TestCase):
     @patch.object(NocoDBClient, "_make_request")
     def test_list_base_users_success(self, mock_make_request):
         expected_users = [{"id": self.user_id_test, "email": self.email_test, "roles": "viewer"}]
-        mock_make_request.return_value = {"users": {"list": expected_users, "pageInfo": {}}}
+        mock_make_request.return_value = {"users": {"list": expected_users, "pageInfo": {"isLastPage": True}}}
         users = self.client.list_base_users(self.base_id_test)
         self.assertEqual(users, expected_users)
-        mock_make_request.assert_called_once_with("get", f"projects/{self.base_id_test}/users")
+        mock_make_request.assert_called_once_with(
+            "get", f"projects/{self.base_id_test}/users", params={"limit": 25, "offset": 0}
+        )
+
+    @patch.object(NocoDBClient, "_make_request")
+    def test_list_base_users_paginates_across_multiple_pages(self, mock_make_request):
+        """Regression test: list_base_users() used to fetch only the first page."""
+        page0_users = [{"id": f"u{i}", "email": f"u{i}@x.org"} for i in range(25)]
+        page1_users = [{"id": "u25", "email": "u25@x.org"}]
+        mock_make_request.side_effect = [
+            {"users": {"list": page0_users, "pageInfo": {"isLastPage": False}}},
+            {"users": {"list": page1_users, "pageInfo": {"isLastPage": True}}},
+        ]
+
+        users = self.client.list_base_users(self.base_id_test)
+
+        self.assertEqual(len(users), 26)
+        self.assertEqual(mock_make_request.call_count, 2)
+        mock_make_request.assert_any_call(
+            "get", f"projects/{self.base_id_test}/users", params={"limit": 25, "offset": 0}
+        )
+        mock_make_request.assert_any_call(
+            "get", f"projects/{self.base_id_test}/users", params={"limit": 25, "offset": 25}
+        )
 
 
 
@@ -168,6 +191,21 @@ class TestNocoDBClient(unittest.TestCase):
         mock_list_base_users.return_value = [{"id": "other_id", "email": "other@example.com"}]
         found_user = self.client.get_user_by_email_in_base(self.base_id_test, self.email_test)
         self.assertIsNone(found_user)
+
+    @patch.object(NocoDBClient, "_make_request")
+    def test_list_bases_paginates_across_multiple_pages(self, mock_make_request):
+        """Regression test: list_bases() used to fetch only the first page."""
+        page0 = [{"id": f"base{i}"} for i in range(25)]
+        page1 = [{"id": "base25"}]
+        mock_make_request.side_effect = [
+            {"list": page0, "pageInfo": {"isLastPage": False}},
+            {"list": page1, "pageInfo": {"isLastPage": True}},
+        ]
+
+        result = self.client.list_bases()
+
+        self.assertEqual(len(result["list"]), 26)
+        self.assertEqual(mock_make_request.call_count, 2)
 
 
     @patch.object(NocoDBClient, "list_bases")

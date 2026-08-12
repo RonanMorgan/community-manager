@@ -151,6 +151,10 @@ class OutlineClient:
             while True:
                 payload = {"limit": min(limit, 100), "offset": offset}
                 if name:
+                    # Outline's `query` does a substring search server-side, so results
+                    # here may include non-exact matches (and, for a common substring,
+                    # may legitimately span multiple pages) — the exact-match check
+                    # below runs on every page rather than stopping after the first.
                     payload["query"] = name
                 response = requests.post(api_url, headers=self.headers, json=payload)
                 response.raise_for_status()
@@ -160,23 +164,23 @@ class OutlineClient:
                 total = pagination.get("total", 0)
 
                 if name:
-                    if collections:
-                        for collection in collections:
-                            if collection.get("name") == name:
-                                logging.info(f"Found Outline collection '{name}' (ID: {collection.get('id')}).")
-                                return collection
-                        logging.info(f"Outline collection named '{name}' not found after checking results.")
-                        return []  # Aucun nom exactement égal
-                    else:
-                        logging.info(f"Outline collection named '{name}' not found after checking all collections.")
-                        return []
+                    for collection in collections:
+                        if collection.get("name") == name:
+                            logging.info(f"Found Outline collection '{name}' (ID: {collection.get('id')}).")
+                            return collection
                 else:
                     all_collections.extend(collections)
 
-                if not collections or len(all_collections) >= total:
+                if not collections or offset + len(collections) >= total:
                     break
 
-                offset += len(all_collections)
+                # Use this page's size (not the running total) as the offset increment,
+                # or pagination would skip/duplicate results from the 3rd page onward.
+                offset += len(collections)
+
+            if name:
+                logging.info(f"Outline collection named '{name}' not found after checking all matching pages.")
+                return []
 
             logging.info(f"Successfully fetched {len(all_collections)} Outline collections.")
             return all_collections
