@@ -401,7 +401,7 @@ uvicorn backend.main:app --reload
 **Tests** :
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 145 passed
+# 148 passed
 ```
 
 ### 6.5 Limites connues / à traiter ensuite
@@ -628,6 +628,93 @@ invalide ou expiré — voir les logs du serveur").
   d'erreur explicite (et jamais "Aucune application trouvée") quand
   l'appel Authentik échoue.
 - 145 tests au total désormais.
+
+## 6-quater. V0.3 — audit complet de la pagination sur tous les clients API
+
+Suite au clic sur "Synchroniser depuis Authentik", erreur :
+`Aucun groupe récupéré depuis Authentik` avec en logs serveur
+`Invalid URL '2': No scheme supplied`.
+
+### 6-quater.1 Cause : `pagination.next` d'Authentik est un numéro de page, pas une URL
+
+**Bug critique confirmé** dans `AuthentikClient.get_groups_with_users()` :
+le code faisait `current_url = data.get("pagination", {}).get("next")` et
+réutilisait directement cette valeur comme URL pour la requête suivante.
+Or l'API Authentik renvoie dans `pagination.next` un **entier** (le numéro
+de la page suivante, ex. `2`), pas une URL complète — contrairement à
+d'autres API paginées par lien direct. Dès qu'il y a plus d'une page de
+groupes (>20, taille de page par défaut d'Authentik), le code tentait donc
+`requests.get(2, ...)` → `Invalid URL '2': No scheme supplied`.
+
+Reproduit à l'identique en local (simulation d'une réponse Authentik
+paginée) avant correction, puis testé de bout en bout contre un vrai
+Postgres après correction — `/api/sync` récupère maintenant correctement
+la totalité des groupes sur toutes les pages.
+
+**Corrigé** : reconstruction explicite de l'URL de la page suivante
+(`?include_users=true&page={next_page}`), en conservant bien le paramètre
+`include_users=true` sur chaque page (oubli fréquent dans ce genre de fix :
+la pagination "marche" mais perd les données additionnelles demandées sur
+la requête initiale).
+
+### 6-quater.2 Audit demandé : "tous les appels doivent gérer la pagination"
+
+Le même audit a été étendu à **tous** les clients (`clients/*.py`), comme
+demandé. Résultat :
+
+**Autres bugs trouvés et corrigés :**
+- `AuthentikClient.get_all_users_data()` : exactement le même bug que
+  `get_groups_with_users()` (même cause, même correctif).
+- `OutlineClient.list_collections()` : deux bugs distincts —
+  1. l'incrément d'offset utilisait `len(all_collections)` (le total
+     cumulé sur toutes les pages déjà lues) au lieu de `len(collections)`
+     (la taille de la page courante) — à partir de la 3ᵉ page, l'offset
+     "sautait" en avant plus vite qu'il ne fallait et des résultats
+     étaient silencieusement manqués ;
+  2. lors d'une recherche par nom exact (`find_collection_by_name`,
+     utilisée par la synchronisation), la fonction abandonnait après la
+     **première page** si aucune correspondance exacte n'y figurait, même
+     si `total` indiquait qu'il restait des pages à explorer.
+- `MattermostClient.get_channels_for_team()` : ne récupérait que la
+  première page (jusqu'à ~200 canaux), la pagination n'était pas
+  implémentée du tout (un commentaire dans le code l'admettait déjà
+  explicitement). Non utilisée aujourd'hui par le backend web (seul
+  `get_channel_by_name` l'est, pour la synchronisation), mais corrigée
+  pour la même raison que les autres : c'est un appel du client réutilisé
+  ailleurs (scripts, futurs usages).
+- `NocoDBClient.list_base_users()` et `list_bases()` : aucune pagination
+  du tout, une seule requête à `offset=0` implicite. Corrigées en
+  ajoutant une boucle `limit`/`offset`, avec détection de fin de liste via
+  `pageInfo.isLastPage` quand disponible (repli sur une heuristique de
+  taille de page sinon, pour rester compatible avec d'anciennes versions
+  de NocoDB qui n'exposent pas `pageInfo`). Le contrat de retour de
+  `list_bases()` (`{"list": [...]}`) a été préservé pour ne pas casser
+  `scripts/maintenance/user_management.py`, qui en dépend.
+
+**Vérifiés et déjà corrects (aucun changement)** :
+`AuthentikClient.get_all_users_pk_by_email()` et `list_applications()` ;
+`MattermostClient.get_users_in_channel()`, `list_users()`,
+`get_channel_members_with_roles()` (ajoutée en §6-bis) ; `OutlineClient
+.list_users()`, `get_collection_memberships_with_permission()` (ajoutée en
+§6-bis) ; les trois méthodes paginées de `BrevoClient`
+(`get_lists`/`get_contacts_from_list`/`get_folder_id_by_name`) ;
+`VaultwardenClient.list_users()` — l'endpoint Bitwarden/Vaultwarden
+`organizations/{id}/users` ne paginate pas côté API, donc pas de bug
+possible ici (vérifié via la doc de l'API Bitwarden).
+
+### 6-quater.3 Tests ajoutés
+
+- Test dédié reproduisant le scénario exact de l'utilisateur (pagination
+  Authentik sur 2 pages) pour `get_groups_with_users()` et
+  `get_all_users_data()`.
+- `OutlineClient.list_collections()` : test de pagination sur 3 pages (bug
+  d'offset) + test de recherche par nom trouvée seulement en page 3 (bug
+  de retour prématuré).
+- `MattermostClient.get_channels_for_team()` : test de pagination sur 2
+  pages (200 canaux + 2 canaux).
+- `NocoDBClient.list_base_users()` et `list_bases()` : un test de
+  pagination sur 2 pages chacun.
+- 148 tests au total désormais.
 
 
 

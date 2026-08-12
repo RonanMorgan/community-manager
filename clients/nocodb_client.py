@@ -187,36 +187,83 @@ class NocoDBClient:
 
     def list_base_users(self, base_id: str) -> list[dict]:
         """
-        Lists all users associated with a specific base.
+        Lists all users associated with a specific base, handling pagination.
         API: GET /api/v1/db/meta/projects/{baseId}/users
         """
         logger.debug("Listing users for NoCoDB base ID '%s'", base_id)
         endpoint = f"projects/{base_id}/users"
-        response_data = self._make_request("get", endpoint)
-        if (
-            response_data
-            and isinstance(response_data, dict)
-            and "users" in response_data
-            and "list" in response_data["users"]
-        ):
-            users_list = response_data["users"]["list"]
-            logger.debug("Found %d users for base ID '%s'.", len(users_list), base_id)
-            return users_list
-        logger.warning(
-            "Failed to list users for base ID '%s' or unexpected format. Response: %s",
-            base_id,
-            response_data,
-        )
-        return []
+        all_users: list[dict] = []
+        limit = 25  # NocoDB's typical default page size for meta list endpoints
+        offset = 0
 
-    def list_bases(self) -> list[dict]:
+        while True:
+            response_data = self._make_request("get", endpoint, params={"limit": limit, "offset": offset})
+            if not (
+                response_data
+                and isinstance(response_data, dict)
+                and "users" in response_data
+                and "list" in response_data["users"]
+            ):
+                logger.warning(
+                    "Failed to list users for base ID '%s' or unexpected format. Response: %s",
+                    base_id,
+                    response_data,
+                )
+                return all_users  # Return whatever was successfully collected so far, if anything.
+
+            page_users = response_data["users"]["list"]
+            all_users.extend(page_users)
+
+            page_info = response_data["users"].get("pageInfo", {})
+            is_last_page = page_info.get("isLastPage")
+            if is_last_page is not None:
+                if is_last_page:
+                    break
+            elif not page_users or len(page_users) < limit:
+                # No pageInfo in the response (older NocoDB versions) — fall back to a
+                # length-based heuristic: a short page means there's nothing more to fetch.
+                break
+
+            offset += len(page_users)
+
+        logger.debug("Found %d users for base ID '%s'.", len(all_users), base_id)
+        return all_users
+
+    def list_bases(self) -> dict:
         """
-        List all base meta data
+        List all base meta data, handling pagination.
+        Returns {"list": [...]} to match NocoDB's own response shape (callers,
+        e.g. scripts/maintenance/user_management.py, read `response["list"]`).
         """
         logger.debug("Listing bases in NoCoDB")
         endpoint = "projects/"
-        response_data = self._make_request("get", endpoint)
-        return response_data
+        all_bases: list[dict] = []
+        limit = 25
+        offset = 0
+
+        while True:
+            response_data = self._make_request("get", endpoint, params={"limit": limit, "offset": offset})
+            if not response_data or "list" not in response_data:
+                if not all_bases:
+                    # Nothing fetched at all (first page already failed) -> preserve the
+                    # old "pass through whatever we got" behavior for callers to detect.
+                    return response_data
+                break
+
+            page_bases = response_data["list"]
+            all_bases.extend(page_bases)
+
+            page_info = response_data.get("pageInfo", {})
+            is_last_page = page_info.get("isLastPage")
+            if is_last_page is not None:
+                if is_last_page:
+                    break
+            elif not page_bases or len(page_bases) < limit:
+                break
+
+            offset += len(page_bases)
+
+        return {"list": all_bases}
 
     def delete_base_user(self, base_id: str, user_id: str) -> bool:
         """

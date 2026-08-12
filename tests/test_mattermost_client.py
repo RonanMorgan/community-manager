@@ -330,11 +330,11 @@ class TestMattermostClient(unittest.TestCase):
 
         self.assertEqual(mock_get_request.call_count, 2)
         mock_get_request.assert_any_call(
-            f"{self.mock_url}/api/v4/teams/{team_id}/channels/private",
+            f"{self.mock_url}/api/v4/teams/{team_id}/channels/private?page=0&per_page=200",
             headers=self.client.headers,
         )
         mock_get_request.assert_any_call(
-            f"{self.mock_url}/api/v4/teams/{team_id}/channels",
+            f"{self.mock_url}/api/v4/teams/{team_id}/channels?page=0&per_page=200",
             headers=self.client.headers,
         )
 
@@ -359,6 +359,41 @@ class TestMattermostClient(unittest.TestCase):
         mock_get_request.side_effect = [mock_response_empty1, mock_response_empty2]
         channels = self.client.get_channels_for_team(team_id)
         self.assertEqual(len(channels), 0)
+
+    @patch("requests.get")
+    def test_get_channels_for_team_paginates_across_multiple_pages(self, mock_get_request):
+        """Regression test: get_channels_for_team() used to only fetch the first
+        page (up to per_page=200) of public/private channels. A team with more
+        than per_page channels of one type must have every page fetched."""
+        team_id = "team_many_channels"
+
+        # 200 private channels on page 0 (== per_page, so a page 1 fetch must follow),
+        # then a shorter page 1 (2 channels) signaling the end.
+        private_page0 = [{"id": f"priv_{i}", "type": "P", "team_id": team_id} for i in range(200)]
+        private_page1 = [{"id": "priv_200", "type": "P", "team_id": team_id},
+                          {"id": "priv_201", "type": "P", "team_id": team_id}]
+        # No public channels at all.
+        public_page0 = []
+
+        mock_get_request.side_effect = [
+            self._json_response(private_page0),
+            self._json_response(private_page1),
+            self._json_response(public_page0),
+        ]
+
+        channels = self.client.get_channels_for_team(team_id)
+
+        self.assertEqual(mock_get_request.call_count, 3)
+        called_urls = [call.args[0] for call in mock_get_request.call_args_list]
+        self.assertIn(f"{self.mock_url}/api/v4/teams/{team_id}/channels/private?page=0&per_page=200", called_urls)
+        self.assertIn(f"{self.mock_url}/api/v4/teams/{team_id}/channels/private?page=1&per_page=200", called_urls)
+        self.assertEqual(len(channels), 202)  # all private channels across both pages
+
+    @staticmethod
+    def _json_response(payload):
+        resp = Mock(status_code=200)
+        resp.json.return_value = payload
+        return resp
 
 
 

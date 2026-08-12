@@ -502,52 +502,67 @@ class MattermostClient:
         }
 
         for channel_type, api_url in urls_to_fetch.items():
-            # For full robustness, pagination handling (page, per_page) would be needed here too.
-            # For now, fetching the default first page (usually up to 60-200 channels).
-            logging.debug(
-                f"Mattermost API >> Fetching {channel_type} channels for team {current_team_id} from {api_url}"
-            )
-            try:
-                response = requests.get(api_url, headers=self.headers)
-                response.raise_for_status()
-                channels_data = response.json()
-                logging.debug(f"{channel_type} channels_data: {channels_data} from {api_url}")
+            page = 0
+            per_page = 200  # Mattermost's max per_page for these endpoints
+            while True:
+                paged_url = f"{api_url}?page={page}&per_page={per_page}"
+                logging.debug(
+                    f"Mattermost API >> Fetching {channel_type} channels for team {current_team_id} "
+                    f"from {paged_url} (page {page})"
+                )
+                try:
+                    response = requests.get(paged_url, headers=self.headers)
+                    response.raise_for_status()
+                    channels_data = response.json()
+                    logging.debug(f"{channel_type} channels_data: {channels_data} from {paged_url}")
 
-                if isinstance(channels_data, list):
-                    for channel in channels_data:
-                        if channel.get("id"):  # Ensure channel has an ID
-                            all_channels[channel["id"]] = channel  # Add/update channel in dict
-                    logging.info(
-                        f"Successfully fetched {len(channels_data)} {channel_type} channels for team {current_team_id}."
-                    )
-                else:
+                    if isinstance(channels_data, list):
+                        for channel in channels_data:
+                            if channel.get("id"):  # Ensure channel has an ID
+                                all_channels[channel["id"]] = channel  # Add/update channel in dict
+                        logging.info(
+                            f"Fetched {len(channels_data)} {channel_type} channels for team {current_team_id} "
+                            f"(page {page})."
+                        )
+                        if len(channels_data) < per_page:
+                            break  # last page
+                        page += 1
+                    else:
+                        logging.error(
+                            f"Unexpected response format when fetching {channel_type} channels for team "
+                            f"{current_team_id}: {channels_data}"
+                        )
+                        break
+                except requests.exceptions.HTTPError as e:
+                    # Log non-404 errors, as a 404 might just mean no channels of that type or team not found
+                    if e.response.status_code == 404:
+                        logging.warning(
+                            f"Mattermost API >> No {channel_type} channels found or team {current_team_id} "
+                            f"not found (404) from {paged_url}."
+                        )
+                    elif e.response.status_code == 403:
+                        logging.warning(
+                            f"Mattermost API >> Permission denied (403) when fetching {channel_type} channels "
+                            f"from {paged_url}. The bot might not have permissions to list these channels."
+                        )
+                    else:
+                        logging.error(
+                            f"HTTP error fetching {channel_type} channels for team {current_team_id} from "
+                            f"{paged_url}: {e.response.status_code} - {e.response.text}"
+                        )
+                    break
+                except requests.exceptions.RequestException as e:
                     logging.error(
-                        f"Unexpected response format when fetching {channel_type} channels for team {current_team_id}: {channels_data}"
+                        f"Request exception fetching {channel_type} channels for team {current_team_id} "
+                        f"from {paged_url}: {e}"
                     )
-            except requests.exceptions.HTTPError as e:
-                # Log non-404 errors, as a 404 might just mean no channels of that type or team not found
-                if e.response.status_code == 404:
-                    logging.warning(
-                        f"Mattermost API >> No {channel_type} channels found or team {current_team_id} not found (404) from {api_url}."
-                    )
-                elif e.response.status_code == 403:
-                    logging.warning(
-                        f"Mattermost API >> Permission denied (403) when fetching {channel_type} channels from {api_url}. "
-                        "The bot might not have permissions to list these channels."
-                    )
-                else:
+                    break
+                except json.JSONDecodeError as e:
                     logging.error(
-                        f"HTTP error fetching {channel_type} channels for team {current_team_id} from {api_url}: "
-                        f"{e.response.status_code} - {e.response.text}"
+                        f"Error decoding JSON from {channel_type} channels response for team {current_team_id} "
+                        f"from {paged_url}: {e}"
                     )
-            except requests.exceptions.RequestException as e:
-                logging.error(
-                    f"Request exception fetching {channel_type} channels for team {current_team_id} from {api_url}: {e}"
-                )
-            except json.JSONDecodeError as e:
-                logging.error(
-                    f"Error decoding JSON from {channel_type} channels response for team {current_team_id} from {api_url}: {e}"
-                )
+                    break
 
         final_channel_list = list(all_channels.values())
         logging.info(f"Total unique channels fetched for team {current_team_id}: {len(final_channel_list)}")
