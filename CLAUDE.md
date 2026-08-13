@@ -401,7 +401,7 @@ uvicorn backend.main:app --reload
 **Tests** :
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 162 passed
+# 172 passed
 ```
 
 ### 6.5 Limites connues / à traiter ensuite
@@ -834,6 +834,84 @@ testée contre un vrai Postgres (upgrade + `alembic check` : zéro dérive).
   sur erreur (et non `([], {})`).
 - 162 tests au total désormais.
 
+## 6-sexies. V0.5 — sections repliables, en-tête Mattermost à deux niveaux, réassociation manuelle
+
+### 6-sexies.1 Sections repliables
+
+Chaque section de la page `/groups` (Projets, Pôles, Antennes, Non
+catégorisés) a maintenant un en-tête cliquable (chevron ▾) qui la replie.
+L'état replié/déplié est mémorisé dans le `localStorage` du navigateur
+(clé `community-manager:section-collapsed:<slug>`), donc conservé d'une
+visite à l'autre. Purement front-end (`backend/static/app.js`), rien côté
+serveur.
+
+### 6-sexies.2 En-tête Mattermost à deux niveaux (tableau Projets)
+
+Dans le tableau "Projets" uniquement, la colonne "Mattermost" est
+maintenant un en-tête de groupe (`colspan="2"`) au-dessus de deux
+sous-colonnes "Channel général" et "Channel Admin", plutôt que d'avoir
+"Mattermost" et "Channel Admin" comme deux colonnes de même niveau. Les
+tableaux Pôles/Antennes/Non catégorisés gardent un en-tête simple à une
+ligne (pas de canal admin pour ces catégories, cf. §6-quinquies.3).
+
+Au passage, le libellé "Aucune correspondance ('nom du groupe')" a été
+simplifié en "Aucune correspondance" (le nom du groupe étant déjà visible
+en première colonne, le répéter n'apportait rien).
+
+### 6-sexies.3 Réassociation manuelle d'une ressource (recherche + single-select)
+
+**Problème résolu** : la synchronisation matche une ressource par nom
+**exact**. Si la collection Outline (ou le canal Mattermost) est renommée
+indépendamment d'Authentik après coup — cas réel rencontré : le groupe
+Authentik s'appelle "Projet 14_IndexFéminisationPouvoir" mais la
+collection Outline a été renommée en "Projet 14_IFP" — la ressource reste
+en `not_found` indéfiniment, alors qu'elle existe bel et bien.
+
+**Solution** : un bouton 🔗 apparaît sur chaque cellule ayant déjà une
+ressource associée (actif, introuvable, ou en erreur — pas sur les
+cellules "en attente de synchronisation", qui n'ont pas encore de
+`GroupResource` en base). Il ouvre un petit champ de recherche inline ;
+à partir de 3 caractères tapés (debounce 300 ms), une recherche est
+envoyée à l'outil concerné et les résultats s'affichent en liste
+cliquable. Cliquer un résultat associe immédiatement la ressource
+(statut → actif, `external_id` et nom mis à jour) et recharge la page.
+
+**Nouveaux endpoints** :
+- `GET /api/group-resources/{id}/search-candidates?q=...` — recherche
+  floue (substring), dispatchée selon l'outil de la ressource :
+  - Outline : nouvelle méthode `OutlineClient.search_collections(query)`
+    (utilise `collections.list` avec un `query`, mais **sans** l'exigence
+    de correspondance exacte de `list_collections(name=...)` — renvoie
+    tous les résultats plausibles, pas un seul) ;
+  - Mattermost / channel admin : nouvelle méthode `MattermostClient
+    .search_channels_for_team(team_id, term)` (endpoint dédié
+    `POST /teams/{id}/channels/search` de l'API Mattermost).
+- `POST /api/group-resources/{id}/relink` — associe manuellement la
+  ressource à l'`external_id`/nom choisi dans les résultats de recherche
+  (statut forcé à `active`). Fonctionne quel que soit le statut actuel de
+  la ressource (permet aussi de **corriger** une ressource déjà active
+  mais mal matchée, pas seulement les cas `not_found`).
+
+Ce mécanisme est volontairement **manuel et ponctuel** (une correction à
+la fois, déclenchée par l'admin) — il ne modifie pas la logique de
+correspondance par nom exact de `/api/sync` lui-même. Une resynchronisation
+ultérieure re-testera toujours la correspondance par nom exact en premier
+lieu ; si le nom Authentik ne correspond toujours à rien, la ressource
+repassera en `not_found` (voir la logique de réconciliation en
+§6-quinquies.1) et il faudra réassocier à nouveau. Améliorer `/api/sync`
+pour qu'il retienne un lien manuel entre deux resynchronisations n'a pas
+été fait dans cette passe — à envisager si ce cas devient fréquent (par
+exemple en stockant l'association manuelle indépendamment du nom).
+
+### 6-sexies.4 Tests ajoutés
+
+- `OutlineClient.search_collections()` / `MattermostClient
+  .search_channels_for_team()` : succès, requête vide (pas d'appel
+  réseau), erreur HTTP.
+- Endpoints `search-candidates` et `relink` : recherche, association,
+  ressource introuvable (404) dans les deux cas.
+- 172 tests au total désormais.
+
 
 
 
@@ -882,3 +960,15 @@ Ne pas trancher unilatéralement ces points sans validation :
     ouvert : que faire si un Pôle ou une Antenne a, un jour, aussi besoin
     d'un canal admin (actuellement non supporté, structure du code prête
     à étendre `_SYNC_FINDERS`/`ToolName` si besoin).
+14. **Persistance d'une réassociation manuelle across resync** : voir
+    §6-sexies.3 — une ressource réassociée manuellement (bouton 🔗) peut
+    repasser en `not_found` à la prochaine synchronisation si le nom
+    Authentik ne correspond toujours à rien. Pas de mécanisme pour
+    "mémoriser" un lien manuel indépendamment du nom pour l'instant.
+15. **Connexion Mattermost** : l'utilisateur a signalé que la connexion à
+    Mattermost ne fonctionnait pas correctement lors des tests réels de
+    cette passe (en cours de résolution de son côté, hors périmètre de
+    cette session). À revalider une fois corrigé : les colonnes
+    Mattermost/Channel Admin et le nouveau bouton 🔗 de réassociation n'ont
+    donc pu être testés qu'avec des clients mockés, pas contre une vraie
+    instance Mattermost.

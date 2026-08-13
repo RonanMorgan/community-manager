@@ -73,6 +73,92 @@ document.querySelectorAll(".resource-name-input").forEach((input) => {
     });
 });
 
+// --- Collapsible sections (Projets / Pôles / Antennes / Non catégorisés) ---
+const SECTION_COLLAPSE_STORAGE_PREFIX = "community-manager:section-collapsed:";
+
+document.querySelectorAll(".section-toggle").forEach((toggle) => {
+    const slug = toggle.dataset.sectionSlug;
+    const section = toggle.closest(".category-section");
+    const storageKey = SECTION_COLLAPSE_STORAGE_PREFIX + slug;
+
+    if (localStorage.getItem(storageKey) === "1") {
+        section.classList.add("collapsed");
+    }
+
+    toggle.addEventListener("click", () => {
+        const collapsed = section.classList.toggle("collapsed");
+        localStorage.setItem(storageKey, collapsed ? "1" : "0");
+    });
+});
+
+// --- Reattach a resource to a different collection/channel (search combobox) ---
+function debounce(fn, delayMs) {
+    let timeoutId;
+    return (...args) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn(...args), delayMs);
+    };
+}
+
+document.querySelectorAll(".btn-relink").forEach((btn) => {
+    const resourceId = btn.dataset.resourceId;
+    const combobox = document.querySelector(`.relink-combobox[data-resource-id="${resourceId}"]`);
+    if (!combobox) return;
+    const input = combobox.querySelector(".relink-search-input");
+    const resultsList = combobox.querySelector(".relink-results");
+
+    btn.addEventListener("click", () => {
+        // Close any other open combobox before opening this one.
+        document.querySelectorAll(".relink-combobox").forEach((el) => {
+            if (el !== combobox) el.classList.add("hidden");
+        });
+        combobox.classList.toggle("hidden");
+        if (!combobox.classList.contains("hidden")) {
+            input.value = "";
+            resultsList.innerHTML = "";
+            input.focus();
+        }
+    });
+
+    const runSearch = debounce(async (query) => {
+        if (query.trim().length < 3) {
+            resultsList.innerHTML = `<li class="relink-empty">Tapez au moins 3 caractères...</li>`;
+            return;
+        }
+        resultsList.innerHTML = `<li class="relink-empty">Recherche...</li>`;
+        try {
+            const candidates = await apiFetch(
+                `/api/group-resources/${resourceId}/search-candidates?q=${encodeURIComponent(query)}`
+            );
+            if (candidates.length === 0) {
+                resultsList.innerHTML = `<li class="relink-empty">Aucun résultat.</li>`;
+                return;
+            }
+            resultsList.innerHTML = "";
+            candidates.forEach((c) => {
+                const li = document.createElement("li");
+                li.textContent = c.name;
+                li.addEventListener("click", async () => {
+                    try {
+                        await apiFetch(`/api/group-resources/${resourceId}/relink`, {
+                            method: "POST",
+                            body: JSON.stringify({ external_id: c.id, display_name: c.name }),
+                        });
+                        window.location.reload();
+                    } catch (err) {
+                        resultsList.innerHTML = `<li class="relink-empty">Échec : ${err.message}</li>`;
+                    }
+                });
+                resultsList.appendChild(li);
+            });
+        } catch (err) {
+            resultsList.innerHTML = `<li class="relink-empty">Erreur : ${err.message}</li>`;
+        }
+    }, 300);
+
+    input.addEventListener("input", () => runSearch(input.value));
+});
+
 // --- Sync from Authentik ---
 const btnSync = document.getElementById("btn-sync");
 if (btnSync) {

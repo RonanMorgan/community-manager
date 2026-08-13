@@ -231,7 +231,36 @@ class TestOutlineClient(unittest.TestCase):
         result = self.client.delete_user("user_id_1")
         self.assertFalse(result)
 
+    @patch("requests.post")
+    def test_search_collections_success(self, mock_post):
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = {
+            "data": [{"id": "col-1", "name": "Projet 14_IFP"}, {"id": "col-2", "name": "Projet 14 bis"}]
+        }
+        mock_post.return_value = mock_response
 
+        results = self.client.search_collections("Projet 14")
+
+        self.assertEqual(len(results), 2)
+        expected_url = f"{self.mock_url}/api/collections.list"
+        mock_post.assert_called_once_with(
+            expected_url, headers=self.client.headers, json={"query": "Projet 14", "limit": 25, "offset": 0}
+        )
+
+    @patch("requests.post")
+    def test_search_collections_empty_query_returns_empty_list_without_request(self, mock_post):
+        results = self.client.search_collections("   ")
+        self.assertEqual(results, [])
+        mock_post.assert_not_called()
+
+    @patch("requests.post")
+    def test_search_collections_http_error_returns_none(self, mock_post):
+        mock_response = Mock(status_code=500)
+        mock_response.text = "Internal error"
+        mock_post.side_effect = requests.exceptions.HTTPError(response=mock_response)
+
+        results = self.client.search_collections("Projet")
+        self.assertIsNone(results)
 
 
 if __name__ == "__main__":

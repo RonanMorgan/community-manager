@@ -25,7 +25,9 @@ le bouton **« Synchroniser depuis Authentik »** :
    groupe séparé ;
 4. cherche, pour Outline et Mattermost, une ressource du même nom exact ;
 5. affiche un point vert si trouvée (avec accès à la liste réelle des
-   membres et leurs droits), un point gris sinon.
+   membres et leurs droits), un point gris sinon — avec un bouton 🔗
+   pour associer manuellement une ressource si le nom a divergé entre
+   Authentik et l'outil (recherche par mots-clés).
 
 Aucune écriture n'est faite dans Outline/Mattermost par cette synchronisation
 — c'est une découverte en lecture seule. Voir CLAUDE.md §6-bis et
@@ -71,7 +73,7 @@ serveur.
 
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 162 passed
+# 172 passed
 ```
 
 ## Structure du repo

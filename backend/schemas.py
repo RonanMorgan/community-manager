@@ -64,3 +64,16 @@ class SyncResult(BaseModel):
     resources_not_found: int = 0
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class ResourceCandidate(BaseModel):
+    """A possible match returned by the "reattach this resource" search —
+    shown in the frontend's type-ahead combobox."""
+
+    id: str
+    name: str
+
+
+class RelinkRequest(BaseModel):
+    external_id: str = Field(min_length=1)
+    display_name: str = Field(min_length=1, max_length=255)

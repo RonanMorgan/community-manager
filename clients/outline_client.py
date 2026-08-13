@@ -130,6 +130,36 @@ class OutlineClient:
             logging.error(f"Error decoding JSON from Outline users.list response for email '{email}': {e}")
             return None
 
+    def search_collections(self, query: str, limit: int = 25) -> list[dict] | None:
+        """
+        Substring search across collection names, for a type-ahead / "reattach this
+        resource" UI — unlike list_collections(name=...), this does NOT require an
+        exact match and returns every collection Outline considers relevant to the
+        query (its own top page of results), not just one.
+        :param query: Free-text search term.
+        :param limit: Max results to return (single page — fine for a live search box).
+        :return: A list of collection objects (possibly empty), or None on failure.
+        """
+        if not query or not query.strip():
+            return []
+
+        api_url = f"{self.base_url}/api/collections.list"
+        payload = {"query": query.strip(), "limit": min(limit, 100), "offset": 0}
+        try:
+            response = requests.post(api_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            response_data = response.json()
+            return response_data.get("data", [])
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"HTTP error searching Outline collections for '{query}': {e.response.status_code} - {e.response.text}")
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed while searching Outline collections for '{query}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from Outline collections.list search response: {e}")
+            return None
+
     def list_collections(self, name: Optional[str] = None, limit: int = 100) -> list[dict] | dict | None:
         """
         Retrieves collections from Outline. If a name is provided, it returns a single matching collection object.
