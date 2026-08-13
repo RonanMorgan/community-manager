@@ -211,6 +211,42 @@ class MattermostClient:
             logging.error(f"Error decoding JSON from Mattermost channel creation response for '{project_name}': {e}")
             return None
 
+    def search_channels_for_team(self, team_id: str, term: str, limit: int = 25) -> list[dict] | None:
+        """
+        Substring search across channel names/display names for a given team, for a
+        type-ahead / "reattach this resource" UI. Uses Mattermost's dedicated channel
+        search endpoint (searches both public and private channels the bot can see).
+        :param team_id: The team to search within.
+        :param term: Free-text search term.
+        :param limit: Max results to return client-side (Mattermost doesn't take a
+            limit on this endpoint, so we just truncate).
+        :return: A list of channel objects (possibly empty), or None on failure.
+        """
+        if not term or not term.strip():
+            return []
+        if not self.base_url or not self.token:
+            logging.error("Mattermost client not configured (URL or Token missing).")
+            return None
+
+        api_url = f"{self.base_url}/api/v4/teams/{team_id}/channels/search"
+        try:
+            response = requests.post(api_url, headers=self.headers, json={"term": term.strip()})
+            response.raise_for_status()
+            channels = response.json()
+            if not isinstance(channels, list):
+                logging.error(f"Unexpected response format searching Mattermost channels for '{term}': {channels}")
+                return None
+            return channels[:limit]
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"HTTP error searching Mattermost channels for '{term}': {e.response.status_code} - {e.response.text}")
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed while searching Mattermost channels for '{term}': {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from Mattermost channel search response: {e}")
+            return None
+
     def get_channel_by_name(self, team_id: str, channel_name: str) -> dict | None:
         """Fetches a Mattermost channel by its URL-safe name (slug) within a given team_id."""
         if not self.base_url or not self.token:

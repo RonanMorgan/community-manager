@@ -43,6 +43,18 @@ def find_collection_by_name(name: str) -> dict | None:
     return result or None
 
 
+def search_collections(query: str) -> list[dict]:
+    """Substring search for the "reattach this resource" UI (see
+    backend/routers/api.py::search_resource_candidates). Unlike
+    find_collection_by_name, returns every plausible match, not just an
+    exact one."""
+    client = get_client()
+    results = client.search_collections(query)
+    if results is None:
+        raise OutlineError(f"Failed to search Outline collections for '{query}'.")
+    return results
+
+
 def rename_collection(collection_id: str, new_name: str) -> None:
     client = get_client()
     ok = client.update_collection_name(collection_id, new_name)

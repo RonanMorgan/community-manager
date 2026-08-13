@@ -588,6 +588,27 @@ class TestMattermostClientFocalboard(unittest.TestCase):
         _, kwargs = mock_post.call_args
         self.assertEqual(kwargs["json"]["userId"], "user_id")
 
+    @patch("requests.post")
+    def test_search_channels_for_team_success(self, mock_post):
+        mock_post.return_value = mock_mattermost_response(
+            200, json_data=[{"id": "chan-1", "display_name": "Projet 14_IFP"}]
+        )
+
+        results = self.client.search_channels_for_team("team_id", "Projet 14")
+
+        self.assertEqual(len(results), 1)
+        mock_post.assert_called_once_with(
+            f"{self.mock_url}/api/v4/teams/team_id/channels/search",
+            headers=self.client.headers,
+            json={"term": "Projet 14"},
+        )
+
+    @patch("requests.post")
+    def test_search_channels_for_team_empty_term_returns_empty_list_without_request(self, mock_post):
+        results = self.client.search_channels_for_team("team_id", "")
+        self.assertEqual(results, [])
+        mock_post.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

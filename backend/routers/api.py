@@ -15,6 +15,8 @@ from backend.schemas import (
     GroupCategoryUpdate,
     GroupCreate,
     GroupOut,
+    RelinkRequest,
+    ResourceCandidate,
     ResourceRename,
     ResourceUser,
     SyncResult,
@@ -124,6 +126,62 @@ def rename_resource(
     resource.display_name = payload.display_name
     _log(db, user.email, "resource.renamed", group_id=resource.group_id, resource_id=resource.id,
          details=f"{old_name} -> {payload.display_name}")
+    db.commit()
+    db.refresh(resource.group)
+    return resource.group
+
+
+@router.get("/group-resources/{resource_id}/search-candidates", response_model=list[ResourceCandidate])
+def search_resource_candidates(
+    resource_id: str,
+    q: str = "",
+    user: CurrentUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Type-ahead search used by the "reattach this resource" combobox: given
+    a few characters, returns matching collections/channels from the tool
+    itself — e.g. lets an admin fix a resource whose real name diverged
+    from the Authentik group name (renamed independently in Outline)."""
+    resource = db.get(GroupResource, resource_id)
+    if not resource:
+        raise HTTPException(status_code=404, detail="Ressource introuvable.")
+    if not q or not q.strip():
+        return []
+
+    try:
+        if resource.tool == ToolName.OUTLINE:
+            candidates = outline_service.search_collections(q)
+            return [{"id": c["id"], "name": c["name"]} for c in candidates]
+        elif resource.tool in (ToolName.MATTERMOST, ToolName.MATTERMOST_ADMIN):
+            candidates = mattermost_service.search_channels(q)
+            return [{"id": c["id"], "name": c.get("display_name") or c.get("name", "")} for c in candidates]
+        raise HTTPException(status_code=400, detail=f"Recherche non supportée pour l'outil '{resource.tool.value}'.")
+    except (outline_service.OutlineError, mattermost_service.MattermostError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/group-resources/{resource_id}/relink", response_model=GroupOut)
+def relink_resource(
+    resource_id: str,
+    payload: RelinkRequest,
+    user: CurrentUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Manually (re)attaches a resource to a specific collection/channel picked
+    from search_resource_candidates — for when the automatic name-based
+    match in /api/sync missed it (e.g. the resource was renamed on the
+    tool's side after the fact, independently of Authentik)."""
+    resource = db.get(GroupResource, resource_id)
+    if not resource:
+        raise HTTPException(status_code=404, detail="Ressource introuvable.")
+
+    old_external_id = resource.external_id
+    resource.external_id = payload.external_id
+    resource.display_name = payload.display_name
+    resource.status = ResourceStatus.ACTIVE
+    resource.last_synced_at = datetime.now(timezone.utc)
+    _log(db, user.email, "resource.relinked", group_id=resource.group_id, resource_id=resource.id,
+         details=f"{old_external_id} -> {payload.external_id} ({payload.display_name})")
     db.commit()
     db.refresh(resource.group)
     return resource.group

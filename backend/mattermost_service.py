@@ -34,6 +34,18 @@ def find_channel_by_name(name: str) -> dict | None:
     return client.get_channel_by_name(client.team_id, slugify(name))
 
 
+def search_channels(query: str) -> list[dict]:
+    """Substring search for the "reattach this resource" UI (see
+    backend/routers/api.py::search_resource_candidates). Unlike
+    find_channel_by_name, searches on display name / free text, not an
+    exact slug match."""
+    client = get_client()
+    results = client.search_channels_for_team(client.team_id, query)
+    if results is None:
+        raise MattermostError(f"Failed to search Mattermost channels for '{query}'.")
+    return results
+
+
 def list_members_with_role(channel_id: str) -> list[dict]:
     """Returns [{"id", "name", "email", "permission"}] fetched LIVE from Mattermost.
     `permission` mirrors the Outline service's shape: 'admin' if the member
