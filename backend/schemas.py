@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from backend.models import ResourceStatus, ToolName
+from backend.models import Category, ResourceStatus, ToolName
 
 
 class GroupResourceOut(BaseModel):
@@ -18,6 +18,7 @@ class GroupResourceOut(BaseModel):
 class GroupOut(BaseModel):
     id: str
     name: str
+    category: Category | None
     created_by: str
     created_at: datetime
     resources: list[GroupResourceOut]
@@ -30,6 +31,10 @@ class GroupCreate(BaseModel):
     # Which tools to provision a resource for. Outline + Mattermost are checked
     # by default in the UI; only "outline" is actually wired up in V0.
     tools: list[ToolName] = Field(default_factory=lambda: [ToolName.OUTLINE])
+
+
+class GroupCategoryUpdate(BaseModel):
+    category: Category
 
 
 class ResourceRename(BaseModel):
@@ -54,6 +59,8 @@ class AddUserRequest(BaseModel):
 class SyncResult(BaseModel):
     groups_created: int = 0
     groups_updated: int = 0
+    groups_deleted: int = 0
     resources_matched: int = 0
     resources_not_found: int = 0
     errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

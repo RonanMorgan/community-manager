@@ -100,8 +100,8 @@ class TestAuthentikClient(unittest.TestCase):
     def test_get_groups_with_users_api_error(self, mock_get):
         mock_get.side_effect = requests.exceptions.RequestException("API error")
         groups, email_map = self.client.get_groups_with_users()
-        self.assertEqual(groups, [])
-        self.assertEqual(email_map, {})
+        self.assertIsNone(groups)
+        self.assertIsNone(email_map)
 
 
 

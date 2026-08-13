@@ -76,20 +76,29 @@ document.querySelectorAll(".resource-name-input").forEach((input) => {
 // --- Sync from Authentik ---
 const btnSync = document.getElementById("btn-sync");
 if (btnSync) {
+    const originalSyncLabel = btnSync.textContent;
+
     btnSync.addEventListener("click", async () => {
         const feedback = document.getElementById("sync-feedback");
         feedback.classList.remove("hidden", "alert-error", "alert-success");
         feedback.textContent = "Synchronisation en cours...";
         btnSync.disabled = true;
+        btnSync.classList.add("btn-syncing");
+        btnSync.textContent = "↻ Synchronisation en cours...";
 
         try {
             const result = await apiFetch("/api/sync", { method: "POST" });
             const parts = [
                 `${result.groups_created} groupe(s) créé(s)`,
                 `${result.groups_updated} groupe(s) déjà connu(s)`,
-                `${result.resources_matched} ressource(s) trouvée(s)`,
-                `${result.resources_not_found} sans correspondance`,
             ];
+            if (result.groups_deleted > 0) {
+                parts.push(`${result.groups_deleted} groupe(s) supprimé(s) (absents d'Authentik)`);
+            }
+            parts.push(`${result.resources_matched} ressource(s) trouvée(s)`, `${result.resources_not_found} sans correspondance`);
+            if (result.warnings && result.warnings.length > 0) {
+                parts.push(`${result.warnings.length} avertissement(s)`);
+            }
             if (result.errors.length > 0) {
                 parts.push(`${result.errors.length} erreur(s)`);
                 feedback.classList.add("alert-error");
@@ -102,9 +111,30 @@ if (btnSync) {
             feedback.classList.add("alert-error");
             feedback.textContent = `Échec de la synchronisation : ${err.message}`;
             btnSync.disabled = false;
+            btnSync.classList.remove("btn-syncing");
+            btnSync.textContent = originalSyncLabel;
         }
     });
 }
+
+// --- Manual category assignment (uncategorized groups) ---
+document.querySelectorAll(".category-select").forEach((select) => {
+    select.addEventListener("change", async () => {
+        const groupId = select.dataset.groupId;
+        const category = select.value;
+        select.disabled = true;
+        try {
+            await apiFetch(`/api/groups/${groupId}/category`, {
+                method: "PATCH",
+                body: JSON.stringify({ category }),
+            });
+            window.location.reload();
+        } catch (err) {
+            alert(`Impossible d'assigner la catégorie : ${err.message}`);
+            select.disabled = false;
+        }
+    });
+});
 
 // --- Create group modal ---
 const btnOpenCreateGroup = document.getElementById("btn-open-create-group");
