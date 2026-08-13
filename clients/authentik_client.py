@@ -67,16 +67,19 @@ class AuthentikClient:
             logging.error(f"Error decoding JSON from Authentik group creation response for '{project_name}': {e}")
             return False
 
-    def get_groups_with_users(self) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    def get_groups_with_users(self) -> Tuple[List[Dict[str, Any]], Dict[str, int]] | Tuple[None, None]:
         """
         Fetches all groups from Authentik and their user objects, handling pagination.
         Returns a tuple: (list_of_group_objects, dict_email_to_user_pk).
         Each group object in the list should at least contain 'pk', 'name', and 'users' (list of user PKs).
         The dict_email_to_user_pk maps user email to their Authentik user PK.
+        On error, returns (None, None) — deliberately NOT ([], {}), so callers can tell
+        "the API call failed" apart from "Authentik genuinely has zero groups" (the
+        latter is a valid state a deletion-reconciliation sync must still act on).
         """
         if not self.base_url or not self.token:  # Should be caught by __init__ but good practice
             logging.error("Authentik client not configured (URL or Token missing).")
-            return [], {}
+            return None, None
 
         all_groups = []
         email_to_user_pk_map = {}
@@ -126,11 +129,13 @@ class AuthentikClient:
 
             except requests.exceptions.RequestException as e:
                 logging.error(f"Error fetching Authentik groups from {current_url}: {e}")
-                # Depending on desired behavior, could return partial results or empty
-                return [], {}
+                # None (not [], {}) so callers can tell "API call failed" apart from
+                # "Authentik genuinely has zero groups" — the latter is a valid state
+                # that a deletion-reconciliation sync must still be able to act on.
+                return None, None
             except json.JSONDecodeError as e:
                 logging.error(f"Error decoding JSON from Authentik groups response ({current_url}): {e}")
-                return [], {}
+                return None, None
 
         logging.info(
             f"Fetched {len(all_groups)} groups, {len(email_to_user_pk_map)} user email-PK mappings "

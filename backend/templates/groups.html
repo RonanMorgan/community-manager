@@ -1,5 +1,71 @@
 {% extends "base.html" %}
 {% block title %}Groupes — Community Manager{% endblock %}
+
+{% macro category_table(title, groups, table_tools, show_admin_column) %}
+<section class="category-section">
+    <h2 class="category-title">{{ title }} <span class="category-count">({{ groups | length }})</span></h2>
+    {% if not groups %}
+        <p class="empty-state">Aucun groupe dans cette catégorie.</p>
+    {% else %}
+    <table class="groups-table">
+        <thead>
+            <tr>
+                <th>Groupe</th>
+                {% for tool in table_tools %}<th>{{ tool | capitalize }}</th>{% endfor %}
+                {% if show_admin_column %}<th>Channel Admin</th>{% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for group in groups %}
+            <tr data-group-id="{{ group.id }}">
+                <td class="group-name-cell">{{ group.name }}</td>
+                {% for tool in table_tools %}
+                    {% set resource = (group.resources | selectattr("tool.value", "equalto", tool) | list | first) %}
+                    <td>{{ resource_cell(resource, tool, group.name) }}</td>
+                {% endfor %}
+                {% if show_admin_column %}
+                    {% set admin_resource = (group.resources | selectattr("tool.value", "equalto", "mattermost_admin") | list | first) %}
+                    <td>{{ resource_cell(admin_resource, "mattermost_admin", group.name) }}</td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</section>
+{% endmacro %}
+
+{% macro resource_cell(resource, tool, group_name) %}
+    {% if not resource or resource.status.value == 'pending' %}
+        <span class="badge badge-pending">en attente de synchronisation</span>
+    {% elif resource.status.value == 'active' %}
+        <div class="resource-cell resource-cell-active" data-resource-id="{{ resource.id }}">
+            <span class="status-dot status-dot-active" title="Ressource trouvée"></span>
+            <input
+                type="text"
+                class="resource-name-input"
+                value="{{ resource.display_name }}"
+                data-resource-id="{{ resource.id }}"
+                {% if tool != 'outline' %}disabled title="Le renommage n'est pas encore supporté pour cet outil"{% endif %}
+            >
+            <button class="btn-link btn-view-users" data-resource-id="{{ resource.id }}"
+                    data-group-name="{{ group_name }}" data-tool="{{ tool }}">
+                Voir les utilisateurs
+            </button>
+        </div>
+    {% elif resource.status.value == 'not_found' %}
+        <div class="resource-cell">
+            <span class="status-dot status-dot-missing" title="Aucune correspondance trouvée"></span>
+            <span class="empty-cell">Aucune correspondance ('{{ resource.display_name }}')</span>
+        </div>
+    {% elif resource.status.value == 'error' %}
+        <div class="resource-cell">
+            <span class="status-dot status-dot-error" title="Erreur"></span>
+            <span class="badge badge-error">erreur de synchronisation</span>
+        </div>
+    {% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="page-header">
     <h1>Groupes</h1>
@@ -9,67 +75,57 @@
     </div>
 </div>
 <p class="subtitle">
-    Authentik est la source de vérité pour les groupes. La synchronisation crée un groupe ici pour
-    chaque groupe Authentik, puis cherche une collection Outline / un canal Mattermost du même nom.
+    Authentik est la source de vérité pour les groupes. La synchronisation crée/supprime les groupes ici en
+    fonction d'Authentik, les classe automatiquement (Projet / Pôle / Antenne selon le préfixe du nom), puis
+    cherche une collection Outline / un canal Mattermost du même nom.
 </p>
 <div id="sync-feedback" class="alert hidden"></div>
 
-<table class="groups-table">
-    <thead>
-        <tr>
-            <th>Groupe</th>
-            {% for tool in table_tools %}
-                <th>{{ tool | capitalize }}</th>
-            {% endfor %}
-        </tr>
-    </thead>
-    <tbody id="groups-tbody">
-        {% for group in groups %}
-        <tr data-group-id="{{ group.id }}">
-            <td class="group-name-cell">{{ group.name }}</td>
-            {% for tool in table_tools %}
-                {% set resource = (group.resources | selectattr("tool.value", "equalto", tool) | list | first) %}
+{{ category_table("Projets", projet_groups, table_tools, true) }}
+{{ category_table("Pôles", pole_groups, table_tools, false) }}
+{{ category_table("Antennes", antenne_groups, table_tools, false) }}
+
+<section class="category-section">
+    <h2 class="category-title">
+        Non catégorisés <span class="category-count">({{ uncategorized_groups | length }})</span>
+    </h2>
+    <p class="subtitle-small">
+        Ces groupes existent dans Authentik mais leur nom ne commence pas par "Projet", "Pôle" ou "Antenne".
+        Assignez-leur une catégorie manuellement — elle sera conservée lors des prochaines synchronisations.
+    </p>
+    {% if not uncategorized_groups %}
+        <p class="empty-state">Aucun groupe non catégorisé.</p>
+    {% else %}
+    <table class="groups-table">
+        <thead>
+            <tr>
+                <th>Groupe</th>
+                {% for tool in table_tools %}<th>{{ tool | capitalize }}</th>{% endfor %}
+                <th>Catégorie</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for group in uncategorized_groups %}
+            <tr data-group-id="{{ group.id }}">
+                <td class="group-name-cell">{{ group.name }}</td>
+                {% for tool in table_tools %}
+                    {% set resource = (group.resources | selectattr("tool.value", "equalto", tool) | list | first) %}
+                    <td>{{ resource_cell(resource, tool, group.name) }}</td>
+                {% endfor %}
                 <td>
-                    {% if not resource or resource.status.value == 'pending' %}
-                        <span class="badge badge-pending">en attente de synchronisation</span>
-                    {% elif resource.status.value == 'active' %}
-                        <div class="resource-cell resource-cell-active" data-resource-id="{{ resource.id }}">
-                            <span class="status-dot status-dot-active" title="Ressource trouvée"></span>
-                            <input
-                                type="text"
-                                class="resource-name-input"
-                                value="{{ resource.display_name }}"
-                                data-resource-id="{{ resource.id }}"
-                                {% if tool != 'outline' %}disabled title="Le renommage n'est pas encore supporté pour cet outil"{% endif %}
-                            >
-                            <button class="btn-link btn-view-users" data-resource-id="{{ resource.id }}"
-                                    data-group-name="{{ group.name }}" data-tool="{{ tool }}">
-                                Voir les utilisateurs
-                            </button>
-                        </div>
-                    {% elif resource.status.value == 'not_found' %}
-                        <div class="resource-cell">
-                            <span class="status-dot status-dot-missing" title="Aucune correspondance trouvée"></span>
-                            <span class="empty-cell">Aucune correspondance ('{{ resource.display_name }}')</span>
-                        </div>
-                    {% elif resource.status.value == 'error' %}
-                        <div class="resource-cell">
-                            <span class="status-dot status-dot-error" title="Erreur"></span>
-                            <span class="badge badge-error">erreur de synchronisation</span>
-                        </div>
-                    {% endif %}
+                    <select class="category-select" data-group-id="{{ group.id }}">
+                        <option value="" disabled selected>Choisir...</option>
+                        {% for category in categories %}
+                            <option value="{{ category }}">{{ category | capitalize }}</option>
+                        {% endfor %}
+                    </select>
                 </td>
+            </tr>
             {% endfor %}
-        </tr>
-        {% else %}
-        <tr>
-            <td colspan="{{ table_tools | length + 1 }}" class="empty-state">
-                Aucun groupe pour l'instant. Cliquez sur « Synchroniser depuis Authentik » pour importer les groupes existants.
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+        </tbody>
+    </table>
+    {% endif %}
+</section>
 
 <!-- Create group modal -->
 <div id="modal-create-group" class="modal-overlay hidden">
@@ -77,7 +133,7 @@
         <h2>Créer un groupe</h2>
         <form id="form-create-group">
             <label for="group-name">Nom du groupe</label>
-            <input type="text" id="group-name" name="name" required placeholder="ex: pole-communication">
+            <input type="text" id="group-name" name="name" required placeholder="ex: Projet Refonte Site">
 
             <fieldset class="tools-fieldset">
                 <legend>Outils à associer</legend>

@@ -26,13 +26,29 @@ def _uuid() -> str:
 
 
 class ToolName(str, enum.Enum):
-    """Supported tools. Only OUTLINE is wired up in V0; the others are
-    reserved so `GroupResource.tool` doesn't need a migration to add them."""
+    """Supported tools. Only OUTLINE and MATTERMOST are wired up; the others are
+    reserved so `GroupResource.tool` doesn't need a migration to add them.
+    MATTERMOST_ADMIN is not a separate "tool" so much as a second Mattermost
+    resource on a Projet group: its dedicated admin channel (see
+    backend/categorization.py). It reuses the (group_id, tool) uniqueness
+    constraint below rather than a new table."""
 
     OUTLINE = "outline"
     MATTERMOST = "mattermost"
+    MATTERMOST_ADMIN = "mattermost_admin"
     BREVO = "brevo"
     VAULTWARDEN = "vaultwarden"
+
+
+class Category(str, enum.Enum):
+    """A group's category, either detected from its Authentik name prefix
+    ("Projet ...", "Pôle ...", "Antenne ...") or assigned manually by an
+    admin for groups whose name doesn't match any prefix. See
+    backend/categorization.py and CLAUDE.md."""
+
+    PROJET = "projet"
+    POLE = "pole"
+    ANTENNE = "antenne"
 
 
 class ResourceStatus(str, enum.Enum):
@@ -51,6 +67,13 @@ class Group(Base):
     # a synchronization run. NULL for groups created manually before Authentik
     # sync existed, or if Authentik sync is never used. See CLAUDE.md §4-bis.
     authentik_group_id: Mapped[str | None] = mapped_column(String, nullable=True, unique=True, index=True)
+    # NULL = "uncategorized" (name didn't start with a recognized prefix at sync
+    # time). Auto-detected from the name prefix on every sync; if no prefix is
+    # detected, whatever category was last set (manually or otherwise) is left
+    # untouched — see backend/routers/api.py::sync_from_authentik.
+    category: Mapped[Category | None] = mapped_column(
+        Enum(Category, native_enum=False, length=16), nullable=True
+    )
     created_by: Mapped[str] = mapped_column(String, nullable=False)  # admin email from OIDC claim (no Users table)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[object] = mapped_column(

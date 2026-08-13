@@ -7,9 +7,18 @@ from sqlalchemy.orm import Session
 import config
 from backend import mattermost_service, outline_service
 from backend.auth import CurrentUser, require_admin
+from backend.categorization import detect_category, is_admin_suffixed, strip_admin_suffix
 from backend.database import get_db
-from backend.models import AuditLog, Group, GroupResource, ResourceStatus, ToolName
-from backend.schemas import AddUserRequest, GroupCreate, GroupOut, ResourceRename, ResourceUser, SyncResult
+from backend.models import AuditLog, Category, Group, GroupResource, ResourceStatus, ToolName
+from backend.schemas import (
+    AddUserRequest,
+    GroupCategoryUpdate,
+    GroupCreate,
+    GroupOut,
+    ResourceRename,
+    ResourceUser,
+    SyncResult,
+)
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -19,13 +28,17 @@ def _log(db: Session, actor_email: str, action: str, *, group_id: str | None = N
     db.add(AuditLog(actor_email=actor_email, action=action, group_id=group_id, resource_id=resource_id, details=details))
 
 
+def _normalize_name_key(name: str) -> str:
+    return name.strip().lower()
+
+
 @router.post("/groups", response_model=GroupOut, status_code=201)
 def create_group(payload: GroupCreate, user: CurrentUser = Depends(require_admin), db: Session = Depends(get_db)):
     existing = db.query(Group).filter(Group.name == payload.name).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Un groupe nommé '{payload.name}' existe déjà.")
 
-    group = Group(name=payload.name, created_by=user.email)
+    group = Group(name=payload.name, category=detect_category(payload.name), created_by=user.email)
     db.add(group)
     db.flush()  # get group.id without committing yet
     _log(db, user.email, "group.created", group_id=group.id, details=f"name={payload.name}")
@@ -59,6 +72,30 @@ def create_group(payload: GroupCreate, user: CurrentUser = Depends(require_admin
     return group
 
 
+@router.patch("/groups/{group_id}/category", response_model=GroupOut)
+def update_group_category(
+    group_id: str,
+    payload: GroupCategoryUpdate,
+    user: CurrentUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Manually assign a category to a group whose name didn't match a
+    Projet/Pole/Antenne prefix (the 'uncategorized' list). See CLAUDE.md.
+    A category set here is preserved across future syncs as long as the
+    group's Authentik name still doesn't match a recognized prefix."""
+    group = db.get(Group, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Groupe introuvable.")
+
+    old_category = group.category
+    group.category = payload.category
+    _log(db, user.email, "group.category_set", group_id=group.id,
+         details=f"{old_category.value if old_category else 'none'} -> {payload.category.value}")
+    db.commit()
+    db.refresh(group)
+    return group
+
+
 @router.patch("/group-resources/{resource_id}", response_model=GroupOut)
 def rename_resource(
     resource_id: str,
@@ -72,7 +109,7 @@ def rename_resource(
 
     old_name = resource.display_name
 
-    if resource.tool == ToolName.OUTLINE:
+    if resource.tool in (ToolName.OUTLINE,):
         if not resource.external_id:
             raise HTTPException(status_code=409, detail="Cette ressource Outline n'a pas encore été provisionnée.")
         try:
@@ -103,7 +140,7 @@ def list_resource_users(resource_id: str, user: CurrentUser = Depends(require_ad
     try:
         if resource.tool == ToolName.OUTLINE:
             return outline_service.list_members_with_permission(resource.external_id)
-        elif resource.tool == ToolName.MATTERMOST:
+        elif resource.tool in (ToolName.MATTERMOST, ToolName.MATTERMOST_ADMIN):
             return mattermost_service.list_members_with_role(resource.external_id)
         raise HTTPException(status_code=400, detail=f"Outil '{resource.tool.value}' pas encore supporté.")
     except (outline_service.OutlineError, mattermost_service.MattermostError) as e:
@@ -181,18 +218,77 @@ _SYNC_FINDERS = {
         "name_field": "display_name",
     },
 }
+# The admin channel of a Projet uses the same Mattermost lookup logic as a
+# regular channel — only the target tool column (and the Authentik group
+# name searched for) differs. See categorization.py / §6-quinquies in CLAUDE.md.
+_MATTERMOST_ADMIN_FINDER = _SYNC_FINDERS[ToolName.MATTERMOST]
+
+
+def _sync_tool_resource(
+    db: Session,
+    group: Group,
+    authentik_name: str,
+    tool: ToolName,
+    finder_conf: dict,
+    result: SyncResult,
+    touched_resource_ids: set[str],
+) -> None:
+    """Finds (or clears) the resource matching `authentik_name` in `tool` for
+    `group`, creating the GroupResource row on first sight. Records the
+    resource id as "touched" so the caller can tell untouched resources
+    apart afterwards (stale — no longer confirmed by this sync run)."""
+    resource = (
+        db.query(GroupResource)
+        .filter(GroupResource.group_id == group.id, GroupResource.tool == tool)
+        .first()
+    )
+    if not resource:
+        resource = GroupResource(group_id=group.id, tool=tool, display_name=authentik_name, status=ResourceStatus.PENDING)
+        db.add(resource)
+        db.flush()
+
+    try:
+        found = finder_conf["find"](authentik_name)
+    except finder_conf["error_type"] as e:
+        resource.status = ResourceStatus.ERROR
+        result.errors.append(f"{tool.value}/{authentik_name}: {e}")
+        logging.error(f"Sync error for {tool.value} / group '{authentik_name}': {e}")
+        touched_resource_ids.add(resource.id)
+        return
+
+    resource.last_synced_at = datetime.now(timezone.utc)
+    if found:
+        resource.external_id = str(found[finder_conf["id_field"]])
+        resource.display_name = found.get(finder_conf["name_field"]) or authentik_name
+        resource.status = ResourceStatus.ACTIVE
+        result.resources_matched += 1
+    else:
+        resource.external_id = None
+        resource.status = ResourceStatus.NOT_FOUND
+        result.resources_not_found += 1
+    touched_resource_ids.add(resource.id)
 
 
 @router.post("/sync", response_model=SyncResult)
 def sync_from_authentik(user: CurrentUser = Depends(require_admin), db: Session = Depends(get_db)):
     """
     Authentik is the source of truth for groups (see CLAUDE.md §4-bis):
-    - every Authentik group gets (or is matched to) a `Group` row here;
-    - for each tool in _SYNC_FINDERS, we look for a resource with the EXACT
-      same name as the Authentik group. Found -> linked (status=active,
-      shown in green). Not found -> status=not_found (no resource created).
-    This is read/discovery only: nothing is created in Outline/Mattermost
-    by this endpoint.
+    - every Authentik group gets (or is matched to) a `Group` row here, and
+      is auto-categorized (Projet/Pôle/Antenne) from its name prefix — see
+      backend/categorization.py;
+    - a Projet group whose name ends in "Admin" is NOT a group of its own:
+      it becomes the MATTERMOST_ADMIN resource of its parent Projet group;
+    - for each remaining tool, we look for a resource with the EXACT same
+      name as the Authentik group. Found -> linked (status=active, shown in
+      green). Not found -> status=not_found;
+    - groups that no longer exist in Authentik (but were previously
+      sync-linked here) are DELETED, and resources of surviving groups that
+      weren't reconfirmed this run are reset to not_found. Authentik being
+      the source of truth cuts both ways: this sync also removes, not just
+      adds. Groups created manually (no authentik_group_id) are never
+      touched by this reconciliation.
+    This is read/discovery only on the tools side: nothing is created in
+    Outline/Mattermost by this endpoint.
     """
     from clients.authentik_client import AuthentikClient
 
@@ -201,14 +297,25 @@ def sync_from_authentik(user: CurrentUser = Depends(require_admin), db: Session 
 
     client = AuthentikClient(base_url=config.AUTHENTIK_URL, token=config.AUTHENTIK_TOKEN)
     authentik_groups, _ = client.get_groups_with_users()
-    if not authentik_groups:
-        raise HTTPException(status_code=502, detail="Aucun groupe récupéré depuis Authentik (voir logs serveur).")
+    if authentik_groups is None:
+        raise HTTPException(status_code=502, detail="Échec de la récupération des groupes depuis Authentik (voir logs serveur).")
 
     result = SyncResult()
+    seen_authentik_pks: set[str] = set()
+    touched_resource_ids: set[str] = set()
+    name_to_group: dict[str, Group] = {}
+    admin_suffixed_projet_groups: list[tuple[str, str]] = []  # (authentik_pk, authentik_name), deferred to pass 2
 
+    # --- Pass 1: every group EXCEPT admin-suffixed Projet groups ---
     for ak_group in authentik_groups:
         ak_pk = str(ak_group["pk"])
         ak_name = ak_group["name"]
+        seen_authentik_pks.add(ak_pk)
+
+        detected_category = detect_category(ak_name)
+        if detected_category == Category.PROJET and is_admin_suffixed(ak_name):
+            admin_suffixed_projet_groups.append((ak_pk, ak_name))
+            continue
 
         group = db.query(Group).filter(Group.authentik_group_id == ak_pk).first()
         if not group:
@@ -218,43 +325,57 @@ def sync_from_authentik(user: CurrentUser = Depends(require_admin), db: Session 
         if group:
             if group.authentik_group_id != ak_pk:
                 group.authentik_group_id = ak_pk
+            if detected_category is not None:
+                # A recognized prefix always wins. If there's none, we deliberately
+                # leave `category` as-is, so a manual assignment (see
+                # update_group_category) survives future syncs.
+                group.category = detected_category
             result.groups_updated += 1
         else:
-            group = Group(name=ak_name, authentik_group_id=ak_pk, created_by=user.email)
+            group = Group(name=ak_name, authentik_group_id=ak_pk, category=detected_category, created_by=user.email)
             db.add(group)
             db.flush()
             _log(db, user.email, "group.synced_from_authentik", group_id=group.id, details=f"authentik_pk={ak_pk}")
             result.groups_created += 1
 
+        name_to_group[_normalize_name_key(ak_name)] = group
+
         for tool, finder_conf in _SYNC_FINDERS.items():
-            resource = (
-                db.query(GroupResource)
-                .filter(GroupResource.group_id == group.id, GroupResource.tool == tool)
+            _sync_tool_resource(db, group, ak_name, tool, finder_conf, result, touched_resource_ids)
+
+    # --- Pass 2: admin-suffixed Projet groups -> MATTERMOST_ADMIN resource on their parent ---
+    for ak_pk, ak_name in admin_suffixed_projet_groups:
+        seen_authentik_pks.add(ak_pk)  # doesn't own a Group row, but still "seen" this run
+        base_name = strip_admin_suffix(ak_name)
+        parent = name_to_group.get(_normalize_name_key(base_name))
+        if not parent:
+            parent = (
+                db.query(Group)
+                .filter(Group.name == base_name, Group.category == Category.PROJET)
                 .first()
             )
-            if not resource:
-                resource = GroupResource(group_id=group.id, tool=tool, display_name=ak_name, status=ResourceStatus.PENDING)
-                db.add(resource)
-                db.flush()
+        if not parent:
+            result.warnings.append(
+                f"Groupe admin '{ak_name}' trouvé dans Authentik mais aucun groupe Projet parent "
+                f"'{base_name}' correspondant — ignoré."
+            )
+            continue
+        _sync_tool_resource(
+            db, parent, ak_name, ToolName.MATTERMOST_ADMIN, _MATTERMOST_ADMIN_FINDER, result, touched_resource_ids
+        )
 
-            try:
-                found = finder_conf["find"](ak_name)
-            except finder_conf["error_type"] as e:
-                resource.status = ResourceStatus.ERROR
-                result.errors.append(f"{tool.value}/{ak_name}: {e}")
-                logging.error(f"Sync error for {tool.value} / group '{ak_name}': {e}")
-                continue
-
-            resource.last_synced_at = datetime.now(timezone.utc)
-            if found:
-                resource.external_id = str(found[finder_conf["id_field"]])
-                resource.display_name = found.get(finder_conf["name_field"]) or ak_name
-                resource.status = ResourceStatus.ACTIVE
-                result.resources_matched += 1
-            else:
-                resource.external_id = None
-                resource.status = ResourceStatus.NOT_FOUND
-                result.resources_not_found += 1
+    # --- Reconciliation: Authentik is authoritative, so deletions there propagate here too ---
+    managed_groups = db.query(Group).filter(Group.authentik_group_id.isnot(None)).all()
+    for group in managed_groups:
+        if group.authentik_group_id not in seen_authentik_pks:
+            _log(db, user.email, "group.deleted_not_in_authentik", group_id=group.id, details=f"name={group.name}")
+            db.delete(group)
+            result.groups_deleted += 1
+        else:
+            for resource in group.resources:
+                if resource.id not in touched_resource_ids and resource.status != ResourceStatus.NOT_FOUND:
+                    resource.status = ResourceStatus.NOT_FOUND
+                    resource.external_id = None
 
     _log(db, user.email, "sync.completed", details=str(result.model_dump()))
     db.commit()

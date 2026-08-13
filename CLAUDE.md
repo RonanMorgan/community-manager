@@ -401,7 +401,7 @@ uvicorn backend.main:app --reload
 **Tests** :
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 148 passed
+# 162 passed
 ```
 
 ### 6.5 Limites connues / à traiter ensuite
@@ -716,6 +716,124 @@ possible ici (vérifié via la doc de l'API Bitwarden).
   pagination sur 2 pages chacun.
 - 148 tests au total désormais.
 
+## 6-quinquies. V0.4 — réconciliation des suppressions, feedback visuel de sync, catégorisation Projet/Pôle/Antenne
+
+### 6-quinquies.1 Suppression des groupes absents d'Authentik
+
+**Bug signalé** : supprimer un groupe dans Authentik ne le faisait pas
+disparaître de l'appli après une nouvelle synchronisation — logique, la
+sync ne faisait qu'ajouter/mettre à jour, jamais supprimer.
+
+**Corrigé** : `/api/sync` calcule maintenant l'ensemble des `pk` Authentik
+vus pendant la synchronisation, puis :
+- tout `Group` de l'appli ayant un `authentik_group_id` **absent** de cet
+  ensemble est **supprimé** (cascade sur ses `GroupResource`) ;
+- pour un `Group` qui survit, toute `GroupResource` qui n'a pas été
+  "confirmée" pendant cette synchronisation (aucun appel de recherche
+  effectué dessus ce run — situation qui peut arriver pour le channel
+  admin d'un projet, voir §6-quinquies.3) repasse en `not_found` plutôt que
+  de garder une donnée obsolète affichée comme valide.
+- Les groupes **créés manuellement** (bouton "Créer un groupe",
+  `authentik_group_id` = `NULL`) ne sont **jamais** supprimés par cette
+  réconciliation, quoi qu'il se passe côté Authentik — seuls les groupes
+  liés à un groupe Authentik réel sont concernés.
+
+Testé de bout en bout contre un vrai Postgres : création de 5 groupes,
+suppression de 2 côté Authentik simulé, re-sync, confirmation que
+seuls les 2 groupes disparus d'Authentik disparaissent de l'appli.
+
+**Bug additionnel trouvé pendant l'implémentation** : `AuthentikClient
+.get_groups_with_users()` renvoyait `([], {})` aussi bien en cas d'erreur
+API qu'en cas de succès avec zéro groupe — ces deux cas étaient donc
+indiscernables, ce qui aurait empêché la réconciliation de suppression de
+fonctionner si un jour Authentik n'a plus aucun groupe (edge case, mais
+justement le genre de cas qu'une fonctionnalité de suppression doit gérer
+correctement). Corrigé sur le même principe que `list_applications()`
+(§6-ter.2) : renvoie désormais `(None, None)` sur erreur.
+
+### 6-quinquies.2 Feedback visuel pendant la synchronisation
+
+Le bouton "Synchroniser depuis Authentik" change maintenant d'apparence
+(couleur ambre, texte "Synchronisation en cours...", curseur "progress")
+tant que la requête `/api/sync` n'a pas répondu, et redevient normal en
+cas d'erreur (avec le message d'erreur affiché) ou disparaît (rechargement
+de la page) en cas de succès.
+
+### 6-quinquies.3 Catégorisation Projet / Pôle / Antenne
+
+Refonte de la page `/groups` : au lieu d'un tableau unique listant tous
+les groupes, **trois tableaux séparés** ("Projets", "Pôles", "Antennes")
+plus une section "Non catégorisés" en bas de page.
+
+**Détection de catégorie** (`backend/categorization.py`, testé
+isolément) : basée sur le **premier mot** du nom du groupe Authentik
+(normalisé : minuscules, accents supprimés, séparateurs `espace`/`-`/`_`
+tous traités pareil) :
+- commence par "Projet" → catégorie Projet
+- commence par "Pole" ou "Pôle" → catégorie Pôle
+- commence par "Antenne" → catégorie Antenne
+- sinon → **non catégorisé**, affiché dans la section du bas avec un
+  `<select>` par ligne permettant à l'admin d'assigner la catégorie
+  manuellement (`PATCH /api/groups/{id}/category`, nouvel endpoint).
+
+**Priorité systématique au préfixe détecté** : si le nom du groupe
+correspond à un préfixe reconnu, la catégorie détectée écrase toujours
+celle en base — y compris une catégorie assignée manuellement
+auparavant. Si aucun préfixe n'est détecté, la catégorie déjà en base
+(qu'elle soit `NULL` ou déjà assignée manuellement) est **préservée** :
+c'est ce qui permet, une fois la catégorie assignée une première fois à
+la main, de renommer ensuite le groupe pour retirer le préfixe de
+catégorie du nom (cas d'usage explicitement demandé) sans que la
+prochaine synchronisation ne le fasse retomber en "non catégorisé".
+Comportement vérifié par test (`test_prefix_detection_overrides_manual
+_category_on_next_sync`).
+
+**Cas spécial "Projet ... Admin"** : contrairement aux Pôles et Antennes,
+un Projet peut avoir besoin d'un canal Mattermost admin dédié, séparé du
+canal principal. Ce n'est **pas un groupe à part** dans l'appli : un
+groupe Authentik de catégorie Projet dont le nom se termine par "Admin"
+(détection insensible à la casse et au séparateur — "Foo Admin",
+"Foo-Admin", "Foo_admin" reconnus) est traité en seconde passe de la
+synchronisation :
+1. le suffixe "Admin" est retiré pour obtenir le nom du projet parent
+   (`strip_admin_suffix`) ;
+2. le groupe parent correspondant est recherché (créé ou déjà existant
+   dans le même run de synchronisation, sinon déjà en base) ;
+3. si trouvé : une ressource `mattermost_admin` (nouvelle valeur de
+   `ToolName`, réutilise le schéma `GroupResource` existant plutôt qu'une
+   nouvelle table — une ligne par `(group_id, tool)`) est créée/mise à
+   jour sur le groupe **parent**, en cherchant un canal Mattermost nommé
+   d'après le groupe Admin complet ("Projet Foo Admin") ;
+4. si aucun parent "Projet Foo" n'existe (ni dans ce run, ni déjà en
+   base), un **avertissement** est ajouté au résultat de la synchronisation
+   (`SyncResult.warnings`, nouveau champ) plutôt que de créer un groupe
+   fantôme ou d'échouer silencieusement.
+
+La colonne "Channel Admin" n'apparaît que dans le tableau "Projets" —
+absente pour Pôles/Antennes/non-catégorisés, conformément à la demande
+("je n'ai pas besoin de groupe Admin pour les Antennes et les Pôles").
+
+Le renommage en ligne et l'ajout/retrait d'utilisateurs se comportent pour
+la colonne "Channel Admin" exactement comme pour la colonne Mattermost
+classique (lecture seule pour l'instant, voir §6-bis.4 — aucun changement
+sur ce point dans cette passe).
+
+**Migration Alembic** : `groups.category` (VARCHAR nullable), générée et
+testée contre un vrai Postgres (upgrade + `alembic check` : zéro dérive).
+
+### 6-quinquies.4 Tests ajoutés
+
+- Réconciliation de suppression : groupe absent d'Authentik supprimé,
+  groupe créé manuellement jamais supprimé.
+- Détection de catégorie : tous les préfixes, accents, séparateurs, faux
+  positifs (ex. "Ancien Projet Foo" ne doit pas matcher "Projet").
+- Canal admin : rattachement au bon parent, avertissement si parent
+  introuvable, non-création d'un groupe séparé pour le groupe "... Admin".
+- Priorité du préfixe détecté sur une catégorie assignée manuellement.
+- `AuthentikClient.get_groups_with_users()` : renvoie bien `(None, None)`
+  sur erreur (et non `([], {})`).
+- 162 tests au total désormais.
+
 
 
 
@@ -754,3 +872,13 @@ Ne pas trancher unilatéralement ces points sans validation :
 11. ~~Gestion du schéma de base de données~~ **Tranché** : Alembic, voir
     §6-ter.1. Les migrations doivent désormais être écrites/relues à chaque
     changement de `backend/models.py` — ce n'est plus automatique.
+12. ~~Suppression des groupes absents d'Authentik~~ **Tranché** : la
+    synchronisation supprime maintenant les groupes sync-managés absents
+    d'Authentik, voir §6-quinquies.1. Les groupes créés manuellement ne
+    sont jamais supprimés par cette réconciliation.
+13. ~~Modèle Projet/Pôle/Antenne~~ **Tranché** : détection par préfixe du
+    nom, catégorie manuelle en repli pour les groupes non reconnus, canal
+    admin dédié pour les Projets uniquement — voir §6-quinquies.3. Reste
+    ouvert : que faire si un Pôle ou une Antenne a, un jour, aussi besoin
+    d'un canal admin (actuellement non supporté, structure du code prête
+    à étendre `_SYNC_FINDERS`/`ToolName` si besoin).

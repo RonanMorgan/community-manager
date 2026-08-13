@@ -13,13 +13,23 @@ Vaultwarden).
 
 Authentik est la source de vérité pour les groupes. Sur la page `/groups`,
 le bouton **« Synchroniser depuis Authentik »** :
-1. crée (ou relie, si déjà connu) un groupe côté appli pour chaque groupe Authentik ;
-2. cherche, pour Outline et Mattermost, une ressource du même nom exact ;
-3. affiche un point vert si trouvée (avec accès à la liste réelle des
+1. crée (ou relie, si déjà connu) un groupe côté appli pour chaque groupe
+   Authentik, et **supprime ceux qui n'existent plus dans Authentik**
+   (sauf les groupes créés manuellement, jamais touchés par cette
+   réconciliation) ;
+2. classe automatiquement chaque groupe en **Projet / Pôle / Antenne**
+   selon le préfixe de son nom (les groupes non reconnus atterrissent dans
+   une section « Non catégorisés », avec assignation manuelle possible) ;
+3. pour un Projet, rattache le canal Mattermost admin dédié (groupe
+   Authentik « ... Admin ») à son projet parent plutôt que d'en faire un
+   groupe séparé ;
+4. cherche, pour Outline et Mattermost, une ressource du même nom exact ;
+5. affiche un point vert si trouvée (avec accès à la liste réelle des
    membres et leurs droits), un point gris sinon.
 
 Aucune écriture n'est faite dans Outline/Mattermost par cette synchronisation
-— c'est une découverte en lecture seule. Voir CLAUDE.md §6-bis pour le détail.
+— c'est une découverte en lecture seule. Voir CLAUDE.md §6-bis et
+§6-quinquies pour le détail.
 
 ## Démarrage rapide
 
@@ -61,7 +71,7 @@ serveur.
 
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 148 passed
+# 162 passed
 ```
 
 ## Structure du repo

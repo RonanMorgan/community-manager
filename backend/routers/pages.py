@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 import config
 from backend.auth import CurrentUser, require_admin
 from backend.database import get_db
-from backend.models import Group, ToolName
+from backend.models import Category, Group, ToolName
 
 router = APIRouter()
 templates = Jinja2Templates(directory="backend/templates")
@@ -92,19 +92,36 @@ def applications_page(request: Request, user: CurrentUser = Depends(require_admi
 @router.get("/groups", response_class=HTMLResponse)
 def groups_page(request: Request, user: CurrentUser = Depends(require_admin), db: Session = Depends(get_db)):
     groups = db.execute(select(Group).order_by(Group.name)).scalars().all()
+
+    groups_by_category = {
+        Category.PROJET: [],
+        Category.POLE: [],
+        Category.ANTENNE: [],
+    }
+    uncategorized_groups = []
+    for group in groups:
+        if group.category in groups_by_category:
+            groups_by_category[group.category].append(group)
+        else:
+            uncategorized_groups.append(group)
+
     return templates.TemplateResponse(
         request,
         "groups.html",
         {
             "user": user,
-            "groups": groups,
+            "projet_groups": groups_by_category[Category.PROJET],
+            "pole_groups": groups_by_category[Category.POLE],
+            "antenne_groups": groups_by_category[Category.ANTENNE],
+            "uncategorized_groups": uncategorized_groups,
+            "categories": [c.value for c in Category],
             # Outline is fully wired (create/rename/add/remove); Mattermost is
             # read/discovery-only for now (via /api/sync), see CLAUDE.md.
             "table_tools": ["outline", "mattermost"],
             # All tools shown as checkboxes in the "create group" modal; only
             # the ones with a provisioner (see outline_service.PROVISIONERS)
             # are enabled — the others are visible but disabled.
-            "available_tools": [t.value for t in ToolName],
+            "available_tools": [t.value for t in ToolName if t != ToolName.MATTERMOST_ADMIN],
             "functional_tools": ["outline"],
         },
     )
