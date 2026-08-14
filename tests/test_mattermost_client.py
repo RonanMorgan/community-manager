@@ -192,6 +192,18 @@ class TestMattermostClient(unittest.TestCase):
         self.assertEqual(slugify("Underscores_and_Spaces"), "underscores-and-spaces")
         self.assertEqual(slugify(""), "default-channel-name")
         self.assertEqual(slugify("!@#$"), "default-channel-name")
+
+    def test_slugify_matches_mattermost_accent_handling(self):
+        """Regression test: Mattermost's own name->URL conversion DELETES
+        accented letters entirely rather than substituting a hyphen or the
+        unaccented base letter. Confirmed against
+        github.com/mattermost/mattermost/issues/5010 ("non-English
+        characters... can't be converted into URL and will be skipped")."""
+        self.assertEqual(slugify("Projet Basta Admin"), "projet-basta-admin")
+        self.assertEqual(slugify("Projet 14_IndexFéminisationPouvoir"), "projet-14-indexfminisationpouvoir")
+        self.assertEqual(slugify("Pôle Communication"), "ple-communication")
+        self.assertEqual(slugify("word é word"), "word-word")
+        self.assertEqual(slugify("Émile Test"), "mile-test")
         long_name = "a" * 70
         expected_long_slug = "a" * 64
         self.assertEqual(slugify(long_name), expected_long_slug)
