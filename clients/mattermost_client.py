@@ -7,28 +7,19 @@ import requests
 
 def slugify(text: str) -> str:
     """
-    Mimics Mattermost's own name-to-URL conversion (used when creating/renaming
-    a channel and not manually overriding the "Channel handle"/URL field):
+    Simple slugify function:
     - Convert to lowercase
-    - DELETE non-ASCII characters entirely (no substitution) — this is what
-      Mattermost actually does with accented letters: "Féminisation" becomes
-      "fminisation", NOT "f-minisation" and NOT "feminisation". Confirmed
-      against Mattermost's own bug tracker: non-Latin/accented characters
-      "can't be converted into URL and will be skipped"
-      (github.com/mattermost/mattermost/issues/5010).
     - Replace spaces and underscores with hyphens
-    - Replace remaining ASCII punctuation (not alphanumeric/hyphen) with
-      hyphens — ordinary word-separator behavior, unlike accented letters
-    - Collapse repeated hyphens and trim leading/trailing hyphens
+    - Remove characters that are not alphanumeric or hyphens
+    - Ensure it doesn't start or end with a hyphen
     - Truncate to 64 characters (Mattermost limit for channel name)
     - Return a default name if the slug becomes empty
     """
     text = str(text).lower()
-    text = text.encode("ascii", "ignore").decode("ascii")
     text = re.sub(r"[\s_]+", "-", text)
     text = re.sub(r"[^a-z0-9-]+", "-", text)
-    text = re.sub(r"-+", "-", text)
     text = text.strip("-")
+    text = re.sub(r"-+", "-", text)
 
     if len(text) > 64:
         text = text[:64].strip("-")

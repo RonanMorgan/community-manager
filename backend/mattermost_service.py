@@ -27,38 +27,11 @@ def get_client() -> MattermostClient:
 
 
 def find_channel_by_name(name: str) -> dict | None:
-    """
-    Looks up a channel matching `name`, trying two strategies:
-    1. Direct lookup by URL-safe slug (`slugify(name)`) — the primary
-       strategy, since Mattermost auto-derives a channel's slug from its
-       display name (unless someone manually customized the "Channel
-       handle" field), including on rename. `slugify()` mirrors Mattermost's
-       own conversion rules (see clients/mattermost_client.py).
-    2. Fallback: search by exact display name (`search_channels_for_team`,
-       kept only for a display-name EXACT match). Needed for channels whose
-       handle was manually customized away from the auto-derived slug, and
-       for Mattermost deployments with "anonymous URLs" enabled (Mattermost
-       11.6+), where the slug never reflects the name at all.
-    """
+    """Looks up a channel whose URL-safe name (slug) matches `slugify(name)`.
+    Channels in Mattermost are addressed by this slug, not by their display
+    name, so this is the correct way to match a channel to a group name."""
     client = get_client()
-
-    channel = client.get_channel_by_name(client.team_id, slugify(name))
-    if channel:
-        return channel
-
-    candidates = client.search_channels_for_team(client.team_id, name)
-    if candidates is None:
-        # The slug lookup already came back empty, and the fallback search
-        # itself failed — surface this as an error rather than silently
-        # treating it as "not found".
-        raise MattermostError(f"Failed to search Mattermost channels for '{name}'.")
-
-    normalized_target = name.strip().lower()
-    for candidate in candidates:
-        if (candidate.get("display_name") or "").strip().lower() == normalized_target:
-            return candidate
-
-    return None
+    return client.get_channel_by_name(client.team_id, slugify(name))
 
 
 def search_channels(query: str) -> list[dict]:

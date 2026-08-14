@@ -401,7 +401,7 @@ uvicorn backend.main:app --reload
 **Tests** :
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 178 passed
+# 172 passed
 ```
 
 ### 6.5 Limites connues / à traiter ensuite
@@ -912,61 +912,6 @@ exemple en stockant l'association manuelle indépendamment du nom).
   ressource introuvable (404) dans les deux cas.
 - 172 tests au total désormais.
 
-## 6-septies. V0.6 — correction du calcul du slug Mattermost (accents)
-
-**Bug signalé** : logs serveur `WARNING - Mattermost channel
-'projet-basta-admin' not found in team 'data-for-good'` alors que le canal
-existe bel et bien sous le nom affiché "Projet Basta Admin".
-
-**Diagnostic initial erroné, corrigé par l'utilisateur** : la première
-hypothèse ("renommer un canal ne change pas son slug/identifiant") était
-**fausse** — l'utilisateur a confirmé qu'en pratique, le slug d'un canal
-Mattermost suit bien son nom d'affichage, tant que personne n'a modifié le
-champ "Channel handle"/URL manuellement à la création ou lors d'un
-renommage. La vraie cause était ailleurs.
-
-**Cause réelle** : la fonction `slugify()` (`clients/mattermost_client.py`)
-remplaçait tout caractère hors `[a-z0-9-]` par un tiret — y compris les
-lettres accentuées. Or Mattermost, lors de sa propre conversion nom →
-URL, **supprime** les caractères accentués (aucune substitution), il ne
-les remplace pas par un tiret. Confirmé par un ticket du dépôt officiel
-Mattermost : les caractères non-latins/accentués "can't be converted into
-URL and will be skipped" (`github.com/mattermost/mattermost/issues/5010`).
-
-Concrètement, pour "Projet 14_IndexFéminisationPouvoir" :
-- notre ancien `slugify()` produisait `projet-14-indexf-minisationpouvoir`
-  (un tiret à la place du "é") ;
-- le vrai identifiant Mattermost est `projet-14-indexfminisationpouvoir`
-  (le "é" est simplement supprimé, sans tiret) ;
-- ces deux chaînes ne correspondent jamais → `not_found` à tort.
-
-**Corrigé** : `slugify()` supprime maintenant les caractères non-ASCII
-(donc les lettres accentuées) **avant** de traiter la ponctuation ASCII
-restante (`!`, `@`, `#`, etc., qui reste bien remplacée par un tiret,
-comportement inchangé et toujours testé). `find_channel_by_name()`
-retrouve donc sa stratégie initiale comme mécanisme **principal** : lookup
-direct par slug corrigé. La recherche par nom affiché
-(`search_channels_for_team`, ajoutée en §6-sexies.3 pour le combobox de
-réassociation manuelle) est conservée comme **repli secondaire** — utile
-pour les canaux dont le "Channel handle" a été personnalisé manuellement
-(divergent alors du slug auto-généré), et pour les instances Mattermost
-avec les "anonymous URLs" activées (Mattermost 11.6+, fonctionnalité où le
-slug ne reflète jamais le nom, quel qu'il soit).
-
-**Tests ajoutés/corrigés** :
-- `tests/test_mattermost_client.py::test_slugify_matches_mattermost_accent_handling` :
-  reproduit "Projet 14_IndexFéminisationPouvoir", "Pôle Communication",
-  et d'autres cas d'accents, en vérifiant qu'aucun tiret ne remplace la
-  lettre supprimée. Les tests existants sur la ponctuation ASCII
-  (`Special!@#Chars` → `special-chars`) restent inchangés et passent
-  toujours.
-- `backend/tests/test_mattermost_service.py` (nouveau fichier) :
-  lookup par slug corrigé en priorité (sans appel à la recherche), repli
-  sur la recherche par nom affiché quand le slug ne matche pas, exigence
-  de correspondance exacte sur le repli (pas de faux positif sur une
-  correspondance partielle), propagation d'erreur si le repli échoue.
-- 178 tests au total désormais.
-
 
 
 
@@ -1020,11 +965,10 @@ Ne pas trancher unilatéralement ces points sans validation :
     repasser en `not_found` à la prochaine synchronisation si le nom
     Authentik ne correspond toujours à rien. Pas de mécanisme pour
     "mémoriser" un lien manuel indépendamment du nom pour l'instant.
-15. **Connexion Mattermost** : mise à jour — la connexion elle-même
-    fonctionnait ; le vrai problème était le calcul du slug (§6-septies),
-    maintenant corrigé. Reste à confirmer en conditions réelles avec
-    l'instance Mattermost de l'utilisateur.
-16. **Couverture de la recherche Mattermost sur les canaux privés** :
-    `search_channels_for_team()` (utilisée en repli, §6-septies) — à
-    vérifier en conditions réelles si elle couvre aussi les canaux privés,
-    pas seulement publics.
+15. **Connexion Mattermost** : l'utilisateur a signalé que la connexion à
+    Mattermost ne fonctionnait pas correctement lors des tests réels de
+    cette passe (en cours de résolution de son côté, hors périmètre de
+    cette session). À revalider une fois corrigé : les colonnes
+    Mattermost/Channel Admin et le nouveau bouton 🔗 de réassociation n'ont
+    donc pu être testés qu'avec des clients mockés, pas contre une vraie
+    instance Mattermost.
