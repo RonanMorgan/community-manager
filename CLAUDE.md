@@ -401,7 +401,7 @@ uvicorn backend.main:app --reload
 **Tests** :
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 172 passed
+# 179 passed
 ```
 
 ### 6.5 Limites connues / à traiter ensuite
@@ -912,6 +912,71 @@ exemple en stockant l'association manuelle indépendamment du nom).
   ressource introuvable (404) dans les deux cas.
 - 172 tests au total désormais.
 
+## 6-septies. V0.6 — matching Mattermost : recherche par nom en priorité (les slugs sont incohérents en pratique)
+
+**Contexte** : plusieurs pistes ont été explorées avant de trouver la
+bonne. Historique complet, utile pour ne pas relancer les mêmes fausses
+pistes :
+
+1. *(Écartée par l'utilisateur, à raison)* — hypothèse initiale : renommer
+   un canal ne changerait pas son slug. **Faux en pratique** sur cette
+   instance : le slug suit généralement le nom affiché.
+2. *(Vraie cause du blocage total)* — `MATTERMOST_TEAM_ID` était configuré
+   avec le **nom** de l'équipe (`data-for-good`) plutôt que son identifiant
+   technique réel. **Corrigé par l'utilisateur directement dans sa
+   configuration** (pas de changement de code ici) — c'est ce qui a
+   débloqué la synchronisation pour la majorité des groupes (Antennes et
+   Pôles : 100% ; la plupart des Projets aussi).
+3. *(Cette section)* — une fois le `team_id` corrigé, un sous-ensemble de
+   Projets restait bloqué en `not_found` : spécifiquement tous les
+   "Projet 14_...". Cause identifiée avec l'aide de l'utilisateur, qui a
+   vérifié les vrais slugs directement dans Mattermost.
+
+**Constat déterminant** : sur cette instance, **le calcul du slug n'est
+pas cohérent d'un canal à l'autre** pour un même type d'entrée :
+- "Projet 14_RelaxesPourVivant" → vrai slug `projet-14_relaxespourvivant`
+  (underscore **conservé**) ;
+- "Projet 13_démocratiser_sobriete" → vrai slug
+  `projet-13-d-mocratiser-sobriete` (underscores **et** lettre accentuée
+  transformés en tirets).
+
+Deux noms de forme quasi identique ("Projet NN_NomDuProjet"), deux règles
+de conversion différentes. L'explication la plus probable : ces canaux
+n'ont pas tous été créés/renommés par le même chemin (renommage manuel via
+l'interface vs. création par script/API avec un `name` déjà en minuscules
+mais sans passer par la génération de slug de l'UI). **Aucune fonction de
+slugification déterministe ne peut donc deviner juste à 100% du temps** —
+ce n'est pas un bug de notre code à corriger avec la "bonne" règle, il n'y
+a simplement pas de règle unique sur ces données réelles.
+
+**Corrigé** : `find_channel_by_name()` (utilisée pour la colonne
+Mattermost et pour "Channel Admin", qui réutilise la même fonction)
+change de stratégie principale :
+1. **Recherche par nom affiché en premier**
+   (`MattermostClient.search_channels_for_team`, déjà existante pour le
+   combobox de réassociation manuelle) — ne dépend pas du tout du calcul
+   du slug, donc insensible à cette incohérence.
+2. **Repli sur le slug, en essayant deux variantes** si la recherche ne
+   trouve rien (utile pour les canaux privés que la recherche ne
+   couvrirait pas) : `slugify(nom)` (comportement historique, underscores
+   → tirets) et `slugify(nom, preserve_underscores=True)` (nouveau
+   paramètre — ne convertit que les espaces, garde les underscores tels
+   quels). Les deux variantes correspondent chacune à un des deux cas
+   réels observés ci-dessus.
+
+**Tests ajoutés** : reproduisent les deux cas réels exacts fournis par
+l'utilisateur ("14_RelaxesPourVivant" via le repli underscore-préservé,
+"13_démocratiser_sobriete" via le repli standard), plus la recherche comme
+chemin principal, l'exigence de correspondance exacte sur la recherche, et
+la propagation d'erreur si la recherche échoue. 179 tests au total
+désormais.
+
+**Non traité dans cette passe** : `MATTERMOST_TEAM_ID` reste une variable
+à renseigner manuellement avec le véritable identifiant technique de
+l'équipe (pas son nom) — voir `.env.example`. Une résolution automatique
+nom→ID avait été envisagée à un moment mais n'a pas été retenue par
+l'utilisateur, qui préfère gérer cette variable directement.
+
 
 
 
@@ -965,10 +1030,13 @@ Ne pas trancher unilatéralement ces points sans validation :
     repasser en `not_found` à la prochaine synchronisation si le nom
     Authentik ne correspond toujours à rien. Pas de mécanisme pour
     "mémoriser" un lien manuel indépendamment du nom pour l'instant.
-15. **Connexion Mattermost** : l'utilisateur a signalé que la connexion à
-    Mattermost ne fonctionnait pas correctement lors des tests réels de
-    cette passe (en cours de résolution de son côté, hors périmètre de
-    cette session). À revalider une fois corrigé : les colonnes
-    Mattermost/Channel Admin et le nouveau bouton 🔗 de réassociation n'ont
-    donc pu être testés qu'avec des clients mockés, pas contre une vraie
-    instance Mattermost.
+15. **Connexion Mattermost** : résolue — `MATTERMOST_TEAM_ID` doit
+    contenir le véritable identifiant technique de l'équipe (pas son nom),
+    corrigé par l'utilisateur dans sa configuration. Le matching par nom
+    (recherche en priorité, slug en repli) est maintenant testé contre des
+    cas réels — voir §6-septies.
+16. **Couverture de la recherche Mattermost sur les canaux privés** :
+    `search_channels_for_team()` (mécanisme principal désormais, voir
+    §6-septies) — à vérifier en conditions réelles si elle couvre aussi
+    les canaux privés, pas seulement publics. Le repli par slug (deux
+    variantes) reste le filet de sécurité si ce n'est pas le cas.

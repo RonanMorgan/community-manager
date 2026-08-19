@@ -5,19 +5,47 @@ import re
 import requests
 
 
-def slugify(text: str) -> str:
+def slugify(text: str, preserve_underscores: bool = False) -> str:
     """
-    Simple slugify function:
+    Best-effort slugify function, used as a FALLBACK guess for a channel's
+    URL-safe name (see find_channel_by_name() in backend/mattermost_service.py
+    for why this is a fallback and not the primary matching strategy).
+
+    IMPORTANT: in practice, different channels on the same Mattermost
+    instance can have inconsistent slugs for the same kind of input —
+    observed directly on a real instance: "Projet 14_RelaxesPourVivant"
+    keeps its underscore ("projet-14_relaxespourvivant") while "Projet
+    13_démocratiser_sobriete" has both its underscores AND its accented
+    letter turned into hyphens ("projet-13-d-mocratiser-sobriete"). This is
+    almost certainly explained by different channels being created through
+    different paths (manual UI rename vs. direct API/import with a raw
+    "name" field) rather than a single deterministic rule. There is no
+    slugify() variant that gets 100% of real-world channels right — this
+    function is only ever a best-effort guess for the fallback lookup.
+
     - Convert to lowercase
-    - Replace spaces and underscores with hyphens
-    - Remove characters that are not alphanumeric or hyphens
+    - Replace spaces (and underscores, unless preserve_underscores=True)
+      with hyphens
+    - Replace remaining characters that are not alphanumeric or hyphens
+      with hyphens (this includes accented letters — Mattermost has been
+      observed doing this too, see above, even though its own bug tracker
+      also documents accented letters being dropped entirely in some
+      contexts; both are tried by calling this with different arguments)
     - Ensure it doesn't start or end with a hyphen
     - Truncate to 64 characters (Mattermost limit for channel name)
     - Return a default name if the slug becomes empty
+
+    :param preserve_underscores: If True, underscores are kept as-is
+        instead of being turned into hyphens (only whitespace becomes a
+        hyphen). Try both variants when guessing a channel's slug.
     """
     text = str(text).lower()
-    text = re.sub(r"[\s_]+", "-", text)
-    text = re.sub(r"[^a-z0-9-]+", "-", text)
+    if preserve_underscores:
+        text = re.sub(r"\s+", "-", text)
+        text = re.sub(r"[^a-z0-9_-]+", "-", text)
+    else:
+        text = re.sub(r"[\s_]+", "-", text)
+        text = re.sub(r"[^a-z0-9-]+", "-", text)
     text = text.strip("-")
     text = re.sub(r"-+", "-", text)
 
