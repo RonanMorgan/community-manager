@@ -202,6 +202,23 @@ class TestMattermostClient(unittest.TestCase):
             "test-project-with-really-really-long-name-that-will-be-cut-off-a",
         )
 
+    def test_slugify_preserve_underscores_variant(self):
+        """Real-world regression: on the same Mattermost instance, some
+        channels' actual slugs keep underscores instead of turning them
+        into hyphens (e.g. "Projet 14_RelaxesPourVivant" ->
+        "projet-14_relaxespourvivant"). find_channel_by_name() tries both
+        variants as a fallback — this tests the variant itself."""
+        self.assertEqual(
+            slugify("Projet 14_RelaxesPourVivant", preserve_underscores=True),
+            "projet-14_relaxespourvivant",
+        )
+        self.assertEqual(
+            slugify("Underscores_and_Spaces", preserve_underscores=True),
+            "underscores_and_spaces",
+        )
+        # Still lowercases and still turns spaces into hyphens.
+        self.assertEqual(slugify("Test Project 123", preserve_underscores=True), "test-project-123")
+
     @patch("requests.get")
     def test_get_me_success_initialization(self, mock_get_request):
         mock_response = Mock(status_code=200)

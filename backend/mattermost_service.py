@@ -27,11 +27,48 @@ def get_client() -> MattermostClient:
 
 
 def find_channel_by_name(name: str) -> dict | None:
-    """Looks up a channel whose URL-safe name (slug) matches `slugify(name)`.
-    Channels in Mattermost are addressed by this slug, not by their display
-    name, so this is the correct way to match a channel to a group name."""
+    """
+    Looks up a channel matching `name`, trying two strategies:
+    1. PRIMARY: search by exact display name (`search_channels_for_team`,
+       kept only for a display-name EXACT match). This is the robust
+       strategy: it doesn't depend on guessing a slug at all.
+    2. Fallback: direct slug lookup, tried with a couple of plausible slug
+       variants (`slugify(name)` and `slugify(name, preserve_underscores=True)`).
+
+    Why slug-guessing alone is NOT reliable enough to be the primary
+    strategy: observed directly on a real Mattermost instance, different
+    channels end up with inconsistent slugs for similar-looking names —
+    e.g. "Projet 14_RelaxesPourVivant" keeps its underscore
+    ("projet-14_relaxespourvivant") while "Projet 13_démocratiser_sobriete"
+    has its underscores AND its accented letter turned into hyphens
+    ("projet-13-d-mocratiser-sobriete"). This is almost certainly explained
+    by different channels being created through different paths (manual UI
+    rename vs. direct API/import with a raw `name` field) rather than one
+    deterministic rule — see clients/mattermost_client.py::slugify() and
+    CLAUDE.md for the full story. No slug-guessing function can be 100%
+    reliable against a mix of creation histories, hence search-first.
+    """
     client = get_client()
-    return client.get_channel_by_name(client.team_id, slugify(name))
+
+    candidates = client.search_channels_for_team(client.team_id, name)
+    if candidates is None:
+        raise MattermostError(f"Failed to search Mattermost channels for '{name}'.")
+
+    normalized_target = name.strip().lower()
+    for candidate in candidates:
+        if (candidate.get("display_name") or "").strip().lower() == normalized_target:
+            return candidate
+
+    # Fallback: try a couple of plausible slugs directly. Useful for private
+    # channels the search endpoint doesn't surface (Mattermost's channel
+    # search has been observed to cover public channels reliably; private
+    # channel coverage depends on the bot's memberships/permissions).
+    for slug in (slugify(name), slugify(name, preserve_underscores=True)):
+        channel = client.get_channel_by_name(client.team_id, slug)
+        if channel:
+            return channel
+
+    return None
 
 
 def search_channels(query: str) -> list[dict]:
