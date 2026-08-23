@@ -172,10 +172,22 @@ def test_sync_deletes_groups_no_longer_in_authentik(client):
 
 
 def test_sync_does_not_delete_manually_created_groups(client):
-    """A group created via POST /api/groups (no authentik_group_id) must never
-    be deleted by sync reconciliation, even if Authentik has nothing matching it."""
-    r = client.post("/api/groups", json={"name": "Manually Made", "tools": []})
-    assert r.status_code == 201
+    """A Group row with no authentik_group_id must never be deleted by sync
+    reconciliation, even if Authentik has nothing matching it. Since
+    creating a group via POST /api/groups now always creates a real
+    Authentik group too (mandatory, source of truth — see CLAUDE.md
+    §4-bis), a Group with authentik_group_id=None can no longer occur
+    through that endpoint; this constructs the scenario directly at the DB
+    level instead, as a defensive regression test for the reconciliation
+    logic itself (e.g. protects any group created before this behavior
+    existed, or via direct DB access)."""
+    from backend.database import SessionLocal
+    from backend.models import Group
+
+    db = SessionLocal()
+    db.add(Group(name="Manually Made", authentik_group_id=None, created_by="test@example.org"))
+    db.commit()
+    db.close()
 
     sync_result = _sync_with(client, [])  # no Authentik groups at all
     assert sync_result.json()["groups_deleted"] == 0

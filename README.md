@@ -9,6 +9,28 @@ Vaultwarden).
 > data model, décisions d'architecture, ce qui est fait et ce qui reste à
 > faire. Ce README ne donne qu'un démarrage rapide.
 
+## Catégories et gabarits de nom configurables
+
+Quels outils un groupe obtient, sous quel nom, et si un canal admin lui est
+associé, est piloté par **`config/resource_templates.yml`** — pas par du
+code. C'est ce fichier qui définit par exemple que les Projets ont un canal
+Mattermost admin dédié (`"{base_name} Admin"`) alors que les Pôles et
+Antennes n'en ont pas. Modifier un gabarit de nom, ajouter/retirer un canal
+pour une catégorie, ou changer les préfixes de détection (`Projet`, `Pôle`,
+`Antenne`) se fait en éditant ce fichier, sans toucher au code. Voir
+CLAUDE.md §6-octies.
+
+## Création de groupe
+
+Le bouton **« Créer un groupe »** sur la page `/groups` crée systématiquement
+le groupe correspondant dans **Authentik** (obligatoire, non désactivable —
+c'est la source de vérité), et optionnellement une collection **Outline**
+et/ou un canal **Mattermost** (cochés par défaut, décochables). Pour un nom
+commençant par « Projet », un canal Mattermost admin dédié (avec son propre
+groupe Authentik) est créé automatiquement si Mattermost est coché — ce
+n'est pas une case à part, c'est obligatoire pour cette catégorie. Si la
+création Authentik échoue, rien n'est créé côté application.
+
 ## Synchronisation Authentik → DB
 
 Authentik est la source de vérité pour les groupes. Sur la page `/groups`,
@@ -73,7 +95,7 @@ serveur.
 
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 179 passed
+# 201 passed
 ```
 
 ## Structure du repo

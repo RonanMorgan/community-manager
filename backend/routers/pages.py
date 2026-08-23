@@ -115,13 +115,15 @@ def groups_page(request: Request, user: CurrentUser = Depends(require_admin), db
             "antenne_groups": groups_by_category[Category.ANTENNE],
             "uncategorized_groups": uncategorized_groups,
             "categories": [c.value for c in Category],
-            # Outline is fully wired (create/rename/add/remove); Mattermost is
-            # read/discovery-only for now (via /api/sync), see CLAUDE.md.
+            # Outline: create/rename/add/remove fully wired. Mattermost: create
+            # (this page's button) + discovery via /api/sync are wired; rename
+            # and add/remove members from the UI are not yet. See CLAUDE.md.
             "table_tools": ["outline", "mattermost"],
             # All tools shown as checkboxes in the "create group" modal; only
-            # the ones with a provisioner (see outline_service.PROVISIONERS)
-            # are enabled — the others are visible but disabled.
+            # the ones with a provisioner (see api.py::_PROVISIONERS) are
+            # enabled — the others are visible but disabled. Authentik isn't
+            # a checkbox: creating the group there is mandatory, always done.
             "available_tools": [t.value for t in ToolName if t != ToolName.MATTERMOST_ADMIN],
-            "functional_tools": ["outline"],
+            "functional_tools": ["outline", "mattermost"],
         },
     )

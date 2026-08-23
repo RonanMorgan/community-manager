@@ -140,16 +140,16 @@ planifiées de l'appli plutôt que comme scripts cron autonomes.
 
 ### 3.4 `docs/legacy_reference/permissions_matrix.yml.reference`
 
-L'ancien fichier `config/permissions_matrix.yml`. **N'est plus chargé par
-aucun code.** Gardé pour référence car il montre le mapping "type d'entité →
-quels outils, avec quel pattern de nommage, avec quel niveau d'accès (lecture
-seule / lecture-écriture)". C'est une bonne base de réflexion pour le modèle
-de données des groupes, mais **ne pas le réimporter tel quel** : son modèle
-suppose des catégories d'entités fixes (`PROJET`/`ANTENNE`/`POLES`) avec des
-patterns de nommage et une distinction "standard"/"admin" par canal. Le
-besoin V0 est différent : des groupes **libres** (nom choisi par l'admin),
-avec une liste d'outils cochés à la création, sans notion de canal
-standard/admin.
+**Mise à jour (§6-octies)** : ce fichier n'est plus la seule trace de cette
+idée — un vrai système équivalent, actif, a été réintroduit dans
+`config/resource_templates.yml` (voir §6-octies). Ce fichier `.reference`
+reste néanmoins utile comme source d'inspiration pour ce qui n'est **pas
+encore** couvert par le nouveau système : les niveaux de droits par canal
+(lecture seule / lecture-écriture), et les patterns pour Brevo/Vaultwarden/
+NocoDB (non provisionnés en V0). Ne pas le réimporter tel quel : son
+modèle de catégories fixes avec canal admin **pour toutes** les catégories
+ne correspond plus à ce qui a été décidé pour la V0 (canal admin réservé
+aux Projets, voir §6-quinquies.3).
 
 ---
 
@@ -401,7 +401,7 @@ uvicorn backend.main:app --reload
 **Tests** :
 ```bash
 PYTHONPATH=. pytest tests/ scripts/maintenance/ backend/tests/
-# 179 passed
+# 201 passed
 ```
 
 ### 6.5 Limites connues / à traiter ensuite
@@ -977,6 +977,176 @@ l'équipe (pas son nom) — voir `.env.example`. Une résolution automatique
 nom→ID avait été envisagée à un moment mais n'a pas été retenue par
 l'utilisateur, qui préfère gérer cette variable directement.
 
+## 6-octies. V0.7 — création de groupe (Authentik + Outline + Mattermost) pilotée par configuration YAML
+
+Cette passe répond à deux demandes traitées ensemble, parce que la
+seconde a changé la façon d'implémenter la première : (1) le bouton
+"Créer un groupe" ne provisionnait jusqu'ici qu'Outline — il fallait
+aussi créer le groupe Authentik et un canal Mattermost, y compris le
+canal admin pour les Projets ; (2) **la logique de catégorisation
+(Projet/Pôle/Antenne, gabarits de nom, présence d'un canal admin) était
+codée en dur en Python** (`backend/categorization.py`), alors que
+`config/permissions_matrix.yml` — déplacé en référence lors du tout
+premier nettoyage du repo (§3.4), avant que la V0 ne soit spécifiée —
+permettait de piloter exactement ce genre de règles sans toucher au code.
+L'utilisateur a demandé de retrouver ce fonctionnement.
+
+### 6-octies.1 Nouveau système : `config/resource_templates.yml`
+
+Remplace entièrement `backend/categorization.py` (supprimé). Nouveau
+module `backend/resource_templates.py`, qui charge et expose ce YAML :
+
+```yaml
+categories:
+  projet:
+    detect_prefixes: ["projet"]
+    resources:
+      - tool: outline
+        name_template: "{base_name}"
+      - tool: mattermost
+        name_template: "{base_name}"
+      - tool: mattermost_admin
+        name_template: "{base_name} Admin"
+        is_admin: true
+        trigger_tool: mattermost
+  pole:
+    detect_prefixes: ["pole", "pôle"]
+    resources:
+      - tool: outline
+        name_template: "{base_name}"
+      - tool: mattermost
+        name_template: "{base_name}"
+  antenne:
+    detect_prefixes: ["antenne"]
+    resources: [...]  # même forme que pole
+
+uncategorized_resources: [...]  # gabarit par défaut pour les groupes non catégorisés
+```
+
+Ce que ça permet de reconfigurer **sans toucher au code** :
+- les préfixes qui déterminent la catégorie d'un groupe (`detect_prefixes`) ;
+- le **gabarit de nom** de chaque ressource par catégorie (`name_template`,
+  doit contenir `{base_name}`) — ex. changer `"{base_name} Admin"` en
+  `"{base_name} - Administration"`, ou faire en sorte que la collection
+  Outline d'un Pôle s'appelle `"{base_name} - Documentation"` plutôt que
+  `"{base_name}"` ;
+- **le nombre de "canaux" par catégorie** (au sens : combien de ressources
+  `mattermost*` un groupe de cette catégorie obtient) — c'est ce qui
+  distingue aujourd'hui Projet (2 : `mattermost` + `mattermost_admin`) de
+  Pôle/Antenne (1 : `mattermost`). Pour donner un jour un deuxième canal à
+  une autre catégorie, il suffit d'ajouter une entrée `resources` de plus
+  dans le YAML — **aucune migration de base nécessaire** : chaque entrée
+  correspond à une valeur de l'enum `ToolName` existante (`outline`,
+  `mattermost`, `mattermost_admin`, `brevo`, `vaultwarden` — en ajouter une
+  nouvelle, ex. pour un deuxième canal Mattermost générique, demanderait en
+  revanche d'ajouter une valeur à `ToolName` dans `backend/models.py`,
+  seule limite actuelle du système).
+- si une ressource est de type **"admin"** (`is_admin: true`,
+  `trigger_tool: mattermost`) : non proposée comme case à cocher dans le
+  formulaire de création — créée automatiquement dès que `trigger_tool`
+  est coché. C'est le mécanisme générique derrière "le canal admin est
+  obligatoire pour les Projets, pas une option".
+
+`backend/resource_templates.py` expose notamment :
+- `detect_category(name)` — remplace l'ancien
+  `categorization.detect_category()`, lit désormais les préfixes du YAML ;
+- `get_resources_for_category(category)` — la liste des `ResourceSpec`
+  d'une catégorie (ou le gabarit `uncategorized_resources` si
+  `category=None`) ;
+- `render_name(template, base_name)` — substitue `{base_name}` ;
+- `match_template(candidate, template)` / `match_admin_resource(category, name)` —
+  l'inverse : reconnaît si un nom Authentik correspond au gabarit d'une
+  ressource "admin" de la catégorie, et en extrait le `base_name` du
+  parent. Remplace `categorization.is_admin_suffixed()` /
+  `strip_admin_suffix()`, en généralisant du cas fixe `" Admin"` codé en
+  dur à n'importe quel gabarit `PREFIX{base_name}SUFFIX` défini en YAML.
+
+Configuration mise en cache en mémoire après le premier chargement
+(`reload_config()` disponible pour la vider — utilisé par les tests, et
+réutilisable plus tard pour un rechargement à chaud sans redémarrage).
+
+### 6-octies.2 `POST /api/groups` : Authentik obligatoire, Outline/Mattermost optionnels, canal admin automatique
+
+- **Le groupe Authentik est toujours créé**, de façon obligatoire — non
+  décochable dans l'interface (contrairement à Outline/Mattermost). Si la
+  création Authentik échoue, **toute la requête échoue** (502) : aucun
+  groupe orphelin, sans pendant réel dans Authentik, n'est créé côté DB.
+  Nouveau module `backend/authentik_service.py` (même schéma que les
+  autres services : `get_client()` + une fonction par opération, exception
+  dédiée `AuthentikError`).
+- `Group.authentik_group_id` est renseigné directement avec le `pk` du
+  groupe Authentik nouvellement créé — le groupe est donc immédiatement
+  éligible à la réconciliation de suppression de `/api/sync`, comme un
+  groupe découvert par la synchro.
+- Pour chaque ressource **non-admin** de la catégorie détectée
+  (`get_resources_for_category`), si son `tool` fait partie des cases
+  cochées : provisionnée (`_provision_resource`), nommée selon son
+  `name_template`.
+- Pour chaque ressource **admin** de la catégorie, si son `trigger_tool`
+  fait partie des cases cochées : provisionnée via `_provision_admin_resource`,
+  qui crée **à la fois** le groupe Authentik `"<nom> Admin"` **et** la
+  ressource sous-jacente (canal Mattermost). Créer aussi le groupe
+  Authentik n'est pas une formalité : sans lui, la **prochaine**
+  `/api/sync` ne "toucherait" jamais cette ressource (sa passe 2 ne
+  traite que les groupes admin qu'elle trouve réellement dans Authentik)
+  et la réinitialiserait en `not_found` au premier passage — testé de
+  bout en bout contre un vrai Postgres (création → sync qui préserve la
+  ressource → sync après suppression complète qui fait disparaître tout
+  le groupe).
+- `mattermost_service.create_channel()` (nouveau) : wrapper autour de
+  `MattermostClient.create_channel()`, même schéma que les autres.
+- `outline_service.PROVISIONERS` supprimé ; la logique "quel outil a un
+  provisioner" vit maintenant dans `api.py::_PROVISIONERS` (registre
+  mécanique, séparé des règles de catégorie qui vivent dans le YAML).
+
+### 6-octies.3 `/api/sync` : découverte pilotée par le même YAML
+
+La boucle de synchronisation (déjà décrite en §6-quinquies.3) utilise
+maintenant `get_resources_for_category()` pour savoir quelles ressources
+chercher pour un groupe donné (au lieu d'un dict fixe à deux entrées
+`outline`/`mattermost`), et `render_name()` pour calculer le nom à
+rechercher dans chaque outil (au lieu d'utiliser directement le nom
+Authentik). Avec les gabarits par défaut (`"{base_name}"`, l'identité),
+**le comportement observable ne change pas** par rapport à avant cette
+passe — mais tout devient personnalisable sans toucher au code.
+
+La détection "ce groupe Authentik est-il le canal admin d'un Projet"
+utilise `match_admin_resource(category, name)` au lieu de
+`is_admin_suffixed()`/`strip_admin_suffix()` codés en dur sur `" Admin"`.
+
+### 6-octies.4 Tests
+
+- `backend/tests/test_resource_templates.py` (nouveau, remplace
+  `test_categorization.py`) : détection de catégorie (préfixes, accents,
+  faux positifs), rendu/reconnaissance de gabarit, liste de ressources par
+  catégorie (Projet a un canal admin, Pôle/Antenne n'en ont pas),
+  reconnaissance d'un nom de canal admin et extraction du `base_name`.
+- `backend/tests/test_authentik_service.py`,
+  `backend/tests/test_mattermost_service.py` (méthode `create_channel`) :
+  succès/échec.
+- `backend/tests/test_groups_api.py` (récrit) : création Authentik
+  obligatoire (abandon sans groupe orphelin si échec), lien
+  `authentik_group_id`, Outline seul / Mattermost seul / les deux,
+  doublon, et une classe dédiée `TestProjetAdminChannel` (canal admin créé
+  pour un Projet avec Mattermost coché, absent pour un Pôle, absent si
+  Mattermost non coché, erreur Authentik sur le canal admin sans faire
+  échouer le reste, erreur Mattermost sur le canal admin après création
+  réussie du groupe Authentik associé).
+- Toutes les fixtures de création de groupe des autres fichiers de tests
+  (`test_resource_rename.py`, `test_resource_users.py`,
+  `test_resource_relink.py`) mockent désormais aussi Authentik.
+- **Cycle de vie complet validé contre un vrai Postgres**, canal admin
+  inclus : création (groupe Authentik + Mattermost + canal admin avec son
+  propre groupe Authentik "... Admin") → apparition dans le tableau →
+  synchronisation qui reconnaît et préserve le canal admin tant que les
+  deux groupes Authentik existent → synchronisation qui fait disparaître
+  tout le groupe une fois les deux supprimés d'Authentik.
+- Vérifié manuellement (hors suite pytest, script ad hoc) : éditer
+  `config/resource_templates.yml` (changer le gabarit du canal admin) et
+  recharger la config change le nom généré, sans aucune modification de
+  code — le but même de cette passe.
+- 201 tests au total désormais.
+
 
 
 
@@ -1019,12 +1189,13 @@ Ne pas trancher unilatéralement ces points sans validation :
     synchronisation supprime maintenant les groupes sync-managés absents
     d'Authentik, voir §6-quinquies.1. Les groupes créés manuellement ne
     sont jamais supprimés par cette réconciliation.
-13. ~~Modèle Projet/Pôle/Antenne~~ **Tranché** : détection par préfixe du
-    nom, catégorie manuelle en repli pour les groupes non reconnus, canal
-    admin dédié pour les Projets uniquement — voir §6-quinquies.3. Reste
-    ouvert : que faire si un Pôle ou une Antenne a, un jour, aussi besoin
-    d'un canal admin (actuellement non supporté, structure du code prête
-    à étendre `_SYNC_FINDERS`/`ToolName` si besoin).
+13. ~~Modèle Projet/Pôle/Antenne~~ **Tranché, et rendu configurable sans
+    code** — voir §6-octies. Ajouter un canal admin pour Pôle/Antenne, ou
+    n'importe quelle autre ressource pour n'importe quelle catégorie, est
+    désormais une simple entrée YAML dans
+    `config/resource_templates.yml` (à condition que le `tool` utilisé
+    existe déjà dans l'enum `ToolName` — sinon il faut d'abord l'y ajouter,
+    seule limite restante du système).
 14. **Persistance d'une réassociation manuelle across resync** : voir
     §6-sexies.3 — une ressource réassociée manuellement (bouton 🔗) peut
     repasser en `not_found` à la prochaine synchronisation si le nom
@@ -1040,3 +1211,9 @@ Ne pas trancher unilatéralement ces points sans validation :
     §6-septies) — à vérifier en conditions réelles si elle couvre aussi
     les canaux privés, pas seulement publics. Le repli par slug (deux
     variantes) reste le filet de sécurité si ce n'est pas le cas.
+17. ~~Création de groupe : provisioning Authentik + Outline + Mattermost~~
+    **Tranché** : voir §6-octies. Authentik obligatoire (non case-à-cocher),
+    Outline et Mattermost optionnels via checkboxes, tous deux cochés par
+    défaut, canal admin des Projets créé automatiquement (non case-à-cocher,
+    déclenché par la case Mattermost). Brevo/Vaultwarden restent hors
+    scope (pas de provisioner, checkboxes désactivées).

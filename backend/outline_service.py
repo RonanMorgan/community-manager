@@ -1,14 +1,8 @@
 """
 Thin service layer between the API routes and clients/outline_client.py.
-
-Kept separate from the routes so the "only Outline is wired up in V0, other
-tools are stubs" decision lives in one place (see `PROVISIONERS` at the
-bottom of this module, used by backend/routers/api.py when creating a
-group's resources).
 """
 
 from clients.outline_client import OutlineClient
-from backend.models import ToolName
 
 
 class OutlineError(Exception):
@@ -98,11 +92,3 @@ def remove_user(collection_id: str, user_id: str) -> None:
     ok = client.remove_user_from_collection(collection_id, user_id)
     if not ok:
         raise OutlineError(f"Échec de la suppression de l'utilisateur '{user_id}' de la collection Outline.")
-
-
-# Registry so backend/routers/api.py can create resources generically for
-# every tool checked at group-creation time, without hardcoding "if outline".
-# Add an entry here (and a matching service module) when a new tool is wired up.
-PROVISIONERS = {
-    ToolName.OUTLINE: create_collection,
-}

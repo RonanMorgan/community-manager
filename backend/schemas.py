@@ -28,9 +28,12 @@ class GroupOut(BaseModel):
 
 class GroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    # Which tools to provision a resource for. Outline + Mattermost are checked
-    # by default in the UI; only "outline" is actually wired up in V0.
-    tools: list[ToolName] = Field(default_factory=lambda: [ToolName.OUTLINE])
+    # Which tools (besides Authentik, which is always created — see
+    # create_group() in backend/routers/api.py) to also provision a
+    # resource for. Outline + Mattermost are checked by default in the UI.
+    # A Projet's admin channel isn't a checkbox: it's created automatically
+    # whenever Mattermost is selected — see config/resource_templates.yml.
+    tools: list[ToolName] = Field(default_factory=lambda: [ToolName.OUTLINE, ToolName.MATTERMOST])
 
 
 class GroupCategoryUpdate(BaseModel):

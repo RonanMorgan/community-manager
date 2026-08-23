@@ -14,6 +14,22 @@ def mock_client():
         yield client
 
 
+def test_create_channel_success(mock_client):
+    mock_client.create_channel.return_value = {"id": "chan-1", "name": "projet-test"}
+
+    result = mattermost_service.create_channel("Projet Test")
+
+    assert result["id"] == "chan-1"
+    mock_client.create_channel.assert_called_once_with("Projet Test")
+
+
+def test_create_channel_raises_on_failure(mock_client):
+    mock_client.create_channel.return_value = None
+
+    with pytest.raises(mattermost_service.MattermostError):
+        mattermost_service.create_channel("Projet Test")
+
+
 def test_find_channel_by_name_matches_by_display_name_search_first(mock_client):
     """Primary strategy: search by exact display name. Doesn't depend on
     guessing a slug, so it's robust regardless of how the channel's slug

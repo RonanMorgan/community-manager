@@ -2,7 +2,9 @@ from unittest.mock import MagicMock, patch
 
 
 def _create_outline_group(client, name="pole-test"):
-    with patch("backend.outline_service.get_client") as mock_get_client:
+    with patch("backend.authentik_service.get_client") as mock_ak_client, \
+         patch("backend.outline_service.get_client") as mock_get_client:
+        mock_ak_client.return_value = MagicMock(create_group=MagicMock(return_value={"pk": f"ak-{name}", "name": name}))
         mock_client = MagicMock()
         mock_client.create_group.return_value = {"id": "col-1", "name": name}
         mock_get_client.return_value = mock_client
