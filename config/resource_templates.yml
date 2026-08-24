@@ -1,0 +1,44 @@
+categories:
+  projet:
+    # A group's category is detected from the first word of its Authentik
+    # name (accents/case/separators ignored) — see backend/resource_templates.py.
+    detect_prefixes: ["projet"]
+    resources:
+      - tool: outline
+        name_template: "{base_name}"
+      - tool: mattermost
+        name_template: "{base_name}"
+      # The admin channel: NOT a checkbox in the "create group" UI — it's
+      # created automatically whenever `trigger_tool` (mattermost) is
+      # selected for a Projet, because Projets always need one (unlike
+      # Pôles/Antennes, which never have this concept at all).
+      - tool: mattermost_admin
+        name_template: "{base_name} Admin"
+        is_admin: true
+        trigger_tool: mattermost
+
+  pole:
+    detect_prefixes: ["pole", "pôle"]
+    resources:
+      - tool: outline
+        name_template: "{base_name}"
+      - tool: mattermost
+        name_template: "{base_name}"
+
+  antenne:
+    detect_prefixes: ["antenne"]
+    resources:
+      - tool: outline
+        name_template: "{base_name}"
+      - tool: mattermost
+        name_template: "{base_name}"
+
+# Fallback resource list used for groups that don't match any category
+# above (shown in the "Non catégorisés" section) — until an admin manually
+# assigns one of the categories, at which point that category's own
+# `resources` list applies on the next sync.
+uncategorized_resources:
+  - tool: outline
+    name_template: "{base_name}"
+  - tool: mattermost
+    name_template: "{base_name}"

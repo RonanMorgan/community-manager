@@ -26,6 +26,17 @@ def get_client() -> MattermostClient:
     )
 
 
+def create_channel(display_name: str) -> dict:
+    client = get_client()
+    channel = client.create_channel(display_name)
+    if not channel:
+        raise MattermostError(
+            f"Échec de la création du canal Mattermost '{display_name}' "
+            "(il existe peut-être déjà sous un identifiant différent — voir les logs serveur)."
+        )
+    return channel
+
+
 def find_channel_by_name(name: str) -> dict | None:
     """
     Looks up a channel matching `name`, trying two strategies:

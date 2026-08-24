@@ -168,9 +168,13 @@
         <form id="form-create-group">
             <label for="group-name">Nom du groupe</label>
             <input type="text" id="group-name" name="name" required placeholder="ex: Projet Refonte Site">
+            <p class="hint-text">
+                Un groupe Authentik du même nom est toujours créé automatiquement. Pour un nom commençant par
+                "Projet", un canal Mattermost admin dédié est aussi créé automatiquement si Mattermost est coché.
+            </p>
 
             <fieldset class="tools-fieldset">
-                <legend>Outils à associer</legend>
+                <legend>Outils additionnels à créer</legend>
                 {% for tool in available_tools %}
                 <label class="tool-checkbox">
                     <input
